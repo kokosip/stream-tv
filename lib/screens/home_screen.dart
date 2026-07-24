@@ -193,7 +193,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                   final title = item['title'] ?? item['subjectTitle'] ?? "Untitled";
                                   final coverUrl = item['cover']?['url'] ?? "";
                                   final subjectId = item['subjectId'] ?? item['id']?.toString() ?? "";
-                                  final isShow = item['subjectType'] == 'tv' || item['subject_type'] == 'tv';
+                                  final type = item['subjectType'] ?? item['subject_type'];
+                                  final isShow = type == 2 || type?.toString() == '2' || type?.toString().toLowerCase() == 'tv';
                                   final year = item['releaseDate'] != null 
                                       ? item['releaseDate'].toString().split('-')[0] 
                                       : (item['release_date'] != null 
