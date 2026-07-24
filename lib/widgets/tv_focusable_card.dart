@@ -5,6 +5,7 @@ class TvFocusableCard extends StatefulWidget {
   final VoidCallback onTap;
   final double scaleFactor;
   final BorderRadius borderRadius;
+  final FocusNode? focusNode;
 
   const TvFocusableCard({
     super.key,
@@ -12,6 +13,7 @@ class TvFocusableCard extends StatefulWidget {
     required this.onTap,
     this.scaleFactor = 1.06,
     this.borderRadius = const BorderRadius.all(Radius.circular(12)),
+    this.focusNode,
   });
 
   @override
@@ -24,6 +26,7 @@ class _TvFocusableCardState extends State<TvFocusableCard> {
   @override
   Widget build(BuildContext context) {
     return Focus(
+      focusNode: widget.focusNode,
       onFocusChange: (hasFocus) {
         setState(() {
           _isFocused = hasFocus;

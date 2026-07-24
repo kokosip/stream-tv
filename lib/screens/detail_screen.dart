@@ -28,8 +28,6 @@ class _DetailScreenState extends State<DetailScreen> {
   int _selectedEpisodeNumber = 1;
   int _episodesCount = 0;
   
-  Map<String, dynamic>? _selectedStream;
-  
   bool _isLoadingDetails = true;
   bool _isLoadingStreams = false;
   String _errorMessage = "";
@@ -125,7 +123,6 @@ class _DetailScreenState extends State<DetailScreen> {
     setState(() {
       _isLoadingStreams = true;
       _streams = [];
-      _selectedStream = null;
     });
 
     try {
@@ -187,9 +184,6 @@ class _DetailScreenState extends State<DetailScreen> {
 
       setState(() {
         _streams = finalStreams;
-        if (_streams.isNotEmpty) {
-          _selectedStream = _streams[0];
-        }
         _isLoadingStreams = false;
       });
     } catch (e) {
@@ -228,11 +222,9 @@ class _DetailScreenState extends State<DetailScreen> {
     _loadStreams();
   }
 
-  void _playVideo() async {
-    if (_selectedStream == null) return;
-    
-    final String streamUrl = _selectedStream!['resourceLink'] ?? _selectedStream!['resource_link'] ?? "";
-    final String resourceId = _selectedStream!['resourceId'] ?? _selectedStream!['resource_id'] ?? "";
+  void _playStream(Map<String, dynamic> stream) async {
+    final String streamUrl = stream['resourceLink'] ?? stream['resource_link'] ?? "";
+    final String resourceId = stream['resourceId'] ?? stream['resource_id'] ?? "";
 
     if (streamUrl.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -290,9 +282,12 @@ class _DetailScreenState extends State<DetailScreen> {
     return "${mb.toStringAsFixed(0)}MB";
   }
 
-  Widget _buildBadge(String label, Color color) {
+  Widget _buildBadge(String label, Color color, {required bool isTv}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: EdgeInsets.symmetric(
+        horizontal: isTv ? 12 : 8,
+        vertical: isTv ? 4 : 2,
+      ),
       decoration: BoxDecoration(
         color: color.withOpacity(0.15),
         border: Border.all(color: color, width: 1),
@@ -301,7 +296,7 @@ class _DetailScreenState extends State<DetailScreen> {
       child: Text(
         label,
         style: GoogleFonts.outfit(
-          fontSize: 12,
+          fontSize: isTv ? 14 : 12,
           fontWeight: FontWeight.bold,
           color: color,
         ),
@@ -336,9 +331,9 @@ class _DetailScreenState extends State<DetailScreen> {
               runSpacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                _buildBadge("★ IMDb $rating", Colors.amber),
-                _buildBadge(_isTvShow ? "TV Series" : "Movie", Colors.redAccent),
-                _buildBadge(releaseDate.toString().split('-')[0], Colors.grey),
+                _buildBadge("★ IMDb $rating", Colors.amber, isTv: isTv),
+                _buildBadge(_isTvShow ? "TV Series" : "Movie", Colors.redAccent, isTv: isTv),
+                _buildBadge(releaseDate.toString().split('-')[0], Colors.grey, isTv: isTv),
               ],
             ),
           ] else ...[
@@ -359,22 +354,22 @@ class _DetailScreenState extends State<DetailScreen> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                _buildBadge("★ IMDb $rating", Colors.amber),
+                _buildBadge("★ IMDb $rating", Colors.amber, isTv: isTv),
                 const SizedBox(width: 8),
-                _buildBadge(_isTvShow ? "TV Series" : "Movie", Colors.redAccent),
+                _buildBadge(_isTvShow ? "TV Series" : "Movie", Colors.redAccent, isTv: isTv),
                 const SizedBox(width: 8),
-                _buildBadge(releaseDate.toString().split('-')[0], Colors.grey),
+                _buildBadge(releaseDate.toString().split('-')[0], Colors.grey, isTv: isTv),
               ],
             ),
           ],
           const SizedBox(height: 12),
           Text(
             desc,
-            maxLines: isTv ? 3 : 4,
+            maxLines: 4,
             overflow: TextOverflow.ellipsis,
             style: GoogleFonts.outfit(
               color: Colors.grey.shade400,
-              fontSize: 14,
+              fontSize: isTv ? 16 : 14,
               height: 1.4,
             ),
           ),
@@ -383,7 +378,7 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  Widget _buildSeasonSelector() {
+  Widget _buildSeasonSelector({required bool isTv}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -394,12 +389,12 @@ class _DetailScreenState extends State<DetailScreen> {
             style: GoogleFonts.outfit(
               color: Colors.white,
               fontWeight: FontWeight.bold,
-              fontSize: 16,
+              fontSize: isTv ? 18 : 16,
             ),
           ),
         ),
         SizedBox(
-          height: 48,
+          height: isTv ? 56 : 48,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -416,7 +411,10 @@ class _DetailScreenState extends State<DetailScreen> {
                   borderRadius: BorderRadius.circular(24),
                   scaleFactor: 1.05,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isTv ? 24 : 16,
+                      vertical: isTv ? 12 : 8,
+                    ),
                     color: isSelected ? Colors.redAccent.shade700 : const Color(0xFF1E1E1E),
                     alignment: Alignment.center,
                     child: Text(
@@ -424,7 +422,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       style: GoogleFonts.outfit(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                        fontSize: isTv ? 16 : 14,
                       ),
                     ),
                   ),
@@ -437,7 +435,7 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  Widget _buildEpisodeSelector() {
+  Widget _buildEpisodeSelector({required bool isTv}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -448,12 +446,12 @@ class _DetailScreenState extends State<DetailScreen> {
             style: GoogleFonts.outfit(
               color: Colors.white,
               fontWeight: FontWeight.bold,
-              fontSize: 16,
+              fontSize: isTv ? 18 : 16,
             ),
           ),
         ),
         SizedBox(
-          height: 48,
+          height: isTv ? 64 : 48,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -465,11 +463,11 @@ class _DetailScreenState extends State<DetailScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 4.0),
                 child: TvFocusableCard(
                   onTap: () => _onEpisodeChanged(epNum),
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: BorderRadius.circular(isTv ? 32 : 24),
                   scaleFactor: 1.05,
                   child: Container(
-                    width: 48,
-                    height: 48,
+                    width: isTv ? 64 : 48,
+                    height: isTv ? 64 : 48,
                     color: isSelected ? Colors.redAccent.shade700 : const Color(0xFF1E1E1E),
                     alignment: Alignment.center,
                     child: Text(
@@ -477,7 +475,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       style: GoogleFonts.outfit(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                        fontSize: isTv ? 18 : 14,
                       ),
                     ),
                   ),
@@ -490,7 +488,7 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  Widget _buildAudioSelectorHorizontal() {
+  Widget _buildAudioSelectorHorizontal({required bool isTv}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -501,12 +499,12 @@ class _DetailScreenState extends State<DetailScreen> {
             style: GoogleFonts.outfit(
               color: Colors.white,
               fontWeight: FontWeight.bold,
-              fontSize: 16,
+              fontSize: isTv ? 18 : 16,
             ),
           ),
         ),
         SizedBox(
-          height: 48,
+          height: isTv ? 56 : 48,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -523,7 +521,10 @@ class _DetailScreenState extends State<DetailScreen> {
                   borderRadius: BorderRadius.circular(24),
                   scaleFactor: 1.05,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isTv ? 24 : 16,
+                      vertical: isTv ? 12 : 8,
+                    ),
                     color: isSelected ? Colors.redAccent.shade700 : const Color(0xFF1E1E1E),
                     alignment: Alignment.center,
                     child: Text(
@@ -531,7 +532,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       style: GoogleFonts.outfit(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                        fontSize: isTv ? 16 : 14,
                       ),
                     ),
                   ),
@@ -544,188 +545,49 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  Widget _buildTvLayout() {
-    return Column(
-      children: [
-        _buildHeaderSection(isTv: true),
-        const Divider(color: Color(0xFF222222), height: 1),
-        
-        if (_isTvShow && _seasons.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          _buildSeasonSelector(),
-          const SizedBox(height: 12),
-          _buildEpisodeSelector(),
-          const SizedBox(height: 12),
-          const Divider(color: Color(0xFF222222), height: 1),
-        ],
-        
-        Expanded(
-          child: Row(
-            children: [
-              // Left Panel: Audio Selection
-              Container(
-                width: 240,
-                decoration: const BoxDecoration(
-                  border: Border(right: BorderSide(color: Color(0xFF222222))),
-                ),
-                child: ListView.builder(
-                  itemCount: _dubs.length,
-                  itemBuilder: (context, index) {
-                    final d = _dubs[index];
-                    final name = d['lanName'] ?? d['language'] ?? "Unknown";
-                    final subId = d['subjectId'] ?? widget.subjectId;
-                    final isSelected = name == _selectedAudioName;
-
-                    return Material(
-                      color: isSelected ? Colors.redAccent.shade700.withOpacity(0.2) : Colors.transparent,
-                      child: InkWell(
-                        onTap: () => _onAudioChanged(name, subId),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-                          child: Text(
-                            name,
-                            style: GoogleFonts.outfit(
-                              color: isSelected ? Colors.redAccent : Colors.grey,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              
-              // Right Panel: Streams
-              Expanded(
-                child: Container(
-                  color: const Color(0xFF0F0F0F),
-                  child: _isLoadingStreams
-                      ? const Center(
-                          child: SpinKitRing(color: Colors.redAccent, size: 36.0),
-                        )
-                      : _streams.isEmpty
-                          ? Center(
-                              child: Text(
-                                "No streams found for this selection.",
-                                style: GoogleFonts.outfit(color: Colors.grey),
-                              ),
-                            )
-                          : ListView.builder(
-                              padding: const EdgeInsets.all(16),
-                              itemCount: _streams.length,
-                              itemBuilder: (context, index) {
-                                final stream = _streams[index];
-                                final res = stream['resolution'] != null ? "${stream['resolution']}p" : "Unknown Res";
-                                final sizeStr = _formatSize(stream['size']);
-                                final codec = stream['codecName'] ?? stream['codec_name'] ?? "";
-                                final isSelected = stream == _selectedStream;
-                                final epText = _isTvShow 
-                                    ? "S${stream['se'] ?? _selectedSeasonNumber}E${stream['ep'] ?? _selectedEpisodeNumber}  •  "
-                                    : "";
-
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 12.0),
-                                  child: TvFocusableCard(
-                                    onTap: () {
-                                      setState(() {
-                                        _selectedStream = stream;
-                                      });
-                                    },
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                                      color: isSelected 
-                                          ? Colors.redAccent.shade700.withOpacity(0.15) 
-                                          : const Color(0xFF1E1E1E),
-                                      child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Text(
-                                                "$epText$res",
-                                                style: GoogleFonts.outfit(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 18,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 16),
-                                              Text(
-                                                sizeStr,
-                                                style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 16),
-                                              ),
-                                            ],
-                                          ),
-                                          if (codec.isNotEmpty)
-                                            Text(
-                                              codec.toString().toUpperCase(),
-                                              style: GoogleFonts.outfit(
-                                                color: Colors.grey.shade500,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 14,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        
-        // Pinned button spacer
-        const SizedBox(height: 100),
-      ],
-    );
-  }
-
-  Widget _buildMobileLayout() {
+  Widget _buildContentLayout(bool isTv) {
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildHeaderSection(isTv: false),
+          _buildHeaderSection(isTv: isTv),
           const Divider(color: Color(0xFF222222), height: 1),
           
           if (_isTvShow && _seasons.isNotEmpty) ...[
             const SizedBox(height: 12),
-            _buildSeasonSelector(),
+            _buildSeasonSelector(isTv: isTv),
             const SizedBox(height: 12),
-            _buildEpisodeSelector(),
+            _buildEpisodeSelector(isTv: isTv),
             const SizedBox(height: 12),
             const Divider(color: Color(0xFF222222), height: 1),
           ],
           
           const SizedBox(height: 12),
-          _buildAudioSelectorHorizontal(),
+          _buildAudioSelectorHorizontal(isTv: isTv),
           const SizedBox(height: 12),
           const Divider(color: Color(0xFF222222), height: 1),
           
           Padding(
-            padding: const EdgeInsets.only(left: 24.0, top: 16.0, bottom: 8.0),
+            padding: EdgeInsets.only(
+              left: 24.0,
+              top: 16.0,
+              bottom: 8.0,
+            ),
             child: Text(
               "Available Streams",
               style: GoogleFonts.outfit(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
-                fontSize: 16,
+                fontSize: isTv ? 20 : 16,
               ),
             ),
           ),
           
           _isLoadingStreams
-              ? const SizedBox(
+              ? SizedBox(
                   height: 150,
                   child: Center(
-                    child: SpinKitRing(color: Colors.redAccent, size: 36.0),
+                    child: SpinKitRing(color: Colors.redAccent, size: isTv ? 48.0 : 36.0),
                   ),
                 )
               : _streams.isEmpty
@@ -734,21 +596,23 @@ class _DetailScreenState extends State<DetailScreen> {
                       child: Center(
                         child: Text(
                           "No streams found for this selection.",
-                          style: GoogleFonts.outfit(color: Colors.grey),
+                          style: GoogleFonts.outfit(color: Colors.grey, fontSize: isTv ? 18 : 14),
                         ),
                       ),
                     )
                   : ListView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isTv ? 24 : 16,
+                        vertical: 8,
+                      ),
                       itemCount: _streams.length,
                       itemBuilder: (context, index) {
                         final stream = _streams[index];
                         final res = stream['resolution'] != null ? "${stream['resolution']}p" : "Unknown Res";
                         final sizeStr = _formatSize(stream['size']);
                         final codec = stream['codecName'] ?? stream['codec_name'] ?? "";
-                        final isSelected = stream == _selectedStream;
                         final epText = _isTvShow 
                             ? "S${stream['se'] ?? _selectedSeasonNumber}E${stream['ep'] ?? _selectedEpisodeNumber}  •  "
                             : "";
@@ -756,34 +620,40 @@ class _DetailScreenState extends State<DetailScreen> {
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12.0),
                           child: TvFocusableCard(
-                            onTap: () {
-                              setState(() {
-                                _selectedStream = stream;
-                              });
-                            },
+                            onTap: () => _playStream(stream),
                             borderRadius: BorderRadius.circular(8),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                              color: isSelected 
-                                  ? Colors.redAccent.shade700.withOpacity(0.15) 
-                                  : const Color(0xFF1E1E1E),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isTv ? 24 : 20,
+                                vertical: isTv ? 20 : 16,
+                              ),
+                              color: const Color(0xFF1E1E1E),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   Row(
                                     children: [
+                                      Icon(
+                                        Icons.play_circle_fill,
+                                        color: Colors.redAccent.shade700,
+                                        size: isTv ? 28 : 24,
+                                      ),
+                                      const SizedBox(width: 16),
                                       Text(
                                         "$epText$res",
                                         style: GoogleFonts.outfit(
                                           color: Colors.white,
                                           fontWeight: FontWeight.bold,
-                                          fontSize: 16,
+                                          fontSize: isTv ? 20 : 16,
                                         ),
                                       ),
                                       const SizedBox(width: 16),
                                       Text(
                                         sizeStr,
-                                        style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 14),
+                                        style: GoogleFonts.outfit(
+                                          color: Colors.grey.shade400,
+                                          fontSize: isTv ? 18 : 14,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -793,7 +663,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                       style: GoogleFonts.outfit(
                                         color: Colors.grey.shade500,
                                         fontWeight: FontWeight.bold,
-                                        fontSize: 12,
+                                        fontSize: isTv ? 14 : 12,
                                       ),
                                     ),
                                 ],
@@ -805,7 +675,7 @@ class _DetailScreenState extends State<DetailScreen> {
                     ),
           
           // Pinned button spacer
-          const SizedBox(height: 100),
+          SizedBox(height: isTv ? 60 : 40),
         ],
       ),
     );
@@ -843,7 +713,7 @@ class _DetailScreenState extends State<DetailScreen> {
             child: SafeArea(
               child: Padding(
                 padding: const EdgeInsets.only(top: 60.0),
-                child: isTv ? _buildTvLayout() : _buildMobileLayout(),
+                child: _buildContentLayout(isTv),
               ),
             ),
           ),
@@ -864,48 +734,6 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
           ),
-
-          // PLAY ACTION BAR
-          if (_selectedStream != null)
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16.0),
-                color: const Color(0xFF0A0A0A).withOpacity(0.9),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    TvFocusableCard(
-                      onTap: _playVideo,
-                      borderRadius: BorderRadius.circular(8),
-                      scaleFactor: 1.05,
-                      child: Container(
-                        color: Colors.redAccent.shade700,
-                        padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 16),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.play_arrow, color: Colors.white, size: 24),
-                            const SizedBox(width: 8),
-                            Text(
-                              'PLAY VIDEO',
-                              style: GoogleFonts.outfit(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
         ],
       ),
     );
