@@ -311,51 +311,52 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   ),
                                 ),
                               ),
-                              // Subtitle Selector Button
-                              if (_availableSubtitles.isNotEmpty)
-                                PopupMenuButton<String>(
-                                  icon: const Icon(Icons.subtitles, color: Colors.white, size: 28),
-                                  onSelected: (url) {
-                                    if (url.isEmpty) {
-                                      setState(() {
-                                        _selectedSubtitleUrl = null;
-                                        _subtitleEntries = [];
-                                      });
-                                    } else {
-                                      setState(() {
-                                        _selectedSubtitleUrl = url;
-                                      });
-                                      _loadSubtitles(url);
-                                    }
-                                  },
-                                  itemBuilder: (context) {
-                                    return [
-                                      PopupMenuItem<String>(
-                                        value: "",
-                                        child: Text(
-                                          "Off",
-                                          style: GoogleFonts.outfit(
-                                            color: _selectedSubtitleUrl == null ? Colors.redAccent : Colors.black,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                      ..._availableSubtitles.map((sub) {
-                                        final label = sub['lanName'] ?? sub['language'] ?? "Unknown";
-                                        return PopupMenuItem<String>(
-                                          value: sub['url'],
+                                // Subtitle Selector Button
+                                if (_availableSubtitles.isNotEmpty)
+                                  PopupMenuButton<String>(
+                                    icon: const Icon(Icons.subtitles, color: Colors.white, size: 28),
+                                    color: const Color(0xFF1E1E1E),
+                                    onSelected: (url) {
+                                      if (url.isEmpty) {
+                                        setState(() {
+                                          _selectedSubtitleUrl = null;
+                                          _subtitleEntries = [];
+                                        });
+                                      } else {
+                                        setState(() {
+                                          _selectedSubtitleUrl = url;
+                                        });
+                                        _loadSubtitles(url);
+                                      }
+                                    },
+                                    itemBuilder: (context) {
+                                      return [
+                                        PopupMenuItem<String>(
+                                          value: "",
                                           child: Text(
-                                            label,
+                                            "Off",
                                             style: GoogleFonts.outfit(
-                                              color: _selectedSubtitleUrl == sub['url'] ? Colors.redAccent : Colors.black,
+                                              color: _selectedSubtitleUrl == null ? Colors.redAccent : Colors.white,
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
-                                        );
-                                      }),
-                                    ];
-                                  },
-                                ),
+                                        ),
+                                        ..._availableSubtitles.map((sub) {
+                                          final label = sub['lanName'] ?? sub['language'] ?? "Unknown";
+                                          return PopupMenuItem<String>(
+                                            value: sub['url'],
+                                            child: Text(
+                                              label,
+                                              style: GoogleFonts.outfit(
+                                                color: _selectedSubtitleUrl == sub['url'] ? Colors.redAccent : Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          );
+                                        }),
+                                      ];
+                                    },
+                                  ),
                             ],
                           ),
                         ),
