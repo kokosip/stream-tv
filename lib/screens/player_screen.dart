@@ -288,7 +288,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 _showControls = true;
               });
               _startHideTimer();
-              _playPauseFocusNode.requestFocus();
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _playPauseFocusNode.requestFocus();
+              });
               return KeyEventResult.handled;
             }
             

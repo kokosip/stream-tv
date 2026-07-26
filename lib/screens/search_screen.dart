@@ -151,6 +151,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           ),
                         )
                       : GridView.builder(
+                          clipBehavior: Clip.none,
                           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                             crossAxisCount: isTv ? 6 : 3,
                             childAspectRatio: 0.7,

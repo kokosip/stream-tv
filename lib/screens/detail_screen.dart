@@ -406,6 +406,7 @@ class _DetailScreenState extends State<DetailScreen> {
         SizedBox(
           height: isTv ? 56 : 48,
           child: ListView.builder(
+            clipBehavior: Clip.none,
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 20),
             itemCount: _seasons.length,
@@ -463,6 +464,7 @@ class _DetailScreenState extends State<DetailScreen> {
         SizedBox(
           height: isTv ? 64 : 48,
           child: ListView.builder(
+            clipBehavior: Clip.none,
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 20),
             itemCount: _episodesCount,
@@ -516,6 +518,7 @@ class _DetailScreenState extends State<DetailScreen> {
         SizedBox(
           height: isTv ? 56 : 48,
           child: ListView.builder(
+            clipBehavior: Clip.none,
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 20),
             itemCount: _dubs.length,
@@ -611,6 +614,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       ),
                     )
                   : ListView.builder(
+                      clipBehavior: Clip.none,
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       padding: EdgeInsets.symmetric(
@@ -634,6 +638,7 @@ class _DetailScreenState extends State<DetailScreen> {
                           child: TvFocusableCard(
                             onTap: () => _playStream(stream),
                             borderRadius: BorderRadius.circular(8),
+                            scaleFactor: 1.02,
                             child: Container(
                               padding: EdgeInsets.symmetric(
                                 horizontal: isTv ? 24 : 20,

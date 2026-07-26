@@ -200,6 +200,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               )
                             : ListView.builder(
+                                clipBehavior: Clip.none,
                                 itemCount: _results.length,
                                 itemBuilder: (context, index) {
                                   final item = _results[index];
@@ -215,7 +216,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           : "-");
 
                                   return Padding(
-                                    padding: const EdgeInsets.only(bottom: 12.0),
+                                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                                     child: TvFocusableCard(
                                       onTap: () {
                                         Navigator.push(
@@ -226,6 +227,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         );
                                       },
                                       borderRadius: BorderRadius.circular(12),
+                                      scaleFactor: 1.03,
                                       child: Container(
                                         color: const Color(0xFF121212),
                                         padding: const EdgeInsets.all(12),
