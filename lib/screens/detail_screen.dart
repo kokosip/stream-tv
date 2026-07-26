@@ -172,8 +172,18 @@ class _DetailScreenState extends State<DetailScreen> {
       }
       final List<dynamic> finalStreams = uniqueStreams.values.toList();
 
-      // Sort streams: descending by resolution, then descending by size
+      // Sort streams: Prioritize H.264/AVC, then descending by resolution, then descending by size
       finalStreams.sort((a, b) {
+        final codecA = (a['codecName'] ?? a['codec_name'] ?? "").toString().toLowerCase();
+        final codecB = (b['codecName'] ?? b['codec_name'] ?? "").toString().toLowerCase();
+        
+        final isHevcA = codecA.contains('hevc') || codecA.contains('h265') || codecA.contains('h.265');
+        final isHevcB = codecB.contains('hevc') || codecB.contains('h265') || codecB.contains('h.265');
+        
+        // Prioritize non-HEVC (e.g. H264)
+        if (isHevcA && !isHevcB) return 1;
+        if (!isHevcA && isHevcB) return -1;
+
         final resComp = (b['resolution'] ?? 0).compareTo(a['resolution'] ?? 0);
         if (resComp != 0) return resComp;
         
@@ -613,6 +623,8 @@ class _DetailScreenState extends State<DetailScreen> {
                         final res = stream['resolution'] != null ? "${stream['resolution']}p" : "Unknown Res";
                         final sizeStr = _formatSize(stream['size']);
                         final codec = stream['codecName'] ?? stream['codec_name'] ?? "";
+                        final codecLower = codec.toString().toLowerCase();
+                        final isHevc = codecLower.contains('hevc') || codecLower.contains('h265') || codecLower.contains('h.265');
                         final epText = _isTvShow 
                             ? "S${stream['se'] ?? _selectedSeasonNumber}E${stream['ep'] ?? _selectedEpisodeNumber}  •  "
                             : "";
@@ -659,9 +671,9 @@ class _DetailScreenState extends State<DetailScreen> {
                                   ),
                                   if (codec.isNotEmpty)
                                     Text(
-                                      codec.toString().toUpperCase(),
+                                      isHevc ? "${codec.toString().toUpperCase()} (MAY FAIL)" : codec.toString().toUpperCase(),
                                       style: GoogleFonts.outfit(
-                                        color: Colors.grey.shade500,
+                                        color: isHevc ? Colors.amber.shade700 : Colors.grey.shade500,
                                         fontWeight: FontWeight.bold,
                                         fontSize: isTv ? 14 : 12,
                                       ),

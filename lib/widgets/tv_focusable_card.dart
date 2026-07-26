@@ -25,46 +25,44 @@ class _TvFocusableCardState extends State<TvFocusableCard> {
 
   @override
   Widget build(BuildContext context) {
-    return Focus(
+    return InkWell(
       focusNode: widget.focusNode,
       onFocusChange: (hasFocus) {
         setState(() {
           _isFocused = hasFocus;
         });
       },
-      child: InkWell(
-        onTap: widget.onTap,
-        borderRadius: widget.borderRadius,
-        focusColor: Colors.transparent,
-        hoverColor: Colors.transparent,
-        splashColor: Colors.red.withOpacity(0.3),
-        highlightColor: Colors.transparent,
-        child: AnimatedScale(
-          scale: _isFocused ? widget.scaleFactor : 1.0,
+      onTap: widget.onTap,
+      borderRadius: widget.borderRadius,
+      focusColor: Colors.transparent,
+      hoverColor: Colors.transparent,
+      splashColor: Colors.red.withOpacity(0.3),
+      highlightColor: Colors.transparent,
+      child: AnimatedScale(
+        scale: _isFocused ? widget.scaleFactor : 1.0,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
+        child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOutCubic,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            decoration: BoxDecoration(
-              borderRadius: widget.borderRadius,
-              border: Border.all(
-                color: _isFocused ? Colors.redAccent.shade700 : Colors.transparent,
-                width: 2.5,
-              ),
-              boxShadow: _isFocused
-                  ? [
-                      BoxShadow(
-                        color: Colors.redAccent.shade700.withOpacity(0.4),
-                        blurRadius: 15,
-                        spreadRadius: 2,
-                      ),
-                    ]
-                  : [],
+          decoration: BoxDecoration(
+            borderRadius: widget.borderRadius,
+            border: Border.all(
+              color: _isFocused ? Colors.redAccent.shade700 : Colors.transparent,
+              width: 2.5,
             ),
-            child: ClipRRect(
-              borderRadius: widget.borderRadius,
-              child: widget.child,
-            ),
+            boxShadow: _isFocused
+                ? [
+                    BoxShadow(
+                      color: Colors.redAccent.shade700.withOpacity(0.4),
+                      blurRadius: 15,
+                      spreadRadius: 2,
+                    ),
+                  ]
+                : [],
+          ),
+          child: ClipRRect(
+            borderRadius: widget.borderRadius,
+            child: widget.child,
           ),
         ),
       ),

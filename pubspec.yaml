@@ -36,10 +36,12 @@ dependencies:
   cupertino_icons: ^1.0.8
   http: ^1.6.0
   crypto: ^3.0.7
-  video_player: ^2.13.0
   cached_network_image: ^3.4.1
   google_fonts: ^8.2.0
   flutter_spinkit: ^5.2.2
+  media_kit: ^1.1.10
+  media_kit_video: ^1.2.4
+  media_kit_libs_video: ^1.0.4
 
 dev_dependencies:
   flutter_test:

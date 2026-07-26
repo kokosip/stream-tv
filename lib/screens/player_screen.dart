@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:video_player/video_player.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:http/http.dart' as http;
 import '../widgets/tv_focusable_card.dart';
@@ -25,7 +26,10 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  late VideoPlayerController _controller;
+  late final Player _player;
+  late final VideoController _controller;
+  final List<StreamSubscription> _subscriptions = [];
+  
   bool _isInitialized = false;
   bool _showControls = true;
   Timer? _hideTimer;
@@ -68,6 +72,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void initState() {
     super.initState();
     
+    // Initialize MediaKit Player and Controller
+    _player = Player();
+    _controller = VideoController(_player);
+
     // Initialize focus nodes
     _backFocusNode = FocusNode();
     _subtitleFocusNode = FocusNode();
@@ -101,26 +109,56 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _initializePlayer() async {
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.streamUrl));
-    
     try {
-      await _controller.initialize();
-      setState(() {
-        _isInitialized = true;
-      });
-      _controller.play();
-      _controller.addListener(_videoListener);
+      // Enable hardware decoding on Android and other native platforms
+      if (_player.platform is NativePlayer) {
+        await (_player.platform as NativePlayer).setProperty('hwdec', 'mediacodec-copy');
+      }
+
+      // Listen to error stream
+      _subscriptions.add(
+        _player.stream.error.listen((error) {
+          print("MediaKit Playback Error: $error");
+          _showErrorDialog(error.toString());
+        }),
+      );
+
+      // Listen to completed stream
+      _subscriptions.add(
+        _player.stream.completed.listen((completed) {
+          if (completed) {
+            Navigator.pop(context);
+          }
+        }),
+      );
+
+      // Listen to position changes (rebuilds timestamps and progress slider)
+      _subscriptions.add(
+        _player.stream.position.listen((pos) {
+          if (mounted) {
+            setState(() {
+              // Read duration as well to check if initialized
+              final dur = _player.state.duration;
+              if (dur != Duration.zero && !_isInitialized) {
+                _isInitialized = true;
+              }
+            });
+          }
+        }),
+      );
+
+      // Listen to duration changes
+      _subscriptions.add(
+        _player.stream.duration.listen((dur) {
+          if (mounted) setState(() {});
+        }),
+      );
+
+      // Open media and start playback
+      await _player.open(Media(widget.streamUrl));
     } catch (e) {
-      setState(() {
-        _isInitialized = false;
-      });
       _showErrorDialog("Failed to initialize video player: $e");
     }
-  }
-
-  void _videoListener() {
-    // Force rebuild on position update to move progress bar
-    if (mounted) setState(() {});
   }
 
   void _startHideTimer() {
@@ -145,19 +183,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _seekRelative(Duration offset) {
     if (!_isInitialized) return;
-    final currentPosition = _controller.value.position;
+    final currentPosition = _player.state.position;
     final targetPosition = currentPosition + offset;
-    _controller.seekTo(targetPosition);
+    _player.seek(targetPosition);
     _startHideTimer();
   }
 
   void _togglePlayPause() {
     if (!_isInitialized) return;
     setState(() {
-      if (_controller.value.isPlaying) {
-        _controller.pause();
+      if (_player.state.playing) {
+        _player.pause();
       } else {
-        _controller.play();
+        _player.play();
       }
     });
     _startHideTimer();
@@ -186,8 +224,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     _hideTimer?.cancel();
-    _controller.removeListener(_videoListener);
-    _controller.dispose();
+    for (final s in _subscriptions) {
+      s.cancel();
+    }
+    _player.dispose();
     
     // Dispose focus nodes
     _backFocusNode.dispose();
@@ -218,7 +258,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     String currentSubText = "";
     if (_isInitialized && _subtitleEntries.isNotEmpty) {
-      final pos = _controller.value.position;
+      final pos = _player.state.position;
       final activeEntry = _subtitleEntries.firstWhere(
         (entry) => pos >= entry.start && pos <= entry.end,
         orElse: () => SubtitleEntry(start: Duration.zero, end: Duration.zero, text: ""),
@@ -260,14 +300,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
             fit: StackFit.expand,
             children: [
               // 1. Video Player
-              if (_isInitialized)
-                Center(
-                  child: AspectRatio(
-                    aspectRatio: _controller.value.aspectRatio,
-                    child: VideoPlayer(_controller),
-                  ),
-                )
-              else
+              Center(
+                child: Video(
+                  controller: _controller,
+                ),
+              ),
+
+              // Loading spinner if not initialized yet
+              if (!_isInitialized)
                 const Center(
                   child: SpinKitRing(
                     color: Colors.redAccent,
@@ -437,7 +477,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   child: Padding(
                                     padding: const EdgeInsets.all(12.0),
                                     child: Icon(
-                                      _isInitialized && _controller.value.isPlaying
+                                      _isInitialized && _player.state.playing
                                           ? Icons.pause_circle_filled
                                           : Icons.play_circle_filled,
                                       color: Colors.redAccent,
@@ -469,13 +509,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               children: [
                                 // Progress slider
                                 if (_isInitialized)
-                                  VideoProgressIndicator(
-                                    _controller,
-                                    allowScrubbing: true,
-                                    colors: VideoProgressColors(
-                                      playedColor: Colors.redAccent.shade700,
-                                      bufferedColor: Colors.white.withOpacity(0.3),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: LinearProgressIndicator(
+                                      value: (_player.state.duration.inMilliseconds > 0)
+                                          ? (_player.state.position.inMilliseconds /
+                                                  _player.state.duration.inMilliseconds)
+                                              .clamp(0.0, 1.0)
+                                          : 0.0,
                                       backgroundColor: Colors.white.withOpacity(0.1),
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.redAccent.shade700),
+                                      minHeight: 6,
                                     ),
                                   ),
                                 const SizedBox(height: 8),
@@ -484,11 +528,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
-                                      _formatDuration(_controller.value.position),
+                                      _formatDuration(_player.state.position),
                                       style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14),
                                     ),
                                     Text(
-                                      _formatDuration(_controller.value.duration),
+                                      _formatDuration(_player.state.duration),
                                       style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14),
                                     ),
                                   ],
