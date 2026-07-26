@@ -315,6 +315,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               Center(
                 child: Video(
                   controller: _controller,
+                  controls: null,
                 ),
               ),
 
