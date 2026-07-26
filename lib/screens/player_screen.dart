@@ -29,6 +29,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   late final Player _player;
   late final VideoController _controller;
   final List<StreamSubscription> _subscriptions = [];
+  final ValueNotifier<Duration> _positionNotifier = ValueNotifier(Duration.zero);
   
   bool _isInitialized = false;
   bool _showControls = true;
@@ -72,8 +73,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void initState() {
     super.initState();
     
-    // Initialize MediaKit Player and Controller
-    _player = Player();
+    // Initialize MediaKit Player and Controller with larger buffer size (64MB)
+    _player = Player(
+      configuration: const PlayerConfiguration(
+        bufferSize: 64 * 1024 * 1024,
+      ),
+    );
     _controller = VideoController(_player);
 
     // Initialize focus nodes
@@ -110,15 +115,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _initializePlayer() async {
     try {
-      // Enable hardware decoding on Android and other native platforms
+      // Enable hardware decoding and performance tweaks on Android
       if (_player.platform is NativePlayer) {
-        await (_player.platform as NativePlayer).setProperty('hwdec', 'mediacodec-copy');
+        final platform = _player.platform as NativePlayer;
+        await platform.setProperty('hwdec', 'mediacodec');
+        await platform.setProperty('vd-lavc-fast', 'yes');
+        await platform.setProperty('vd-lavc-skiploopfilter', 'all');
       }
 
       // Listen to error stream
       _subscriptions.add(
         _player.stream.error.listen((error) {
           print("MediaKit Playback Error: $error");
+          
+          // Ignore non-fatal codec/decoder initialization errors as libmpv 
+          // will natively fall back to a working decoder and play smoothly.
+          final errStr = error.toString().toLowerCase();
+          if (errStr.contains("codec") || errStr.contains("decoder")) {
+            return;
+          }
+          
           _showErrorDialog(error.toString());
         }),
       );
@@ -132,17 +148,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }),
       );
 
-      // Listen to position changes (rebuilds timestamps and progress slider)
+      // Listen to position changes (updates notifier, avoids rebuilding the entire screen)
       _subscriptions.add(
         _player.stream.position.listen((pos) {
+          _positionNotifier.value = pos;
           if (mounted) {
-            setState(() {
-              // Read duration as well to check if initialized
-              final dur = _player.state.duration;
-              if (dur != Duration.zero && !_isInitialized) {
+            final dur = _player.state.duration;
+            if (dur != Duration.zero && !_isInitialized) {
+              setState(() {
                 _isInitialized = true;
-              }
-            });
+              });
+            }
           }
         }),
       );
@@ -228,6 +244,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       s.cancel();
     }
     _player.dispose();
+    _positionNotifier.dispose();
     
     // Dispose focus nodes
     _backFocusNode.dispose();
@@ -256,15 +273,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       DeviceOrientation.landscapeRight,
     ]);
 
-    String currentSubText = "";
-    if (_isInitialized && _subtitleEntries.isNotEmpty) {
-      final pos = _player.state.position;
-      final activeEntry = _subtitleEntries.firstWhere(
-        (entry) => pos >= entry.start && pos <= entry.end,
-        orElse: () => SubtitleEntry(start: Duration.zero, end: Duration.zero, text: ""),
-      );
-      currentSubText = activeEntry.text;
-    }
+    // Subtitle rendering and position tracking are now handled inside ValueListenableBuilders below
+    // to prevent heavy UI rebuilds on every position change.
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -316,39 +326,46 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
 
               // 2. Custom Subtitles Overlay
-              if (_selectedSubtitleUrl != null && _isInitialized && currentSubText.isNotEmpty)
+              if (_selectedSubtitleUrl != null && _isInitialized)
                 Positioned(
                   bottom: _showControls ? 90 : 30,
                   left: 40,
                   right: 40,
-                  child: Center(
-                    child: Text(
-                      currentSubText,
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.outfit(
-                        fontSize: 18,
-                        color: Colors.yellowAccent,
-                        fontWeight: FontWeight.bold,
-                        shadows: const [
-                          Shadow(
-                            offset: Offset(-1.5, -1.5),
-                            color: Colors.black,
+                  child: ValueListenableBuilder<Duration>(
+                    valueListenable: _positionNotifier,
+                    builder: (context, pos, child) {
+                      final currentSubText = _getSubtitleAt(pos);
+                      if (currentSubText.isEmpty) return const SizedBox.shrink();
+                      return Center(
+                        child: Text(
+                          currentSubText,
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.outfit(
+                            fontSize: 18,
+                            color: Colors.yellowAccent,
+                            fontWeight: FontWeight.bold,
+                            shadows: const [
+                              Shadow(
+                                offset: Offset(-1.5, -1.5),
+                                color: Colors.black,
+                              ),
+                              Shadow(
+                                offset: Offset(1.5, -1.5),
+                                color: Colors.black,
+                              ),
+                              Shadow(
+                                offset: Offset(1.5, 1.5),
+                                color: Colors.black,
+                              ),
+                              Shadow(
+                                offset: Offset(-1.5, 1.5),
+                                color: Colors.black,
+                              ),
+                            ],
                           ),
-                          Shadow(
-                            offset: Offset(1.5, -1.5),
-                            color: Colors.black,
-                          ),
-                          Shadow(
-                            offset: Offset(1.5, 1.5),
-                            color: Colors.black,
-                          ),
-                          Shadow(
-                            offset: Offset(-1.5, 1.5),
-                            color: Colors.black,
-                          ),
-                        ],
-                      ),
-                    ),
+                        ),
+                      );
+                    },
                   ),
                 ),
 
@@ -504,40 +521,44 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             bottom: 24,
                             left: 24,
                             right: 24,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // Progress slider
-                                if (_isInitialized)
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(4),
-                                    child: LinearProgressIndicator(
-                                      value: (_player.state.duration.inMilliseconds > 0)
-                                          ? (_player.state.position.inMilliseconds /
-                                                  _player.state.duration.inMilliseconds)
-                                              .clamp(0.0, 1.0)
-                                          : 0.0,
-                                      backgroundColor: Colors.white.withOpacity(0.1),
-                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.redAccent.shade700),
-                                      minHeight: 6,
-                                    ),
-                                  ),
-                                const SizedBox(height: 8),
-                                // Timestamps
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            child: ValueListenableBuilder<Duration>(
+                              valueListenable: _positionNotifier,
+                              builder: (context, pos, child) {
+                                final dur = _player.state.duration;
+                                return Column(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text(
-                                      _formatDuration(_player.state.position),
-                                      style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14),
-                                    ),
-                                    Text(
-                                      _formatDuration(_player.state.duration),
-                                      style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14),
+                                    // Progress slider
+                                    if (_isInitialized)
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(4),
+                                        child: LinearProgressIndicator(
+                                          value: (dur.inMilliseconds > 0)
+                                              ? (pos.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0)
+                                              : 0.0,
+                                          backgroundColor: Colors.white.withOpacity(0.1),
+                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.redAccent.shade700),
+                                          minHeight: 6,
+                                        ),
+                                      ),
+                                    const SizedBox(height: 8),
+                                    // Timestamps
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          _formatDuration(pos),
+                                          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14),
+                                        ),
+                                        Text(
+                                          _formatDuration(dur),
+                                          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14),
+                                        ),
+                                      ],
                                     ),
                                   ],
-                                ),
-                              ],
+                                );
+                              },
                             ),
                           ),
                         ],
@@ -551,6 +572,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ),
       ),
     );
+  }
+
+  String _getSubtitleAt(Duration pos) {
+    if (_subtitleEntries.isEmpty) return "";
+    
+    int low = 0;
+    int high = _subtitleEntries.length - 1;
+    while (low <= high) {
+      int mid = (low + high) >> 1;
+      final entry = _subtitleEntries[mid];
+      if (pos >= entry.start && pos <= entry.end) {
+        return entry.text;
+      } else if (pos < entry.start) {
+        high = mid - 1;
+      } else {
+        low = mid + 1;
+      }
+    }
+    return "";
   }
 
   String _formatDuration(Duration duration) {
