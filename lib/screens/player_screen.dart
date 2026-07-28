@@ -35,6 +35,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _showControls = true;
   Timer? _hideTimer;
   
+  bool _isDragging = false;
+  double _dragValue = 0.0;
+  
   String? _selectedSubtitleUrl;
   List<dynamic> _availableSubtitles = [];
   List<SubtitleEntry> _subtitleEntries = [];
@@ -45,6 +48,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   late FocusNode _rewindFocusNode;
   late FocusNode _playPauseFocusNode;
   late FocusNode _forwardFocusNode;
+  late FocusNode _sliderFocusNode;
   
   // GlobalKey to programmatically open Subtitle PopupMenuButton
   final GlobalKey<PopupMenuButtonState<String>> _popupMenuKey = GlobalKey();
@@ -87,6 +91,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _rewindFocusNode = FocusNode();
     _playPauseFocusNode = FocusNode();
     _forwardFocusNode = FocusNode();
+    _sliderFocusNode = FocusNode();
 
     // Autofocus play/pause button on screen load
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -252,6 +257,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _rewindFocusNode.dispose();
     _playPauseFocusNode.dispose();
     _forwardFocusNode.dispose();
+    _sliderFocusNode.dispose();
     
     // Restore default system UI modes when exiting fullscreen player
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
@@ -528,20 +534,48 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               valueListenable: _positionNotifier,
                               builder: (context, pos, child) {
                                 final dur = _player.state.duration;
+                                final displayPos = _isDragging
+                                    ? Duration(milliseconds: _dragValue.toInt())
+                                    : pos;
                                 return Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     // Progress slider
                                     if (_isInitialized)
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(4),
-                                        child: LinearProgressIndicator(
-                                          value: (dur.inMilliseconds > 0)
-                                              ? (pos.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0)
-                                              : 0.0,
-                                          backgroundColor: Colors.white.withOpacity(0.1),
-                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.redAccent.shade700),
-                                          minHeight: 6,
+                                      SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          trackHeight: 4.0,
+                                          activeTrackColor: Colors.redAccent.shade700,
+                                          inactiveTrackColor: Colors.white.withOpacity(0.1),
+                                          thumbColor: Colors.redAccent,
+                                          overlayColor: Colors.redAccent.withOpacity(0.2),
+                                          thumbShape: const RoundSliderThumbShape(
+                                            enabledThumbRadius: 6.0,
+                                          ),
+                                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14.0),
+                                          trackShape: const CustomTrackShape(),
+                                        ),
+                                        child: Slider(
+                                          value: (_isDragging ? _dragValue : pos.inMilliseconds.toDouble())
+                                              .clamp(0.0, dur.inMilliseconds.toDouble() > 0 ? dur.inMilliseconds.toDouble() : 1.0),
+                                          min: 0.0,
+                                          max: dur.inMilliseconds.toDouble() > 0 ? dur.inMilliseconds.toDouble() : 1.0,
+                                          focusNode: _sliderFocusNode,
+                                          onChanged: (value) {
+                                            setState(() {
+                                              _isDragging = true;
+                                              _dragValue = value;
+                                            });
+                                            _startHideTimer();
+                                          },
+                                          onChangeEnd: (value) {
+                                            _player.seek(Duration(milliseconds: value.toInt())).then((_) {
+                                              setState(() {
+                                                _isDragging = false;
+                                              });
+                                            });
+                                            _startHideTimer();
+                                          },
                                         ),
                                       ),
                                     const SizedBox(height: 8),
@@ -550,7 +584,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
                                         Text(
-                                          _formatDuration(pos),
+                                          _formatDuration(displayPos),
                                           style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14),
                                         ),
                                         Text(
@@ -604,6 +638,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return "${duration.inHours}:${twoDigits(minutes)}:${twoDigits(seconds)}";
     }
     return "${twoDigits(minutes)}:${twoDigits(seconds)}";
+  }
+}
+
+class CustomTrackShape extends RoundedRectSliderTrackShape {
+  const CustomTrackShape();
+  @override
+  Rect getPreferredRect({
+    required RenderBox parentBox,
+    Offset offset = Offset.zero,
+    required SliderThemeData sliderTheme,
+    bool isEnabled = false,
+    bool isDiscrete = false,
+  }) {
+    final double trackHeight = sliderTheme.trackHeight ?? 4.0;
+    final double trackLeft = offset.dx;
+    final double trackTop = offset.dy + (parentBox.size.height - trackHeight) / 2;
+    final double trackWidth = parentBox.size.width;
+    return Rect.fromLTWH(trackLeft, trackTop, trackWidth, trackHeight);
   }
 }
 
