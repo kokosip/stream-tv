@@ -8,16 +8,23 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:http/http.dart' as http;
 import '../widgets/tv_focusable_card.dart';
+import '../services/playback_progress_service.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String streamUrl;
   final String title;
+  final String subjectId;
+  final int season;
+  final int episode;
   final List<dynamic> captions;
 
   const PlayerScreen({
     super.key,
     required this.streamUrl,
     required this.title,
+    required this.subjectId,
+    this.season = 0,
+    this.episode = 0,
     this.captions = const [],
   });
 
@@ -37,6 +44,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   
   bool _isDragging = false;
   double _dragValue = 0.0;
+  
+  // ignore: unused_field
+  Timer? _progressSaveTimer;
+  String? _resumeMessage;
   
   String? _selectedSubtitleUrl;
   List<dynamic> _availableSubtitles = [];
@@ -116,6 +127,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _initializePlayer();
     _startHideTimer();
+    
+    // Save progress periodically every 5 seconds
+    _progressSaveTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _saveCurrentProgress();
+    });
   }
 
   void _initializePlayer() async {
@@ -127,6 +143,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
         await platform.setProperty('vd-lavc-fast', 'yes');
         await platform.setProperty('vd-lavc-skiploopfilter', 'all');
       }
+
+      // Check for saved progress
+      final savedMs = await PlaybackProgressService.getProgress(
+        widget.subjectId,
+        widget.season,
+        widget.episode,
+      );
+      bool didResume = false;
 
       // Listen to error stream
       _subscriptions.add(
@@ -163,6 +187,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
               setState(() {
                 _isInitialized = true;
               });
+              
+              if (savedMs > 0 && !didResume) {
+                didResume = true;
+                _player.seek(Duration(milliseconds: savedMs));
+                _showResumeToast(savedMs);
+              }
             }
           }
         }),
@@ -240,6 +270,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ],
       ),
     );
+  }
+
+  void _showResumeToast(int ms) {
+    final duration = Duration(milliseconds: ms);
+    setState(() {
+      _resumeMessage = "Resuming from ${_formatDuration(duration)}";
+    });
+    Timer(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() {
+          _resumeMessage = null;
+        });
+      }
+    });
+  }
+
+  void _saveCurrentProgress() {
+    if (!_isInitialized) return;
+    final posMs = _player.state.position.inMilliseconds;
+    final durMs = _player.state.duration.inMilliseconds;
+    if (posMs > 0 && durMs > 0) {
+      PlaybackProgressService.saveProgress(
+        widget.subjectId,
+        widget.season,
+        widget.episode,
+        posMs,
+        durMs,
+      );
+    }
   }
 
   @override
@@ -604,6 +663,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
                 ),
               ),
+              
+              // 4. Resume Toast Overlay
+              if (_resumeMessage != null)
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 80.0),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.8),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.redAccent.withOpacity(0.5), width: 1),
+                        ),
+                        child: Text(
+                          _resumeMessage!,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

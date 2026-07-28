@@ -299,6 +299,9 @@ class _DetailScreenState extends State<DetailScreen> {
           builder: (context) => PlayerScreen(
             streamUrl: streamUrl,
             title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
+            subjectId: _selectedSubjectId,
+            season: _isTvShow ? _selectedSeasonNumber : 0,
+            episode: _isTvShow ? _selectedEpisodeNumber : 0,
             captions: captions,
           ),
         ),
