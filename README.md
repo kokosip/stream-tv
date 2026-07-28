@@ -13,14 +13,15 @@ A premium, TV-optimized Flutter application designed for Android and Android TV 
 
 ## Credits
 
-- Special thanks and credit to the creator of the **MovieBox TUI** and its underlying backend API services.
+- Special thanks and credit to the creator of the [MovieBox TUI](https://github.com/mesamirh/MovieBox-Tui) and its underlying backend API services.
 
 ## Disclaimer
 
 > [!IMPORTANT]
 > **Client-Side Only Disclaimer**
-> 
-> This application is strictly a **client-side wrapper/interface** designed to improve the viewing experience on Android TV. 
+>
+> This application is strictly a **client-side wrapper/interface** designed to improve the viewing experience on Android TV.
+>
 > - **We do not host, store, or upload any movies, TV shows, or videos.**
 > - All media files and streams are accessed directly from third-party public API providers.
 > - The application only fetches and parses media links for streaming.
