@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/moviebox_api_service.dart';
+import '../services/favorites_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import 'player_screen.dart';
 
@@ -31,6 +32,7 @@ class _DetailScreenState extends State<DetailScreen> {
   bool _isLoadingDetails = true;
   bool _isLoadingStreams = false;
   String _errorMessage = "";
+  bool _isFavorite = false;
 
   bool get _isTvShow {
     final type = _details?['subjectType'] ?? _details?['subject_type'];
@@ -42,6 +44,26 @@ class _DetailScreenState extends State<DetailScreen> {
     super.initState();
     _selectedSubjectId = widget.subjectId;
     _loadDetails();
+    _checkFavorite();
+  }
+
+  void _checkFavorite() async {
+    final fav = await FavoritesService.isFavorite(widget.subjectId);
+    if (mounted) {
+      setState(() {
+        _isFavorite = fav;
+      });
+    }
+  }
+
+  void _toggleFavorite() async {
+    if (_details == null) return;
+    if (_isFavorite) {
+      await FavoritesService.removeFavorite(widget.subjectId);
+    } else {
+      await FavoritesService.addFavorite(_details!);
+    }
+    _checkFavorite();
   }
 
   void _loadDetails() async {
@@ -747,6 +769,27 @@ class _DetailScreenState extends State<DetailScreen> {
                   padding: const EdgeInsets.all(8),
                   color: Colors.black.withOpacity(0.6),
                   child: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+                ),
+              ),
+            ),
+          ),
+
+          // Favorite button
+          Positioned(
+            top: 20,
+            right: 20,
+            child: SafeArea(
+              child: TvFocusableCard(
+                onTap: _toggleFavorite,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  color: Colors.black.withOpacity(0.6),
+                  child: Icon(
+                    _isFavorite ? Icons.favorite : Icons.favorite_border,
+                    color: _isFavorite ? Colors.redAccent : Colors.white,
+                    size: 24,
+                  ),
                 ),
               ),
             ),

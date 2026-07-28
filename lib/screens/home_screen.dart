@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/moviebox_api_service.dart';
+import '../services/favorites_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import 'detail_screen.dart';
 
@@ -23,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = false;
   String _errorMessage = "";
   bool _hasSearched = false;
+  List<Map<String, dynamic>> _favorites = [];
 
   @override
   void initState() {
@@ -43,6 +45,16 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _searchFocusNode.requestFocus();
     });
+    _loadFavorites();
+  }
+
+  void _loadFavorites() async {
+    final list = await FavoritesService.getFavorites();
+    if (mounted) {
+      setState(() {
+        _favorites = list;
+      });
+    }
   }
 
   void _onSearch() async {
@@ -135,12 +147,29 @@ class _HomeScreenState extends State<HomeScreen> {
                           hintText: "Type to Search Movie or TV Show...",
                           hintStyle: GoogleFonts.outfit(color: Colors.grey.shade600),
                           prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                          suffixIcon: _searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, color: Colors.grey),
+                                  onPressed: () {
+                                    setState(() {
+                                      _searchController.clear();
+                                      _hasSearched = false;
+                                      _results = [];
+                                      _errorMessage = "";
+                                    });
+                                    _loadFavorites();
+                                  },
+                                )
+                              : null,
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 20,
                             vertical: 18,
                           ),
                         ),
+                        onChanged: (_) {
+                          setState(() {});
+                        },
                         onSubmitted: (_) => _onSearch(),
                       ),
                     ),
@@ -190,15 +219,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           )
                         : !_hasSearched
-                            ? Center(
-                                child: Text(
-                                  "Search for a movie or TV show to begin streaming.",
-                                  style: GoogleFonts.outfit(
-                                    color: Colors.grey.shade600,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              )
+                            ? _buildFavoritesSection()
                             : ListView.builder(
                                 clipBehavior: Clip.none,
                                 itemCount: _results.length,
@@ -224,7 +245,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                           MaterialPageRoute(
                                             builder: (context) => DetailScreen(subjectId: subjectId),
                                           ),
-                                        );
+                                        ).then((_) {
+                                          _loadFavorites();
+                                        });
                                       },
                                       borderRadius: BorderRadius.circular(12),
                                       scaleFactor: 1.03,
@@ -308,6 +331,164 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildFavoritesSection() {
+    if (_favorites.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.favorite_border, size: 48, color: Colors.grey.shade800),
+            const SizedBox(height: 16),
+            Text(
+              "No favorites added yet.",
+              style: GoogleFonts.outfit(
+                color: Colors.grey.shade600,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Search for a movie or TV show to begin streaming.",
+              style: GoogleFonts.outfit(
+                color: Colors.grey.shade700,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Row(
+            children: [
+              const Icon(Icons.favorite, color: Colors.redAccent, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                "My Favorites",
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: ListView.builder(
+            clipBehavior: Clip.none,
+            itemCount: _favorites.length,
+            itemBuilder: (context, index) {
+              final item = _favorites[index];
+              final title = item['title'] ?? "Untitled";
+              final coverUrl = item['coverUrl'] ?? "";
+              final subjectId = item['subjectId'] ?? "";
+              final type = item['subjectType'];
+              final isShow = type == 2 || type?.toString() == '2' || type?.toString().toLowerCase() == 'tv';
+              final year = item['releaseDate'] != null 
+                  ? item['releaseDate'].toString().split('-')[0] 
+                  : "-";
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: TvFocusableCard(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => DetailScreen(subjectId: subjectId),
+                      ),
+                    ).then((_) {
+                      _loadFavorites();
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  scaleFactor: 1.03,
+                  child: Container(
+                    color: const Color(0xFF121212),
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: CachedNetworkImage(
+                            imageUrl: coverUrl,
+                            width: 50,
+                            height: 75,
+                            fit: BoxFit.cover,
+                            errorWidget: (context, url, error) => Container(
+                              color: const Color(0xFF1E1E1E),
+                              width: 50,
+                              height: 75,
+                              child: const Icon(Icons.movie, color: Colors.grey),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: GoogleFonts.outfit(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: isShow ? Colors.blue.withOpacity(0.2) : Colors.redAccent.withOpacity(0.2),
+                                      border: Border.all(color: isShow ? Colors.blue : Colors.redAccent, width: 1),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      isShow ? "TV Series" : "Movie",
+                                      style: GoogleFonts.outfit(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: isShow ? Colors.blue : Colors.redAccent,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    year,
+                                    style: GoogleFonts.outfit(
+                                      color: Colors.grey.shade500,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios, color: Colors.grey, size: 16),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
