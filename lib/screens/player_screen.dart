@@ -53,6 +53,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   List<dynamic> _availableSubtitles = [];
   List<SubtitleEntry> _subtitleEntries = [];
   Color _selectedSubtitleColor = Colors.white;
+  BoxFit _selectedFitMode = BoxFit.contain;
 
   final Map<String, Color> _subtitleColors = {
     'White': Colors.white,
@@ -62,10 +63,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     'Pink': Colors.pinkAccent,
   };
 
+  final Map<String, BoxFit> _fitModes = {
+    'Fit (Default)': BoxFit.contain,
+    'Zoom (Fill Screen)': BoxFit.cover,
+    'Stretch (Full)': BoxFit.fill,
+  };
+
   // FocusNodes for Android TV Remote Navigation
   late FocusNode _backFocusNode;
   late FocusNode _subtitleFocusNode;
   late FocusNode _subtitleColorFocusNode;
+  late FocusNode _fitModeFocusNode;
   late FocusNode _rewindFocusNode;
   late FocusNode _playPauseFocusNode;
   late FocusNode _forwardFocusNode;
@@ -74,6 +82,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // GlobalKeys to programmatically open PopupMenuButtons
   final GlobalKey<PopupMenuButtonState<String>> _popupMenuKey = GlobalKey();
   final GlobalKey<PopupMenuButtonState<Color>> _colorPopupMenuKey = GlobalKey();
+  final GlobalKey<PopupMenuButtonState<BoxFit>> _fitMenuKey = GlobalKey();
 
   void _loadSubtitles(String url) async {
     if (url.isEmpty) return;
@@ -111,6 +120,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _backFocusNode = FocusNode();
     _subtitleFocusNode = FocusNode();
     _subtitleColorFocusNode = FocusNode();
+    _fitModeFocusNode = FocusNode();
     _rewindFocusNode = FocusNode();
     _playPauseFocusNode = FocusNode();
     _forwardFocusNode = FocusNode();
@@ -326,6 +336,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _backFocusNode.dispose();
     _subtitleFocusNode.dispose();
     _subtitleColorFocusNode.dispose();
+    _fitModeFocusNode.dispose();
     _rewindFocusNode.dispose();
     _playPauseFocusNode.dispose();
     _forwardFocusNode.dispose();
@@ -394,6 +405,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 child: Video(
                   controller: _controller,
                   controls: null,
+                  fit: _selectedFitMode,
                 ),
               ),
 
@@ -602,6 +614,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     ),
                                   ),
                                 ],
+                                const SizedBox(width: 12),
+                                // Aspect Ratio / Screen Zoom Fit Button
+                                TvFocusableCard(
+                                  focusNode: _fitModeFocusNode,
+                                  borderRadius: BorderRadius.circular(24),
+                                  onTap: () {
+                                    _fitMenuKey.currentState?.showButtonMenu();
+                                  },
+                                  child: IgnorePointer(
+                                    child: PopupMenuButton<BoxFit>(
+                                      key: _fitMenuKey,
+                                      color: const Color(0xFF1E1E1E),
+                                      onSelected: (mode) {
+                                        setState(() {
+                                          _selectedFitMode = mode;
+                                        });
+                                      },
+                                      itemBuilder: (context) {
+                                        return _fitModes.entries.map((entry) {
+                                          final isSelected = _selectedFitMode == entry.value;
+                                          return PopupMenuItem<BoxFit>(
+                                            value: entry.value,
+                                            child: Text(
+                                              entry.key,
+                                              style: GoogleFonts.outfit(
+                                                color: isSelected ? Colors.redAccent : Colors.white,
+                                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                              ),
+                                            ),
+                                          );
+                                        }).toList();
+                                      },
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(8.0),
+                                        child: Icon(Icons.aspect_ratio, color: Colors.white, size: 28),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
