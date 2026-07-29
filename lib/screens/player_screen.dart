@@ -52,6 +52,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String? _selectedSubtitleUrl;
   List<dynamic> _availableSubtitles = [];
   List<SubtitleEntry> _subtitleEntries = [];
+  static const MethodChannel _pipChannel = MethodChannel('com.koko.moviebox/pip');
+  bool _isPipMode = false;
   Color _selectedSubtitleColor = Colors.white;
   BoxFit _selectedFitMode = BoxFit.contain;
 
@@ -74,6 +76,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   late FocusNode _subtitleFocusNode;
   late FocusNode _subtitleColorFocusNode;
   late FocusNode _fitModeFocusNode;
+  late FocusNode _pipFocusNode;
   late FocusNode _rewindFocusNode;
   late FocusNode _playPauseFocusNode;
   late FocusNode _forwardFocusNode;
@@ -83,6 +86,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final GlobalKey<PopupMenuButtonState<String>> _popupMenuKey = GlobalKey();
   final GlobalKey<PopupMenuButtonState<Color>> _colorPopupMenuKey = GlobalKey();
   final GlobalKey<PopupMenuButtonState<BoxFit>> _fitMenuKey = GlobalKey();
+
+  void _enterPipMode() async {
+    try {
+      await _pipChannel.invokeMethod('enterPip');
+    } catch (e) {
+      print("Failed to enter PiP mode: $e");
+    }
+  }
 
   void _loadSubtitles(String url) async {
     if (url.isEmpty) return;
@@ -121,10 +132,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _subtitleFocusNode = FocusNode();
     _subtitleColorFocusNode = FocusNode();
     _fitModeFocusNode = FocusNode();
+    _pipFocusNode = FocusNode();
     _rewindFocusNode = FocusNode();
     _playPauseFocusNode = FocusNode();
     _forwardFocusNode = FocusNode();
     _sliderFocusNode = FocusNode();
+
+    // Listen for Picture-in-Picture mode changes from native Android
+    _pipChannel.setMethodCallHandler((call) async {
+      if (call.method == 'pipModeChanged') {
+        final isInPip = call.arguments as bool? ?? false;
+        if (mounted) {
+          setState(() {
+            _isPipMode = isInPip;
+            if (isInPip) {
+              _showControls = false;
+            }
+          });
+        }
+      }
+    });
+
+    // Notify native Android that video player is active for auto-PiP
+    _pipChannel.invokeMethod('setPipEnabled', {'enabled': true});
 
     // Autofocus play/pause button on screen load
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -325,6 +355,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    _pipChannel.invokeMethod('setPipEnabled', {'enabled': false});
     _hideTimer?.cancel();
     for (final s in _subscriptions) {
       s.cancel();
@@ -337,6 +368,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _subtitleFocusNode.dispose();
     _subtitleColorFocusNode.dispose();
     _fitModeFocusNode.dispose();
+    _pipFocusNode.dispose();
     _rewindFocusNode.dispose();
     _playPauseFocusNode.dispose();
     _forwardFocusNode.dispose();
@@ -419,7 +451,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
 
               // 2. Custom Subtitles Overlay
-              if (_selectedSubtitleUrl != null && _isInitialized)
+              if (_selectedSubtitleUrl != null && _isInitialized && !_isPipMode)
                 Positioned(
                   bottom: _showControls ? 90 : 30,
                   left: 40,
@@ -447,11 +479,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 color: Colors.black,
                               ),
                               Shadow(
-                                offset: Offset(1.5, 1.5),
+                                offset: Offset(-1.5, 1.5),
                                 color: Colors.black,
                               ),
                               Shadow(
-                                offset: Offset(-1.5, 1.5),
+                                offset: Offset(1.5, 1.5),
                                 color: Colors.black,
                               ),
                             ],
@@ -463,11 +495,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
 
               // 3. Player UI Overlays (Title, progress, and controls)
-              AnimatedOpacity(
-                opacity: _showControls ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 300),
-                child: FocusScope(
-                  canRequestFocus: _showControls,
+              if (!_isPipMode)
+                AnimatedOpacity(
+                  opacity: _showControls ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 300),
+                  child: FocusScope(
+                    canRequestFocus: _showControls,
                   child: IgnorePointer(
                     ignoring: !_showControls,
                     child: Container(
@@ -651,6 +684,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                         child: Icon(Icons.aspect_ratio, color: Colors.white, size: 28),
                                       ),
                                     ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                // Picture-in-Picture (PiP) Button
+                                TvFocusableCard(
+                                  focusNode: _pipFocusNode,
+                                  borderRadius: BorderRadius.circular(24),
+                                  onTap: _enterPipMode,
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(8.0),
+                                    child: Icon(Icons.picture_in_picture_alt, color: Colors.white, size: 28),
                                   ),
                                 ),
                               ],
