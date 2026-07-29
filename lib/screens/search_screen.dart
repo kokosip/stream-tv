@@ -87,77 +87,78 @@ class _SearchScreenState extends State<SearchScreen> {
                   child: Container(
                     decoration: BoxDecoration(
                       color: const Color(0xFF1E1E1E),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: TextField(
                       controller: _searchController,
                       focusNode: _inputFocusNode,
-                      style: GoogleFonts.outfit(color: Colors.white),
+                      style: GoogleFonts.outfit(color: Colors.white, fontSize: 15),
                       decoration: InputDecoration(
                         hintText: "Search here...",
-                        hintStyle: GoogleFonts.outfit(color: Colors.grey.shade500),
-                        prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                        hintStyle: GoogleFonts.outfit(color: Colors.grey.shade500, fontSize: 14),
+                        prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 20),
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 16,
+                          horizontal: 16,
+                          vertical: 12,
                         ),
                       ),
                       onSubmitted: (_) => _performSearch(),
                     ),
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 // Search Button (Focusable)
                 TvFocusableCard(
                   onTap: _performSearch,
-                  borderRadius: BorderRadius.circular(12),
-                  scaleFactor: 1.05,
+                  borderRadius: BorderRadius.circular(10),
+                  scaleFactor: 1.04,
                   child: Container(
                     color: Colors.redAccent.shade700,
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 28,
-                      vertical: 16,
+                      horizontal: 20,
+                      vertical: 12,
                     ),
                     child: Text(
                       'Search',
                       style: GoogleFonts.outfit(
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
+                        fontSize: 14,
                       ),
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             // Results or States
             Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: SpinKitRing(
-                        color: Colors.redAccent,
-                        size: 50.0,
-                      ),
-                    )
-                  : _errorMessage.isNotEmpty
-                      ? Center(
-                          child: Text(
-                            _errorMessage,
-                            style: GoogleFonts.outfit(
-                              color: Colors.grey,
-                              fontSize: 18,
+              child: ClipRect(
+                child: _isLoading
+                    ? const Center(
+                        child: SpinKitRing(
+                          color: Colors.redAccent,
+                          size: 50.0,
+                        ),
+                      )
+                    : _errorMessage.isNotEmpty
+                        ? Center(
+                            child: Text(
+                              _errorMessage,
+                              style: GoogleFonts.outfit(
+                                color: Colors.grey,
+                                fontSize: 18,
+                              ),
                             ),
-                          ),
-                        )
-                      : GridView.builder(
-                          clipBehavior: Clip.none,
-                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: isTv ? 6 : 3,
-                            childAspectRatio: 0.7,
-                            crossAxisSpacing: 16,
-                            mainAxisSpacing: 16,
-                          ),
+                          )
+                        : GridView.builder(
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: isTv ? 6 : 3,
+                              childAspectRatio: 0.7,
+                              crossAxisSpacing: 16,
+                              mainAxisSpacing: 16,
+                            ),
                           itemCount: _results.length,
                           itemBuilder: (context, index) {
                             final item = _results[index];
@@ -228,6 +229,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             );
                           },
                         ),
+              ),
             ),
           ],
         ),

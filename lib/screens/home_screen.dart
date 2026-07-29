@@ -129,27 +129,27 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 32),
 
-              // Search Bar Group
+              // Search Bar Group (Smaller size)
               Row(
                 children: [
                   Expanded(
                     child: Container(
                       decoration: BoxDecoration(
                         color: const Color(0xFF161616),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: const Color(0xFF2C2C2C)),
                       ),
                       child: TextField(
                         controller: _searchController,
                         focusNode: _searchFocusNode,
-                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 18),
+                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 15),
                         decoration: InputDecoration(
                           hintText: "Type to Search Movie or TV Show...",
-                          hintStyle: GoogleFonts.outfit(color: Colors.grey.shade600),
-                          prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                          hintStyle: GoogleFonts.outfit(color: Colors.grey.shade600, fontSize: 14),
+                          prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 20),
                           suffixIcon: _searchController.text.isNotEmpty
                               ? IconButton(
-                                  icon: const Icon(Icons.clear, color: Colors.grey),
+                                  icon: const Icon(Icons.clear, color: Colors.grey, size: 18),
                                   onPressed: () {
                                     setState(() {
                                       _searchController.clear();
@@ -163,8 +163,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               : null,
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 18,
+                            horizontal: 16,
+                            vertical: 12,
                           ),
                         ),
                         onChanged: (_) {
@@ -174,56 +174,56 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
                   TvFocusableCard(
                     onTap: _onSearch,
-                    borderRadius: BorderRadius.circular(12),
-                    scaleFactor: 1.05,
+                    borderRadius: BorderRadius.circular(10),
+                    scaleFactor: 1.04,
                     child: Container(
                       color: Colors.redAccent.shade700,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 32,
-                        vertical: 18,
+                        horizontal: 20,
+                        vertical: 12,
                       ),
                       child: Text(
                         'Search',
                         style: GoogleFonts.outfit(
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
-                          fontSize: 16,
+                          fontSize: 14,
                         ),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 16),
 
               // Dynamic Body
               Expanded(
-                child: _isLoading
-                    ? const Center(
-                        child: SpinKitRing(
-                          color: Colors.redAccent,
-                          size: 50.0,
-                        ),
-                      )
-                    : _errorMessage.isNotEmpty
-                        ? Center(
-                            child: Text(
-                              _errorMessage,
-                              style: GoogleFonts.outfit(
-                                color: Colors.grey,
-                                fontSize: 18,
+                child: ClipRect(
+                  child: _isLoading
+                      ? const Center(
+                          child: SpinKitRing(
+                            color: Colors.redAccent,
+                            size: 50.0,
+                          ),
+                        )
+                      : _errorMessage.isNotEmpty
+                          ? Center(
+                              child: Text(
+                                _errorMessage,
+                                style: GoogleFonts.outfit(
+                                  color: Colors.grey,
+                                  fontSize: 18,
+                                ),
                               ),
-                            ),
-                          )
-                        : !_hasSearched
-                            ? _buildFavoritesSection()
-                            : ListView.builder(
-                                clipBehavior: Clip.none,
-                                itemCount: _results.length,
-                                itemBuilder: (context, index) {
+                            )
+                          : !_hasSearched
+                              ? _buildFavoritesSection()
+                              : ListView.builder(
+                                  itemCount: _results.length,
+                                  itemBuilder: (context, index) {
                                   final item = _results[index];
                                   final title = item['title'] ?? item['subjectTitle'] ?? "Untitled";
                                   final coverUrl = item['cover']?['url'] ?? "";
@@ -326,6 +326,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   );
                                 },
                               ),
+                ),
               ),
             ],
           ),
@@ -386,7 +387,6 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 8),
         Expanded(
           child: ListView.builder(
-            clipBehavior: Clip.none,
             itemCount: _favorites.length,
             itemBuilder: (context, index) {
               final item = _favorites[index];
