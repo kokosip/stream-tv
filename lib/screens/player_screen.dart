@@ -52,17 +52,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String? _selectedSubtitleUrl;
   List<dynamic> _availableSubtitles = [];
   List<SubtitleEntry> _subtitleEntries = [];
+  Color _selectedSubtitleColor = Colors.white;
+
+  final Map<String, Color> _subtitleColors = {
+    'White': Colors.white,
+    'Yellow': Colors.yellowAccent,
+    'Cyan': Colors.cyanAccent,
+    'Green': Colors.greenAccent,
+    'Pink': Colors.pinkAccent,
+  };
 
   // FocusNodes for Android TV Remote Navigation
   late FocusNode _backFocusNode;
   late FocusNode _subtitleFocusNode;
+  late FocusNode _subtitleColorFocusNode;
   late FocusNode _rewindFocusNode;
   late FocusNode _playPauseFocusNode;
   late FocusNode _forwardFocusNode;
   late FocusNode _sliderFocusNode;
   
-  // GlobalKey to programmatically open Subtitle PopupMenuButton
+  // GlobalKeys to programmatically open PopupMenuButtons
   final GlobalKey<PopupMenuButtonState<String>> _popupMenuKey = GlobalKey();
+  final GlobalKey<PopupMenuButtonState<Color>> _colorPopupMenuKey = GlobalKey();
 
   void _loadSubtitles(String url) async {
     if (url.isEmpty) return;
@@ -99,6 +110,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Initialize focus nodes
     _backFocusNode = FocusNode();
     _subtitleFocusNode = FocusNode();
+    _subtitleColorFocusNode = FocusNode();
     _rewindFocusNode = FocusNode();
     _playPauseFocusNode = FocusNode();
     _forwardFocusNode = FocusNode();
@@ -313,6 +325,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Dispose focus nodes
     _backFocusNode.dispose();
     _subtitleFocusNode.dispose();
+    _subtitleColorFocusNode.dispose();
     _rewindFocusNode.dispose();
     _playPauseFocusNode.dispose();
     _forwardFocusNode.dispose();
@@ -410,7 +423,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           textAlign: TextAlign.center,
                           style: GoogleFonts.outfit(
                             fontSize: 18,
-                            color: Colors.yellowAccent,
+                            color: _selectedSubtitleColor,
                             fontWeight: FontWeight.bold,
                             shadows: const [
                               Shadow(
@@ -477,7 +490,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   ),
                                 ),
                                 // Subtitle Selector Button
-                                if (_availableSubtitles.isNotEmpty)
+                                if (_availableSubtitles.isNotEmpty) ...[
                                   TvFocusableCard(
                                     focusNode: _subtitleFocusNode,
                                     borderRadius: BorderRadius.circular(24),
@@ -535,6 +548,60 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       ),
                                     ),
                                   ),
+                                  const SizedBox(width: 12),
+                                  // Subtitle Color Button
+                                  TvFocusableCard(
+                                    focusNode: _subtitleColorFocusNode,
+                                    borderRadius: BorderRadius.circular(24),
+                                    onTap: () {
+                                      _colorPopupMenuKey.currentState?.showButtonMenu();
+                                    },
+                                    child: IgnorePointer(
+                                      child: PopupMenuButton<Color>(
+                                        key: _colorPopupMenuKey,
+                                        color: const Color(0xFF1E1E1E),
+                                        onSelected: (color) {
+                                          setState(() {
+                                            _selectedSubtitleColor = color;
+                                          });
+                                        },
+                                        itemBuilder: (context) {
+                                          return _subtitleColors.entries.map((entry) {
+                                            final isSelected = _selectedSubtitleColor == entry.value;
+                                            return PopupMenuItem<Color>(
+                                              value: entry.value,
+                                              child: Row(
+                                                children: [
+                                                  Container(
+                                                    width: 16,
+                                                    height: 16,
+                                                    decoration: BoxDecoration(
+                                                      color: entry.value,
+                                                      shape: BoxShape.circle,
+                                                      border: Border.all(color: Colors.white38),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 12),
+                                                  Text(
+                                                    entry.key,
+                                                    style: GoogleFonts.outfit(
+                                                      color: isSelected ? Colors.redAccent : Colors.white,
+                                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          }).toList();
+                                        },
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(8.0),
+                                          child: Icon(Icons.palette, color: Colors.white, size: 28),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
