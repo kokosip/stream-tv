@@ -413,173 +413,284 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  Widget _buildSeasonSelector({required bool isTv}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-          child: Text(
-            "Seasons",
-            style: GoogleFonts.outfit(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: isTv ? 18 : 16,
-            ),
+  void _showOptionsDialog<T>({
+    required String title,
+    required List<T> items,
+    required T selectedValue,
+    required String Function(T) itemLabel,
+    required ValueChanged<T> onSelected,
+  }) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: const Color(0xFF161616),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFF2C2C2C)),
           ),
-        ),
-        SizedBox(
-          height: isTv ? 56 : 48,
-          child: ListView.builder(
-            clipBehavior: Clip.none,
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: _seasons.length,
-            itemBuilder: (context, index) {
-              final s = _seasons[index];
-              final sNum = s['se'] ?? 1;
-              final maxEp = s['maxEp'] ?? 0;
-              final isSelected = sNum == _selectedSeasonNumber;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                child: TvFocusableCard(
-                  onTap: () => _onSeasonChanged(sNum, maxEp),
-                  borderRadius: BorderRadius.circular(24),
-                  scaleFactor: 1.05,
-                  child: Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isTv ? 24 : 16,
-                      vertical: isTv ? 12 : 8,
-                    ),
-                    color: isSelected ? Colors.redAccent.shade700 : const Color(0xFF1E1E1E),
-                    alignment: Alignment.center,
-                    child: Text(
-                      "Season $sNum",
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: isTv ? 16 : 14,
-                      ),
+          child: Container(
+            width: 320,
+            constraints: const BoxConstraints(maxHeight: 400),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: items.map((item) {
+                        final isSelected = item == selectedValue;
+                        final label = itemLabel(item);
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0),
+                          child: TvFocusableCard(
+                            onTap: () {
+                              Navigator.pop(context);
+                              onSelected(item);
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            scaleFactor: 1.02,
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              color: isSelected ? Colors.redAccent.shade700 : const Color(0xFF222222),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    label,
+                                    style: GoogleFonts.outfit(
+                                      color: Colors.white,
+                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                  if (isSelected)
+                                    const Icon(Icons.check_circle, color: Colors.white, size: 18),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
                   ),
                 ),
-              );
-            },
+              ],
+            ),
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 
-  Widget _buildEpisodeSelector({required bool isTv}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-          child: Text(
-            "Episodes",
-            style: GoogleFonts.outfit(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: isTv ? 18 : 16,
-            ),
-          ),
-        ),
-        SizedBox(
-          height: isTv ? 64 : 48,
-          child: ListView.builder(
-            clipBehavior: Clip.none,
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: _episodesCount,
-            itemBuilder: (context, index) {
-              final epNum = index + 1;
-              final isSelected = epNum == _selectedEpisodeNumber;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                child: TvFocusableCard(
-                  onTap: () => _onEpisodeChanged(epNum),
-                  borderRadius: BorderRadius.circular(isTv ? 32 : 24),
-                  scaleFactor: 1.05,
+  Widget _buildSeasonAndEpisodeDropdowns({required bool isTv}) {
+    final count = _episodesCount > 0 ? _episodesCount : 1;
+    final currentEp = (_selectedEpisodeNumber >= 1 && _selectedEpisodeNumber <= count)
+        ? _selectedEpisodeNumber
+        : 1;
+    final currentSeason = _seasons.any((s) => (s['se'] ?? 1) == _selectedSeasonNumber)
+        ? _selectedSeasonNumber
+        : (_seasons.isNotEmpty ? (_seasons.first['se'] ?? 1) : 1);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+      child: Row(
+        children: [
+          // Season Dropdown
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Season",
+                  style: GoogleFonts.outfit(
+                    color: Colors.grey.shade400,
+                    fontWeight: FontWeight.bold,
+                    fontSize: isTv ? 15 : 13,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                TvFocusableCard(
+                  onTap: () {
+                    _showOptionsDialog<int>(
+                      title: "Select Season",
+                      items: _seasons.map<int>((s) => (s['se'] ?? 1) as int).toList(),
+                      selectedValue: currentSeason,
+                      itemLabel: (sNum) => "Season $sNum",
+                      onSelected: (newVal) {
+                        final s = _seasons.firstWhere(
+                          (element) => (element['se'] ?? 1) == newVal,
+                          orElse: () => _seasons.first,
+                        );
+                        final maxEp = s['maxEp'] ?? 0;
+                        _onSeasonChanged(newVal, maxEp);
+                      },
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(10),
+                  scaleFactor: 1.03,
                   child: Container(
-                    width: isTv ? 64 : 48,
-                    height: isTv ? 64 : 48,
-                    color: isSelected ? Colors.redAccent.shade700 : const Color(0xFF1E1E1E),
-                    alignment: Alignment.center,
-                    child: Text(
-                      "$epNum",
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: isTv ? 18 : 14,
-                      ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E1E1E),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF2C2C2C)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "Season $currentSeason",
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: isTv ? 16 : 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Icon(Icons.arrow_drop_down, color: Colors.redAccent),
+                      ],
                     ),
                   ),
                 ),
-              );
-            },
+              ],
+            ),
           ),
-        ),
-      ],
+          const SizedBox(width: 16),
+          // Episode Dropdown
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Episode",
+                  style: GoogleFonts.outfit(
+                    color: Colors.grey.shade400,
+                    fontWeight: FontWeight.bold,
+                    fontSize: isTv ? 15 : 13,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                TvFocusableCard(
+                  onTap: () {
+                    _showOptionsDialog<int>(
+                      title: "Select Episode",
+                      items: List.generate(count, (index) => index + 1),
+                      selectedValue: currentEp,
+                      itemLabel: (epNum) => "Episode $epNum",
+                      onSelected: (newVal) {
+                        _onEpisodeChanged(newVal);
+                      },
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(10),
+                  scaleFactor: 1.03,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E1E1E),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF2C2C2C)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "Episode $currentEp",
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: isTv ? 16 : 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Icon(Icons.arrow_drop_down, color: Colors.redAccent),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildAudioSelectorHorizontal({required bool isTv}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-          child: Text(
+  Widget _buildAudioDropdown({required bool isTv}) {
+    final currentAudioName = _dubs.any((d) => (d['lanName'] ?? d['language'] ?? 'Unknown') == _selectedAudioName)
+        ? _selectedAudioName
+        : (_dubs.isNotEmpty ? (_dubs.first['lanName'] ?? _dubs.first['language'] ?? 'Original') : 'Original');
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
             "Audio Language",
             style: GoogleFonts.outfit(
-              color: Colors.white,
+              color: Colors.grey.shade400,
               fontWeight: FontWeight.bold,
-              fontSize: isTv ? 18 : 16,
+              fontSize: isTv ? 15 : 13,
             ),
           ),
-        ),
-        SizedBox(
-          height: isTv ? 56 : 48,
-          child: ListView.builder(
-            clipBehavior: Clip.none,
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: _dubs.length,
-            itemBuilder: (context, index) {
-              final d = _dubs[index];
-              final name = d['lanName'] ?? d['language'] ?? "Unknown";
-              final subId = d['subjectId'] ?? widget.subjectId;
-              final isSelected = name == _selectedAudioName;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                child: TvFocusableCard(
-                  onTap: () => _onAudioChanged(name, subId),
-                  borderRadius: BorderRadius.circular(24),
-                  scaleFactor: 1.05,
-                  child: Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isTv ? 24 : 16,
-                      vertical: isTv ? 12 : 8,
-                    ),
-                    color: isSelected ? Colors.redAccent.shade700 : const Color(0xFF1E1E1E),
-                    alignment: Alignment.center,
-                    child: Text(
-                      name,
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: isTv ? 16 : 14,
-                      ),
-                    ),
-                  ),
-                ),
+          const SizedBox(height: 6),
+          TvFocusableCard(
+            onTap: () {
+              _showOptionsDialog<String>(
+                title: "Select Audio Language",
+                items: _dubs.map<String>((d) => (d['lanName'] ?? d['language'] ?? 'Unknown').toString()).toList(),
+                selectedValue: currentAudioName,
+                itemLabel: (name) => name,
+                onSelected: (newName) {
+                  final targetDub = _dubs.firstWhere(
+                    (d) => (d['lanName'] ?? d['language'] ?? 'Unknown') == newName,
+                    orElse: () => {"lanName": newName, "subjectId": widget.subjectId},
+                  );
+                  final subId = targetDub['subjectId'] ?? widget.subjectId;
+                  _onAudioChanged(newName, subId);
+                },
               );
             },
+            borderRadius: BorderRadius.circular(10),
+            scaleFactor: 1.03,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E1E),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF2C2C2C)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    currentAudioName,
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: isTv ? 16 : 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Icon(Icons.arrow_drop_down, color: Colors.redAccent),
+                ],
+              ),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -592,17 +703,15 @@ class _DetailScreenState extends State<DetailScreen> {
           const Divider(color: Color(0xFF222222), height: 1),
           
           if (_isTvShow && _seasons.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _buildSeasonSelector(isTv: isTv),
-            const SizedBox(height: 12),
-            _buildEpisodeSelector(isTv: isTv),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
+            _buildSeasonAndEpisodeDropdowns(isTv: isTv),
+            const SizedBox(height: 8),
             const Divider(color: Color(0xFF222222), height: 1),
           ],
           
-          const SizedBox(height: 12),
-          _buildAudioSelectorHorizontal(isTv: isTv),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          _buildAudioDropdown(isTv: isTv),
+          const SizedBox(height: 8),
           const Divider(color: Color(0xFF222222), height: 1),
           
           Padding(
@@ -639,7 +748,6 @@ class _DetailScreenState extends State<DetailScreen> {
                       ),
                     )
                   : ListView.builder(
-                      clipBehavior: Clip.none,
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       padding: EdgeInsets.symmetric(
