@@ -165,22 +165,22 @@ class MovieBoxApiService {
       timestampMs: ts,
     );
 
-    final userAgent = "com.community.oneroom/50020045 (Linux; U; Android 11; en_US; Redmi 2201117TG; Build/RP1A.200720.011; Cronet/135.0.7012.3)";
-    final clientInfo = '{"package_name":"com.community.oneroom","version_name":"3.0.03.0529.03","version_code":50020045,"os":"android","os_version":"11","install_ch":"ps","device_id":"59bf891583d7f950ad0090886b510528","install_store":"ps","gaid":"f1b203a4-84c1-4b10-a29d-ee1e847c2311","brand":"Redmi","model":"2201117TG","system_language":"en","net":"NETWORK_WIFI","region":"US","country":"US","timezone":"America/New_York","sp_code":"310260","language":"en","locale":"en_US","preferred_language":"en","X-Play-Mode":"2"}';
+    final userAgent = "com.community.oneroom/50020045 (Linux; U; Android 11; en_MG; Redmi 2201117TG; Build/RP1A.200720.011; Cronet/135.0.7012.3)";
+    final clientInfo = '{"package_name":"com.community.oneroom","version_name":"3.0.03.0529.03","version_code":50020045,"os":"android","os_version":"11","install_ch":"ps","device_id":"59bf891583d7f950ad0090886b510528","install_store":"ps","gaid":"f1b203a4-84c1-4b10-a29d-ee1e847c2311","brand":"Redmi","model":"2201117TG","system_language":"en","net":"NETWORK_WIFI","region":"MG","country":"MG","timezone":"Europe/Paris","sp_code":"64601","language":"en","locale":"en_MG","preferred_language":"en","X-Play-Mode":"2"}';
 
     final Map<String, String> headers = {
       "User-Agent": userAgent,
       "Accept": accept,
       "Content-Type": contentType,
-      "Accept-Language": "en-US,en;q=0.9",
-      "Accept-Country": "US",
-      "Accept-Timezone": "America/New_York",
+      "Accept-Language": "en-MG,en;q=0.9",
+      "Accept-Country": "MG",
+      "Accept-Timezone": "Europe/Paris",
       "X-Language": "en",
-      "X-Locale": "en-US",
-      "X-Region": "US",
-      "X-Country": "US",
+      "X-Locale": "en-MG",
+      "X-Region": "MG",
+      "X-Country": "MG",
       "x-language": "en",
-      "x-locale": "en-US",
+      "x-locale": "en-MG",
       "Connection": "keep-alive",
       "X-Client-Token": clientToken,
       "x-tr-signature": signature,
@@ -225,9 +225,6 @@ class MovieBoxApiService {
         body: bodyStr,
         authToken: _runtimeToken,
       );
-      print("DART REQUEST URL: $url");
-      print("DART REQUEST HEADERS: $headers");
-      print("DART REQUEST BODY: $bodyStr");
 
       try {
         final http.Response response;
@@ -253,6 +250,9 @@ class MovieBoxApiService {
           }
           return Map<String, dynamic>.from(resData);
         } else {
+          if (response.statusCode == 403) {
+            _runtimeToken = null; // Clear token if 403 occurs to force refresh
+          }
           lastError = Exception("Server returned code ${response.statusCode} for $url");
         }
       } catch (e) {
