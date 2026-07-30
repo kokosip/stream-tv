@@ -21,6 +21,8 @@ class _HomeScreenState extends State<HomeScreen> {
   late final FocusNode _searchFocusNode;
 
   List<dynamic> _results = [];
+  List<dynamic> _rawResults = [];
+  bool _nsfwFilter = true;
   bool _isLoading = false;
   String _errorMessage = "";
   bool _hasSearched = false;
@@ -57,6 +59,25 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _applyFilter() {
+    if (_nsfwFilter) {
+      _results = _rawResults.where((item) {
+        final restrictKid = item['restrictKid'];
+        final genre = (item['genre'] ?? "").toString().toLowerCase();
+        final rating = (item['contentRating'] ?? "").toString().toUpperCase();
+
+        if (restrictKid == 1 || restrictKid == '1' ||
+            genre.contains('erotic') ||
+            rating == 'R' || rating == 'TV-MA' || rating == 'NC-17') {
+          return false;
+        }
+        return true;
+      }).toList();
+    } else {
+      _results = List.from(_rawResults);
+    }
+  }
+
   void _onSearch() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) return;
@@ -66,12 +87,14 @@ class _HomeScreenState extends State<HomeScreen> {
       _errorMessage = "";
       _hasSearched = true;
       _results = [];
+      _rawResults = [];
     });
 
     try {
       final res = await _api.search(query: query);
       setState(() {
-        _results = res['items'] ?? [];
+        _rawResults = res['items'] ?? [];
+        _applyFilter();
         if (_results.isEmpty) {
           _errorMessage = "No results found for '$query'";
         }
@@ -129,52 +152,127 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 32),
 
-              // Search Bar Group (Smaller size)
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF161616),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFF2C2C2C)),
-                      ),
-                      child: TextField(
-                        controller: _searchController,
-                        focusNode: _searchFocusNode,
-                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 15),
-                        decoration: InputDecoration(
-                          hintText: "Type to Search Movie or TV Show...",
-                          hintStyle: GoogleFonts.outfit(color: Colors.grey.shade600, fontSize: 14),
-                          prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 20),
-                          suffixIcon: _searchController.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.clear, color: Colors.grey, size: 18),
-                                  onPressed: () {
-                                    setState(() {
-                                      _searchController.clear();
-                                      _hasSearched = false;
-                                      _results = [];
-                                      _errorMessage = "";
-                                    });
-                                    _loadFavorites();
-                                  },
-                                )
-                              : null,
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                        ),
-                        onChanged: (_) {
-                          setState(() {});
-                        },
-                        onSubmitted: (_) => _onSearch(),
-                      ),
+              // Search Bar Group (Full Width)
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF161616),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFF2C2C2C)),
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 15),
+                  decoration: InputDecoration(
+                    hintText: "Type to Search Movie or TV Show...",
+                    hintStyle: GoogleFonts.outfit(color: Colors.grey.shade600, fontSize: 14),
+                    prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 20),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, color: Colors.grey, size: 18),
+                            onPressed: () {
+                              setState(() {
+                                _searchController.clear();
+                                _hasSearched = false;
+                                _results = [];
+                                _rawResults = [];
+                                _errorMessage = "";
+                              });
+                              _loadFavorites();
+                            },
+                          )
+                        : null,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  onChanged: (_) {
+                    setState(() {});
+                  },
+                  onSubmitted: (_) => _onSearch(),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Action Buttons Row (Search and NSFW Toggle)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // NSFW switch
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'NSFW Filter',
+                        style: GoogleFonts.outfit(
+                          color: Colors.grey.shade400,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      TvFocusableCard(
+                        onTap: () {
+                          setState(() {
+                            _nsfwFilter = !_nsfwFilter;
+                            _applyFilter();
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(18),
+                        scaleFactor: 1.05,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          width: 65,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(18),
+                            color: _nsfwFilter ? Colors.green.shade800 : Colors.red.shade900,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Positioned(
+                                left: _nsfwFilter ? 8 : null,
+                                right: _nsfwFilter ? null : 8,
+                                child: Text(
+                                  _nsfwFilter ? 'ON' : 'OFF',
+                                  style: GoogleFonts.outfit(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                              AnimatedAlign(
+                                duration: const Duration(milliseconds: 150),
+                                alignment: _nsfwFilter ? Alignment.centerRight : Alignment.centerLeft,
+                                child: Container(
+                                  width: 26,
+                                  height: 26,
+                                  decoration: const BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.white,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black26,
+                                        blurRadius: 3,
+                                        offset: Offset(0, 1),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Search button
                   TvFocusableCard(
                     onTap: _onSearch,
                     borderRadius: BorderRadius.circular(10),
@@ -182,7 +280,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Container(
                       color: Colors.redAccent.shade700,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
+                        horizontal: 32,
                         vertical: 12,
                       ),
                       child: Text(
