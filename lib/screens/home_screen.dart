@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/moviebox_api_service.dart';
 import '../services/favorites_service.dart';
 import '../widgets/tv_focusable_card.dart';
@@ -48,6 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _searchFocusNode.requestFocus();
     });
     _loadFavorites();
+    _checkPasscodeSetup();
   }
 
   void _loadFavorites() async {
@@ -108,6 +110,299 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _checkPasscodeSetup() async {
+    final prefs = await SharedPreferences.getInstance();
+    final passcode = prefs.getString('nsfw_passcode') ?? '';
+    if (passcode.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showSetPasscodeDialog();
+      });
+    }
+  }
+
+  void _showSetPasscodeDialog() {
+    final pinController1 = TextEditingController();
+    final pinController2 = TextEditingController();
+    final errorState = ValueNotifier<String>("");
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return PopScope(
+          canPop: false,
+          child: Dialog(
+            backgroundColor: const Color(0xFF161616),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: Color(0xFF2C2C2C)),
+            ),
+            child: Container(
+              width: 340,
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.security, color: Colors.redAccent.shade700, size: 48),
+                  const SizedBox(height: 16),
+                  Text(
+                    "Set NSFW Passcode",
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Set a 4-digit passcode to lock NSFW content settings.",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.outfit(
+                      color: Colors.grey.shade400,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: pinController1,
+                    keyboardType: TextInputType.number,
+                    obscureText: true,
+                    maxLength: 4,
+                    autofocus: true,
+                    style: const TextStyle(color: Colors.white, letterSpacing: 16),
+                    textAlign: TextAlign.center,
+                    decoration: InputDecoration(
+                      hintText: "••••",
+                      hintStyle: TextStyle(color: Colors.grey.shade700, letterSpacing: 16),
+                      counterText: "",
+                      enabledBorder: const UnderlineInputBorder(
+                        borderSide: BorderSide(color: Color(0xFF2C2C2C)),
+                      ),
+                      focusedBorder: const UnderlineInputBorder(
+                        borderSide: BorderSide(color: Colors.redAccent),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    "Confirm Passcode",
+                    style: GoogleFonts.outfit(
+                      color: Colors.grey.shade400,
+                      fontSize: 12,
+                    ),
+                  ),
+                  TextField(
+                    controller: pinController2,
+                    keyboardType: TextInputType.number,
+                    obscureText: true,
+                    maxLength: 4,
+                    style: const TextStyle(color: Colors.white, letterSpacing: 16),
+                    textAlign: TextAlign.center,
+                    decoration: InputDecoration(
+                      hintText: "••••",
+                      hintStyle: TextStyle(color: Colors.grey.shade700, letterSpacing: 16),
+                      counterText: "",
+                      enabledBorder: const UnderlineInputBorder(
+                        borderSide: BorderSide(color: Color(0xFF2C2C2C)),
+                      ),
+                      focusedBorder: const UnderlineInputBorder(
+                        borderSide: BorderSide(color: Colors.redAccent),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ValueListenableBuilder<String>(
+                    valueListenable: errorState,
+                    builder: (context, error, child) {
+                      if (error.isEmpty) return const SizedBox.shrink();
+                      return Text(
+                        error,
+                        style: GoogleFonts.outfit(color: Colors.redAccent, fontSize: 12),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  TvFocusableCard(
+                    onTap: () async {
+                      final p1 = pinController1.text;
+                      final p2 = pinController2.text;
+                      if (p1.length < 4) {
+                        errorState.value = "Passcode must be 4 digits";
+                        return;
+                      }
+                      if (p1 != p2) {
+                        errorState.value = "Passcodes do not match";
+                        return;
+                      }
+                      
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('nsfw_passcode', p1);
+                      if (mounted) {
+                        Navigator.pop(context);
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      width: double.infinity,
+                      color: Colors.redAccent.shade700,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      alignment: Alignment.center,
+                      child: Text(
+                        "Save Passcode",
+                        style: GoogleFonts.outfit(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showUnlockDialog() {
+    final pinController = TextEditingController();
+    final errorState = ValueNotifier<String>("");
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: const Color(0xFF161616),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFF2C2C2C)),
+          ),
+          child: Container(
+            width: 320,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.lock_open_rounded, color: Colors.redAccent.shade700, size: 48),
+                const SizedBox(height: 16),
+                Text(
+                  "Enter Passcode",
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "Enter the 4-digit passcode to disable the NSFW Filter.",
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(
+                    color: Colors.grey.shade400,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: pinController,
+                  keyboardType: TextInputType.number,
+                  obscureText: true,
+                  maxLength: 4,
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white, letterSpacing: 16),
+                  textAlign: TextAlign.center,
+                  decoration: InputDecoration(
+                    hintText: "••••",
+                    hintStyle: TextStyle(color: Colors.grey.shade700, letterSpacing: 16),
+                    counterText: "",
+                    enabledBorder: const UnderlineInputBorder(
+                      borderSide: BorderSide(color: Color(0xFF2C2C2C)),
+                    ),
+                    focusedBorder: const UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.redAccent),
+                    ),
+                  ),
+                  onSubmitted: (val) => _verifyAndUnlock(val, errorState, context),
+                ),
+                const SizedBox(height: 12),
+                ValueListenableBuilder<String>(
+                  valueListenable: errorState,
+                  builder: (context, error, child) {
+                    if (error.isEmpty) return const SizedBox.shrink();
+                    return Text(
+                      error,
+                      style: GoogleFonts.outfit(color: Colors.redAccent, fontSize: 12),
+                    );
+                  },
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TvFocusableCard(
+                        onTap: () => Navigator.pop(context),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          color: const Color(0xFF262626),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          alignment: Alignment.center,
+                          child: Text(
+                            "Cancel",
+                            style: GoogleFonts.outfit(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TvFocusableCard(
+                        onTap: () => _verifyAndUnlock(pinController.text, errorState, context),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          color: Colors.redAccent.shade700,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          alignment: Alignment.center,
+                          child: Text(
+                            "Unlock",
+                            style: GoogleFonts.outfit(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _verifyAndUnlock(String val, ValueNotifier<String> errorState, BuildContext dialogContext) async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedPin = prefs.getString('nsfw_passcode') ?? '';
+    if (val == savedPin) {
+      setState(() {
+        _nsfwFilter = false;
+        _applyFilter();
+      });
+      Navigator.pop(dialogContext);
+    } else {
+      errorState.value = "Incorrect passcode. Please try again.";
     }
   }
 
@@ -215,10 +510,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(width: 8),
                       TvFocusableCard(
                         onTap: () {
-                          setState(() {
-                            _nsfwFilter = !_nsfwFilter;
-                            _applyFilter();
-                          });
+                          if (_nsfwFilter) {
+                            _showUnlockDialog();
+                          } else {
+                            setState(() {
+                              _nsfwFilter = true;
+                              _applyFilter();
+                            });
+                          }
                         },
                         borderRadius: BorderRadius.circular(18),
                         scaleFactor: 1.05,
