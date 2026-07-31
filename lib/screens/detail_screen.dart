@@ -303,6 +303,8 @@ class _DetailScreenState extends State<DetailScreen> {
             season: _isTvShow ? _selectedSeasonNumber : 0,
             episode: _isTvShow ? _selectedEpisodeNumber : 0,
             captions: captions,
+            coverUrl: _details?['cover']?['url'] ?? _details?['coverUrl'] ?? "",
+            subjectType: _details?['subjectType'] ?? _details?['subject_type'] ?? 1,
           ),
         ),
       );

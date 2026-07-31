@@ -17,6 +17,8 @@ class PlayerScreen extends StatefulWidget {
   final int season;
   final int episode;
   final List<dynamic> captions;
+  final String? coverUrl;
+  final int? subjectType;
 
   const PlayerScreen({
     super.key,
@@ -26,6 +28,8 @@ class PlayerScreen extends StatefulWidget {
     this.season = 0,
     this.episode = 0,
     this.captions = const [],
+    this.coverUrl,
+    this.subjectType,
   });
 
   @override
@@ -349,6 +353,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         widget.episode,
         posMs,
         durMs,
+        title: widget.title,
+        coverUrl: widget.coverUrl,
+        subjectType: widget.subjectType,
       );
     }
   }
