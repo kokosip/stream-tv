@@ -35,6 +35,15 @@ class _HomeScreenState extends State<HomeScreen> {
   List<dynamic> _homeItems = [];
   List<dynamic> _bannerItems = [];
 
+  // Custom filtering state variables
+  String _selectedLanguage = "Semua";
+  String _selectedGenre = "Semua";
+  String _selectedType = "Semua";
+  String _selectedRating = "Semua";
+  bool _isFiltering = false;
+  bool _isLoadingFilters = false;
+  List<dynamic> _filteredResults = [];
+
   @override
   void initState() {
     super.initState();
@@ -159,6 +168,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (query.isEmpty) return;
 
     setState(() {
+      _selectedLanguage = "Semua";
+      _selectedGenre = "Semua";
+      _selectedType = "Semua";
+      _selectedRating = "Semua";
+      _isFiltering = false;
+      _filteredResults = [];
       _isLoadingSearch = true;
       _errorMessage = "";
       _hasSearched = true;
@@ -185,6 +200,479 @@ class _HomeScreenState extends State<HomeScreen> {
         _isLoadingSearch = false;
       });
     }
+  }
+
+  Future<void> _applyCustomFilters() async {
+    if (_selectedLanguage == "Semua" &&
+        _selectedGenre == "Semua" &&
+        _selectedType == "Semua" &&
+        _selectedRating == "Semua") {
+      setState(() {
+        _isFiltering = false;
+        _filteredResults = [];
+      });
+      _loadAllHomeData();
+      return;
+    }
+
+    setState(() {
+      _isFiltering = true;
+      _isLoadingFilters = true;
+      _errorMessage = "";
+      _searchController.clear();
+      _hasSearched = false;
+      _searchResults = [];
+      _rawSearchResults = [];
+    });
+
+    try {
+      List<dynamic> sourceItems = [];
+
+      if (_selectedLanguage != "Semua") {
+        final int targetType = _selectedType == "TV Series" ? 2 : (_selectedType == "Movies" ? 1 : 0);
+        final results = await Future.wait([
+          _api.search(query: _selectedLanguage, subjectType: targetType, page: 1, perPage: 20),
+          _api.search(query: _selectedLanguage, subjectType: targetType, page: 2, perPage: 20),
+        ]);
+        sourceItems = [
+          ...(results[0]['items'] ?? []),
+          ...(results[1]['items'] ?? []),
+        ];
+      } else if (_selectedGenre != "Semua") {
+        final int targetType = _selectedType == "TV Series" ? 2 : (_selectedType == "Movies" ? 1 : 0);
+        final results = await Future.wait([
+          _api.search(query: _selectedGenre, subjectType: targetType, page: 1, perPage: 20),
+          _api.search(query: _selectedGenre, subjectType: targetType, page: 2, perPage: 20),
+        ]);
+        sourceItems = [
+          ...(results[0]['items'] ?? []),
+          ...(results[1]['items'] ?? []),
+        ];
+      } else if (_selectedRating != "Semua") {
+        // Search generic term "the" to get results with rating metadata to filter
+        final int targetType = _selectedType == "TV Series" ? 2 : (_selectedType == "Movies" ? 1 : 0);
+        final results = await Future.wait([
+          _api.search(query: "the", subjectType: targetType, page: 1, perPage: 20),
+          _api.search(query: "the", subjectType: targetType, page: 2, perPage: 20),
+        ]);
+        sourceItems = [
+          ...(results[0]['items'] ?? []),
+          ...(results[1]['items'] ?? []),
+        ];
+      } else {
+        if (_selectedType == "Movies") {
+          final res = await _api.getHomepage(page: 1, tabId: 2);
+          final List<dynamic> rawMovieItems = res['items'] ?? [];
+          for (final section in rawMovieItems) {
+            if (section['type'] == 'SUBJECTS_MOVIE') {
+              final List<dynamic> subs = section['subjects'] ?? [];
+              sourceItems.addAll(subs);
+            }
+          }
+        } else if (_selectedType == "TV Series") {
+          final res = await _api.getHomepage(page: 1, tabId: 5);
+          final List<dynamic> rawTvItems = res['items'] ?? [];
+          for (final section in rawTvItems) {
+            if (section['type'] == 'SUBJECTS_MOVIE') {
+              final List<dynamic> subs = section['subjects'] ?? [];
+              sourceItems.addAll(subs);
+            }
+          }
+        }
+      }
+
+      final Set<String> seenIds = {};
+      final List<dynamic> uniqueItems = [];
+      for (final item in sourceItems) {
+        final id = (item['subjectId'] ?? item['id']?.toString() ?? "");
+        if (id.isNotEmpty && !seenIds.contains(id)) {
+          seenIds.add(id);
+          uniqueItems.add(item);
+        }
+      }
+
+      final List<dynamic> filtered = uniqueItems.where((item) {
+        if (_selectedLanguage != "Semua") {
+          final String title = (item['title'] ?? "").toString().toLowerCase();
+          final String language = (item['language'] ?? "").toString().toLowerCase();
+          final String country = (item['countryName'] ?? "").toString().toLowerCase();
+          
+          if (_selectedLanguage == "Indonesia") {
+            if (!language.contains("indonesia") && 
+                !country.contains("indonesia") && 
+                !title.contains("[indonesian]")) {
+              return false;
+            }
+          } else if (_selectedLanguage == "English") {
+            if (!language.contains("english") && 
+                !country.contains("united states") && 
+                !country.contains("united kingdom") && 
+                !country.contains("canada") && 
+                !country.contains("australia")) {
+              return false;
+            }
+          } else if (_selectedLanguage == "Korea") {
+            if (!language.contains("korean") && !country.contains("korea")) {
+              return false;
+            }
+          } else if (_selectedLanguage == "Japan") {
+            if (!language.contains("japanese") && !country.contains("japan")) {
+              return false;
+            }
+          } else if (_selectedLanguage == "China") {
+            if (!language.contains("chinese") && 
+                !country.contains("china") && 
+                !country.contains("hong kong") && 
+                !country.contains("taiwan")) {
+              return false;
+            }
+          }
+        }
+
+        if (_selectedGenre != "Semua") {
+          final String genre = (item['genre'] ?? "").toString().toLowerCase();
+          final String targetGenre = _selectedGenre.toLowerCase();
+          if (targetGenre == "romantic") {
+            if (!genre.contains("romance") && !genre.contains("romantic")) {
+              return false;
+            }
+          } else if (targetGenre == "anime") {
+            if (!genre.contains("animation") && !genre.contains("anime")) {
+              return false;
+            }
+          } else {
+            if (!genre.contains(targetGenre)) {
+              return false;
+            }
+          }
+        }
+
+        if (_selectedType != "Semua") {
+          final type = item['subjectType'] ?? item['subject_type'] ?? 1;
+          final int expectedType = _selectedType == "TV Series" ? 2 : 1;
+          if (type != expectedType && type.toString() != expectedType.toString()) {
+            return false;
+          }
+        }
+
+        if (_selectedRating != "Semua") {
+          final String rating = (item['contentRating'] ?? "").toString().toUpperCase();
+          if (rating != _selectedRating.toUpperCase()) {
+            return false;
+          }
+        }
+
+        if (_nsfwFilter) {
+          final restrictKid = item['restrictKid'];
+          final genre = (item['genre'] ?? "").toString().toLowerCase();
+          if (restrictKid == 1 || restrictKid == '1' || genre.contains('erotic')) {
+            return false;
+          }
+        }
+
+        return true;
+      }).toList();
+
+      setState(() {
+        _filteredResults = filtered;
+      });
+    } catch (e) {
+      print("MovieBox Apply Filters Error: $e");
+      setState(() {
+        _errorMessage = "Gagal memfilter konten. Silakan coba lagi.";
+      });
+    } finally {
+      setState(() {
+        _isLoadingFilters = false;
+      });
+    }
+  }
+
+  Widget _buildFilterRow(bool isTv) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        children: [
+          _buildFilterDropdown(
+            label: "Bahasa",
+            value: _selectedLanguage,
+            items: ["Semua", "English", "Indonesia", "Korea", "Japan", "China"],
+            onChanged: (val) {
+              if (val != null) {
+                setState(() {
+                  _selectedLanguage = val;
+                });
+                _applyCustomFilters();
+              }
+            },
+          ),
+          const SizedBox(width: 12),
+          _buildFilterDropdown(
+            label: "Genre",
+            value: _selectedGenre,
+            items: ["Semua", "Romantic", "Horror", "Anime", "Action", "Comedy", "Drama"],
+            onChanged: (val) {
+              if (val != null) {
+                setState(() {
+                  _selectedGenre = val;
+                });
+                _applyCustomFilters();
+              }
+            },
+          ),
+          const SizedBox(width: 12),
+          _buildFilterDropdown(
+            label: "Tipe",
+            value: _selectedType,
+            items: ["Semua", "Movies", "TV Series"],
+            onChanged: (val) {
+              if (val != null) {
+                setState(() {
+                  _selectedType = val;
+                });
+                _applyCustomFilters();
+              }
+            },
+          ),
+          const SizedBox(width: 12),
+          _buildFilterDropdown(
+            label: "Rating",
+            value: _selectedRating,
+            items: ["Semua", "G", "PG", "PG-13", "R", "NC-17", "TV-G", "TV-PG", "TV-14", "TV-MA"],
+            onChanged: (val) {
+              if (val != null) {
+                setState(() {
+                  _selectedRating = val;
+                });
+                _applyCustomFilters();
+              }
+            },
+          ),
+          if (_isFiltering) ...[
+            const SizedBox(width: 12),
+            TvFocusableCard(
+              onTap: () {
+                setState(() {
+                  _selectedLanguage = "Semua";
+                  _selectedGenre = "Semua";
+                  _selectedType = "Semua";
+                  _selectedRating = "Semua";
+                  _isFiltering = false;
+                  _filteredResults = [];
+                });
+                _loadAllHomeData();
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                color: Colors.redAccent.shade700,
+                child: Row(
+                  children: [
+                    const Icon(Icons.refresh, color: Colors.white, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      "Reset",
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterDropdown({
+    required String label,
+    required String value,
+    required List<String> items,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161616),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF2C2C2C)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            "$label: ",
+            style: GoogleFonts.outfit(
+              color: Colors.grey.shade500,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Theme(
+            data: Theme.of(context).copyWith(
+              canvasColor: const Color(0xFF161616),
+            ),
+            child: DropdownButton<String>(
+              value: value,
+              underline: const SizedBox.shrink(),
+              icon: const Icon(Icons.arrow_drop_down, color: Colors.grey, size: 20),
+              style: GoogleFonts.outfit(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+              items: items.map((String item) {
+                return DropdownMenuItem<String>(
+                  value: item,
+                  child: Text(item),
+                );
+              }).toList(),
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilteredResultsSection(bool isTv) {
+    if (_isLoadingFilters) {
+      return const Center(
+        child: SpinKitRing(color: Colors.redAccent, size: 50.0),
+      );
+    }
+
+    if (_errorMessage.isNotEmpty) {
+      return Center(
+        child: Text(
+          _errorMessage,
+          style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 14),
+        ),
+      );
+    }
+
+    if (_filteredResults.isEmpty) {
+      return Center(
+        child: Text(
+          "Tidak ada hasil yang sesuai dengan filter",
+          style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 14),
+        ),
+      );
+    }
+
+    return GridView.builder(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: isTv ? 6 : 3,
+        childAspectRatio: 0.7,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+      ),
+      itemCount: _filteredResults.length,
+      itemBuilder: (context, index) {
+        final item = _filteredResults[index];
+        final title = item['title'] ?? item['subjectTitle'] ?? "Untitled";
+        final coverUrl = item['cover']?['url'] ?? "";
+        final subjectId = item['subjectId'] ?? item['id']?.toString() ?? "";
+        final rating = item['imdbRate'] ?? item['imdbRatingValue'] ?? "";
+        final type = item['subjectType'] ?? item['subject_type'] ?? 1;
+        final isShow = type == 2 || type?.toString() == '2' || type?.toString().toLowerCase() == 'tv';
+
+        return TvFocusableCard(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => DetailScreen(subjectId: subjectId),
+              ),
+            ).then((_) {
+              _loadFavoritesAndProgress();
+            });
+          },
+          borderRadius: BorderRadius.circular(10),
+          scaleFactor: 1.04,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CachedNetworkImage(
+                imageUrl: coverUrl,
+                fit: BoxFit.cover,
+                placeholder: (context, url) => Container(
+                  color: const Color(0xFF1E1E1E),
+                  child: const Center(
+                    child: SpinKitRing(color: Colors.redAccent, size: 24),
+                  ),
+                ),
+                errorWidget: (context, url, error) => Container(
+                  color: const Color(0xFF1E1E1E),
+                  child: const Icon(Icons.movie, size: 40, color: Colors.grey),
+                ),
+              ),
+              if (rating.toString().isNotEmpty)
+                Positioned(
+                  top: 6,
+                  left: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.75),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      "★ $rating",
+                      style: GoogleFonts.outfit(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isShow ? Colors.blue.shade900.withOpacity(0.85) : Colors.red.shade900.withOpacity(0.85),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    isShow ? "TV" : "MOVIE",
+                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Colors.black.withOpacity(0.9)],
+                    ),
+                  ),
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _checkPasscodeSetup() async {
@@ -473,6 +961,9 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _nsfwFilter = false;
         _applySearchFilter();
+        if (_isFiltering) {
+          _applyCustomFilters();
+        }
       });
       Navigator.pop(dialogContext);
     } else {
@@ -508,12 +999,18 @@ class _HomeScreenState extends State<HomeScreen> {
               _buildSearchBar(),
               const SizedBox(height: 16),
 
-              // 3. Dynamic content body
+              // 3. Filter Row
+              _buildFilterRow(isTv),
+              const SizedBox(height: 16),
+
+              // 4. Dynamic content body
               Expanded(
                 child: ClipRect(
-                  child: _hasSearched 
-                      ? _buildSearchResultsSection(isTv)
-                      : _buildHomeSections(isTv),
+                  child: _isFiltering
+                      ? _buildFilteredResultsSection(isTv)
+                      : (_hasSearched 
+                          ? _buildSearchResultsSection(isTv)
+                          : _buildHomeSections(isTv)),
                 ),
               ),
             ],
@@ -557,6 +1054,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   setState(() {
                     _nsfwFilter = true;
                     _applySearchFilter();
+                    if (_isFiltering) {
+                      _applyCustomFilters();
+                    }
                   });
                 }
               },
