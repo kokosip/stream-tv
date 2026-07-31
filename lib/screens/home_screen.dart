@@ -67,13 +67,21 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      // 1. Fetch homepage items from MovieBox API
-      final res = await _api.getHomepage(page: 1, tabId: 0);
-      final List<dynamic> rawItems = res['items'] ?? [];
+      // 1. Fetch homepage (tabId 0) and Indonesian movies concurrently
+      final responses = await Future.wait([
+        _api.getHomepage(page: 1, tabId: 0),
+        _api.search(query: "Indonesia", subjectType: 1, page: 1, perPage: 20),
+      ]);
 
-      // 2. Extract banners
+      final resHome = responses[0];
+      final resSearch = responses[1];
+
+      final List<dynamic> rawHomeItems = resHome['items'] ?? [];
+      final List<dynamic> searchItems = resSearch['items'] ?? [];
+
+      // 2. Extract banners from Home
       List<dynamic> banners = [];
-      final bannerSection = rawItems.firstWhere(
+      final bannerSection = rawHomeItems.firstWhere(
         (item) => item['type'] == 'BANNER',
         orElse: () => null,
       );
@@ -81,8 +89,21 @@ class _HomeScreenState extends State<HomeScreen> {
         banners = bannerSection['banner']['banners'] ?? [];
       }
 
-      // Filter only subjects rows (dynamic category rows)
-      final subjectsSections = rawItems.where((item) => item['type'] == 'SUBJECTS_MOVIE').toList();
+      // Filter only subjects rows from Home (dynamic category rows)
+      final subjectsSections = rawHomeItems.where((item) => item['type'] == 'SUBJECTS_MOVIE').toList();
+
+      // Construct custom "Film Indonesia" category row
+      if (searchItems.isNotEmpty) {
+        final customIndoSection = {
+          "title": "Film Indonesia",
+          "subjects": searchItems,
+        };
+        if (subjectsSections.isNotEmpty) {
+          subjectsSections.insert(1, customIndoSection);
+        } else {
+          subjectsSections.add(customIndoSection);
+        }
+      }
 
       setState(() {
         _homeItems = subjectsSections;
