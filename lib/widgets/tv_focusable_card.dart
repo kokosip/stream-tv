@@ -6,6 +6,7 @@ class TvFocusableCard extends StatefulWidget {
   final double scaleFactor;
   final BorderRadius borderRadius;
   final FocusNode? focusNode;
+  final bool autoFocus;
 
   const TvFocusableCard({
     super.key,
@@ -14,6 +15,7 @@ class TvFocusableCard extends StatefulWidget {
     this.scaleFactor = 1.06,
     this.borderRadius = const BorderRadius.all(Radius.circular(12)),
     this.focusNode,
+    this.autoFocus = false,
   });
 
   @override
@@ -27,6 +29,7 @@ class _TvFocusableCardState extends State<TvFocusableCard> {
   Widget build(BuildContext context) {
     return InkWell(
       focusNode: widget.focusNode,
+      autofocus: widget.autoFocus,
       onFocusChange: (hasFocus) {
         setState(() {
           _isFocused = hasFocus;
