@@ -169,6 +169,9 @@ class _SetPasscodeDialogState extends State<SetPasscodeDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final isTv = size.width > 800;
+
     return Focus(
       canRequestFocus: false,
       skipTraversal: true,
@@ -177,13 +180,16 @@ class _SetPasscodeDialogState extends State<SetPasscodeDialog> {
         canPop: false,
         child: Dialog(
           backgroundColor: const Color(0xFF161616),
+          insetPadding: isTv
+              ? const EdgeInsets.symmetric(horizontal: 40.0, vertical: 24.0)
+              : const EdgeInsets.symmetric(horizontal: 20.0, vertical: 24.0),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: const BorderSide(color: Color(0xFF2C2C2C)),
           ),
           child: Container(
-            width: 360,
-            padding: const EdgeInsets.all(24),
+            width: isTv ? 360 : 310,
+            padding: EdgeInsets.all(isTv ? 24 : 16),
             child: FocusTraversalGroup(
               policy: WidgetOrderTraversalPolicy(),
               child: Column(
@@ -206,7 +212,9 @@ class _SetPasscodeDialogState extends State<SetPasscodeDialog> {
                   const SizedBox(height: 6),
                   Text(
                     _step == 0
-                        ? "Use your remote to enter a 4-digit passcode."
+                        ? (isTv
+                            ? "Use your remote to enter a 4-digit passcode."
+                            : "Enter a 4-digit passcode.")
                         : "Re-enter the passcode to confirm.",
                     textAlign: TextAlign.center,
                     style: GoogleFonts.outfit(
@@ -236,7 +244,7 @@ class _SetPasscodeDialogState extends State<SetPasscodeDialog> {
                     ),
 
                   // On-Screen Keypad Grid
-                  _buildKeypadGrid(),
+                  _buildKeypadGrid(isTv),
                 ],
               ),
             ),
@@ -299,7 +307,7 @@ class _SetPasscodeDialogState extends State<SetPasscodeDialog> {
     );
   }
 
-  Widget _buildKeypadGrid() {
+  Widget _buildKeypadGrid(bool isTv) {
     final keys = [
       ['1', '2', '3'],
       ['4', '5', '6'],
@@ -307,23 +315,27 @@ class _SetPasscodeDialogState extends State<SetPasscodeDialog> {
       ['BACK', '0', 'CLEAR'],
     ];
 
+    final btnWidth = isTv ? 80.0 : 64.0;
+    final btnHeight = isTv ? 48.0 : 64.0;
+    final btnRadius = isTv ? BorderRadius.circular(10) : BorderRadius.circular(32);
+
     return Column(
       children: keys.map((row) {
         return Padding(
-          padding: const EdgeInsets.only(bottom: 8.0),
+          padding: EdgeInsets.only(bottom: isTv ? 8.0 : 12.0),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: row.map((key) {
               final isButton1 = key == '1';
               return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                padding: EdgeInsets.symmetric(horizontal: isTv ? 6.0 : 12.0),
                 child: SizedBox(
-                  width: 80,
-                  height: 48,
+                  width: btnWidth,
+                  height: btnHeight,
                   child: TvFocusableCard(
                     focusNode: isButton1 ? _button1FocusNode : null,
-                    autoFocus: isButton1,
-                    borderRadius: BorderRadius.circular(10),
+                    autoFocus: isButton1 && isTv,
+                    borderRadius: btnRadius,
                     onTap: () {
                       if (key == 'BACK') {
                         _onBackspace();
@@ -478,19 +490,25 @@ class _UnlockPasscodeDialogState extends State<UnlockPasscodeDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final isTv = size.width > 800;
+
     return Focus(
       canRequestFocus: false,
       skipTraversal: true,
       onKeyEvent: _handleKeyEvent,
       child: Dialog(
         backgroundColor: const Color(0xFF161616),
+        insetPadding: isTv
+            ? const EdgeInsets.symmetric(horizontal: 40.0, vertical: 24.0)
+            : const EdgeInsets.symmetric(horizontal: 20.0, vertical: 24.0),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
           side: const BorderSide(color: Color(0xFF2C2C2C)),
         ),
         child: Container(
-          width: 360,
-          padding: const EdgeInsets.all(24),
+          width: isTv ? 360 : 310,
+          padding: EdgeInsets.all(isTv ? 24 : 16),
           child: FocusTraversalGroup(
             policy: WidgetOrderTraversalPolicy(),
             child: Column(
@@ -512,7 +530,9 @@ class _UnlockPasscodeDialogState extends State<UnlockPasscodeDialog> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  "Enter the 4-digit passcode to disable the NSFW Filter.",
+                  isTv
+                      ? "Enter the 4-digit passcode to disable the NSFW Filter."
+                      : "Enter the 4-digit passcode.",
                   textAlign: TextAlign.center,
                   style: GoogleFonts.outfit(
                     color: Colors.grey.shade400,
@@ -541,17 +561,17 @@ class _UnlockPasscodeDialogState extends State<UnlockPasscodeDialog> {
                   ),
 
                 // Keypad Grid
-                _buildKeypadGrid(),
+                _buildKeypadGrid(isTv),
 
                 const SizedBox(height: 16),
                 // Cancel Action
                 TvFocusableCard(
                   onTap: () => Navigator.of(context).pop(false),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: isTv ? BorderRadius.circular(10) : BorderRadius.circular(32),
                   child: Container(
                     width: double.infinity,
                     color: const Color(0xFF262626),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    padding: EdgeInsets.symmetric(vertical: isTv ? 10 : 14),
                     alignment: Alignment.center,
                     child: Text(
                       "Cancel",
@@ -624,7 +644,7 @@ class _UnlockPasscodeDialogState extends State<UnlockPasscodeDialog> {
     );
   }
 
-  Widget _buildKeypadGrid() {
+  Widget _buildKeypadGrid(bool isTv) {
     final keys = [
       ['1', '2', '3'],
       ['4', '5', '6'],
@@ -632,23 +652,27 @@ class _UnlockPasscodeDialogState extends State<UnlockPasscodeDialog> {
       ['BACK', '0', 'CLEAR'],
     ];
 
+    final btnWidth = isTv ? 80.0 : 64.0;
+    final btnHeight = isTv ? 48.0 : 64.0;
+    final btnRadius = isTv ? BorderRadius.circular(10) : BorderRadius.circular(32);
+
     return Column(
       children: keys.map((row) {
         return Padding(
-          padding: const EdgeInsets.only(bottom: 8.0),
+          padding: EdgeInsets.only(bottom: isTv ? 8.0 : 12.0),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: row.map((key) {
               final isButton1 = key == '1';
               return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                padding: EdgeInsets.symmetric(horizontal: isTv ? 6.0 : 12.0),
                 child: SizedBox(
-                  width: 80,
-                  height: 48,
+                  width: btnWidth,
+                  height: btnHeight,
                   child: TvFocusableCard(
                     focusNode: isButton1 ? _button1FocusNode : null,
-                    autoFocus: isButton1,
-                    borderRadius: BorderRadius.circular(10),
+                    autoFocus: isButton1 && isTv,
+                    borderRadius: btnRadius,
                     onTap: () {
                       if (key == 'BACK') {
                         _onBackspace();

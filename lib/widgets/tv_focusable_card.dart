@@ -27,6 +27,9 @@ class _TvFocusableCardState extends State<TvFocusableCard> {
 
   @override
   Widget build(BuildContext context) {
+    final isTv = MediaQuery.of(context).size.width > 800;
+    final showFocus = _isFocused && isTv;
+
     return InkWell(
       focusNode: widget.focusNode,
       autofocus: widget.autoFocus,
@@ -42,7 +45,7 @@ class _TvFocusableCardState extends State<TvFocusableCard> {
       splashColor: Colors.red.withOpacity(0.3),
       highlightColor: Colors.transparent,
       child: AnimatedScale(
-        scale: _isFocused ? widget.scaleFactor : 1.0,
+        scale: showFocus ? widget.scaleFactor : 1.0,
         duration: const Duration(milliseconds: 150),
         curve: Curves.easeOutCubic,
         child: AnimatedContainer(
@@ -50,11 +53,11 @@ class _TvFocusableCardState extends State<TvFocusableCard> {
           decoration: BoxDecoration(
             borderRadius: widget.borderRadius,
             border: Border.all(
-              color: _isFocused ? Colors.redAccent.shade700 : Colors.transparent,
+              color: showFocus ? Colors.redAccent.shade700 : Colors.transparent,
               width: 3.0,
               strokeAlign: BorderSide.strokeAlignOutside,
             ),
-            boxShadow: _isFocused
+            boxShadow: showFocus
                 ? [
                     BoxShadow(
                       color: Colors.redAccent.shade700.withOpacity(0.45),
