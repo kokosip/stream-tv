@@ -5,6 +5,11 @@ import 'screens/home_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Restrict Flutter imageCache size to prevent Android TV Low Memory (OOM) killer crashes
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 40 * 1024 * 1024;
+  PaintingBinding.instance.imageCache.maximumSize = 100;
+
   MediaKit.ensureInitialized();
   runApp(const MovieBoxTvApp());
 }

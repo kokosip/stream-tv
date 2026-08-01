@@ -123,10 +123,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void initState() {
     super.initState();
     
-    // Initialize MediaKit Player and Controller with larger buffer size (64MB)
+    // Initialize MediaKit Player and Controller with 16MB buffer size for TV RAM optimization
     _player = Player(
       configuration: const PlayerConfiguration(
-        bufferSize: 64 * 1024 * 1024,
+        bufferSize: 16 * 1024 * 1024,
       ),
     );
     _controller = VideoController(_player);

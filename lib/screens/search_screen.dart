@@ -180,6 +180,8 @@ class _SearchScreenState extends State<SearchScreen> {
                                 children: [
                                   CachedNetworkImage(
                                     imageUrl: coverUrl,
+                                    memCacheWidth: 320,
+                                    memCacheHeight: 480,
                                     fit: BoxFit.cover,
                                     placeholder: (context, url) => Container(
                                       color: const Color(0xFF1E1E1E),

@@ -601,6 +601,8 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               CachedNetworkImage(
                 imageUrl: coverUrl,
+                memCacheWidth: 320,
+                memCacheHeight: 480,
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
                   color: const Color(0xFF1E1E1E),
@@ -942,6 +944,8 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               CachedNetworkImage(
                 imageUrl: coverUrl,
+                memCacheWidth: 320,
+                memCacheHeight: 480,
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
                   color: const Color(0xFF1E1E1E),
@@ -1084,6 +1088,8 @@ class _HomeScreenState extends State<HomeScreen> {
             // Banner Background
             CachedNetworkImage(
               imageUrl: imageUrl,
+              memCacheWidth: 800,
+              memCacheHeight: 450,
               fit: BoxFit.cover,
               errorWidget: (context, url, error) => Container(color: const Color(0xFF1E1E1E)),
             ),
@@ -1227,6 +1233,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           borderRadius: BorderRadius.circular(6),
                           child: CachedNetworkImage(
                             imageUrl: coverUrl,
+                            memCacheWidth: 150,
+                            memCacheHeight: 250,
                             width: 50,
                             height: 84,
                             fit: BoxFit.cover,
@@ -1349,6 +1357,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         CachedNetworkImage(
                           imageUrl: coverUrl,
+                          memCacheWidth: 260,
+                          memCacheHeight: 390,
                           fit: BoxFit.cover,
                           errorWidget: (context, url, error) => Container(color: const Color(0xFF1E1E1E)),
                         ),
@@ -1478,6 +1488,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         // Card Poster image
                         CachedNetworkImage(
                           imageUrl: coverUrl,
+                          memCacheWidth: 260,
+                          memCacheHeight: 390,
                           fit: BoxFit.cover,
                           placeholder: (context, url) => Container(
                             color: const Color(0xFF1E1E1E),
