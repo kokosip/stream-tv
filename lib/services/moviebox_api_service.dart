@@ -21,6 +21,7 @@ class MovieBoxApiService {
 
   // Token absorbed from the server dynamically
   String? _runtimeToken;
+  Future<void>? _tokenFetchFuture;
 
   void _absorbXUser(Map<String, String> headers) {
     String xUser = "";
@@ -186,12 +187,36 @@ class MovieBoxApiService {
     return headers;
   }
 
+  Future<void> _ensureToken() async {
+    if (_runtimeToken != null) return;
+    if (_tokenFetchFuture != null) {
+      return _tokenFetchFuture;
+    }
+    
+    print("No token found. Fetching token...");
+    _tokenFetchFuture = () async {
+      try {
+        await getHomepage(page: 1, tabId: 0);
+        print("Token fetched successfully: $_runtimeToken");
+      } catch (e) {
+        print("Failed to fetch token: $e");
+      } finally {
+        _tokenFetchFuture = null;
+      }
+    }();
+    return _tokenFetchFuture;
+  }
+
   /// Generic request handler with pool fallback
   Future<Map<String, dynamic>> _request(
     String method,
     String pathAndQuery, {
     Map<String, dynamic>? body,
   }) async {
+    if (_runtimeToken == null && !pathAndQuery.contains("tab-operating")) {
+      await _ensureToken();
+    }
+
     Object? lastError;
     
     // Order hosts starting with the active base
@@ -237,8 +262,46 @@ class MovieBoxApiService {
           }
           return Map<String, dynamic>.from(resData);
         } else {
-          if (response.statusCode == 403) {
-            _runtimeToken = null; // Clear token if 403 occurs to force refresh
+          if (response.statusCode == 401 || response.statusCode == 403 || response.statusCode == 441) {
+            _runtimeToken = null; // Clear token to force refresh
+            if (!pathAndQuery.contains("tab-operating")) {
+              print("Auth failed with ${response.statusCode}. Retrying with a new token...");
+              await _ensureToken();
+              if (_runtimeToken != null) {
+                final retryHeaders = _buildSignedHeaders(
+                  method: method,
+                  url: url,
+                  contentType: contentType,
+                  body: bodyStr,
+                  authToken: _runtimeToken,
+                );
+                final http.Response retryResponse;
+                if (method == "GET") {
+                  retryResponse = await http.get(Uri.parse(url), headers: retryHeaders)
+                      .timeout(const Duration(seconds: 8));
+                } else {
+                  retryResponse = await http.post(
+                    Uri.parse(url),
+                    headers: retryHeaders,
+                    body: bodyStr,
+                  ).timeout(const Duration(seconds: 8));
+                }
+
+                _absorbXUser(retryResponse.headers);
+
+                if (retryResponse.statusCode == 200) {
+                  final resData = jsonDecode(retryResponse.body);
+                  _activeBase = base; // Lock in successful base
+                  if (resData is Map && resData.containsKey("data")) {
+                    return Map<String, dynamic>.from(resData["data"]);
+                  }
+                  return Map<String, dynamic>.from(resData);
+                } else {
+                  lastError = Exception("Server returned code ${retryResponse.statusCode} for $url (after retry)");
+                  continue; // Try next host
+                }
+              }
+            }
           }
           lastError = Exception("Server returned code ${response.statusCode} for $url");
         }
