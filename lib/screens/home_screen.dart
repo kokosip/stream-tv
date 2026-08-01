@@ -22,6 +22,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final MovieBoxApiService _api = MovieBoxApiService();
   final TextEditingController _searchController = TextEditingController();
   late final FocusNode _searchFocusNode;
+  late final FocusNode _nsfwFocusNode;
 
   List<dynamic> _searchResults = [];
   List<dynamic> _rawSearchResults = [];
@@ -48,10 +49,14 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _nsfwFocusNode = FocusNode();
     _searchFocusNode = FocusNode(
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
-          if (event.logicalKey == LogicalKeyboardKey.arrowDown ||
+          if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            _nsfwFocusNode.requestFocus();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowDown ||
               event.logicalKey == LogicalKeyboardKey.arrowRight) {
             node.nextFocus();
             return KeyEventResult.handled;
@@ -718,6 +723,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
+    _nsfwFocusNode.dispose();
     super.dispose();
   }
 
@@ -777,75 +783,84 @@ class _HomeScreenState extends State<HomeScreen> {
             letterSpacing: 2,
           ),
         ),
-        // NSFW & Settings Actions
-        Row(
-          children: [
-            Text(
-              'NSFW Filter',
-              style: GoogleFonts.outfit(
-                color: Colors.grey.shade400,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(width: 8),
-            TvFocusableCard(
-              onTap: () {
-                if (_nsfwFilter) {
-                  _showUnlockDialog();
-                } else {
-                  setState(() {
-                    _nsfwFilter = true;
-                    _applySearchFilter();
-                    if (_isFiltering) {
-                      _applyCustomFilters();
-                    }
-                  });
+        // NSFW Filter Action Button (Focusable with TV D-Pad)
+        TvFocusableCard(
+          focusNode: _nsfwFocusNode,
+          onTap: () {
+            if (_nsfwFilter) {
+              _showUnlockDialog();
+            } else {
+              setState(() {
+                _nsfwFilter = true;
+                _applySearchFilter();
+                if (_isFiltering) {
+                  _applyCustomFilters();
                 }
-              },
-              borderRadius: BorderRadius.circular(16),
-              scaleFactor: 1.05,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                width: 55,
-                height: 28,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  color: _nsfwFilter ? Colors.green.shade800 : Colors.red.shade900,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Positioned(
-                      left: _nsfwFilter ? 6 : null,
-                      right: _nsfwFilter ? null : 6,
-                      child: Text(
-                        _nsfwFilter ? 'ON' : 'OFF',
-                        style: GoogleFonts.outfit(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    AnimatedAlign(
-                      duration: const Duration(milliseconds: 150),
-                      alignment: _nsfwFilter ? Alignment.centerRight : Alignment.centerLeft,
-                      child: Container(
-                        width: 20,
-                        height: 20,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              });
+            }
+          },
+          borderRadius: BorderRadius.circular(20),
+          scaleFactor: 1.05,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF161616),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFF2C2C2C)),
             ),
-          ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'NSFW Filter',
+                  style: GoogleFonts.outfit(
+                    color: Colors.grey.shade300,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  width: 48,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: _nsfwFilter ? Colors.green.shade800 : Colors.red.shade900,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Positioned(
+                        left: _nsfwFilter ? 6 : null,
+                        right: _nsfwFilter ? null : 6,
+                        child: Text(
+                          _nsfwFilter ? 'ON' : 'OFF',
+                          style: GoogleFonts.outfit(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                      AnimatedAlign(
+                        duration: const Duration(milliseconds: 150),
+                        alignment: _nsfwFilter ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          width: 18,
+                          height: 18,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ],
     );
