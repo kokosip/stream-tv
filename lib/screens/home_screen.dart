@@ -82,10 +82,16 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      // 1. Fetch homepage (tabId 0) and Indonesian movies concurrently
+      // 1. Fetch homepage (tabId 0) and Indonesian movies concurrently with fallbacks
       final responses = await Future.wait([
-        _api.getHomepage(page: 1, tabId: 0),
-        _api.search(query: "Indonesia", subjectType: 1, page: 1, perPage: 20),
+        _api.getHomepage(page: 1, tabId: 0).catchError((e) {
+          print("Homepage fetch error: $e");
+          return <String, dynamic>{};
+        }),
+        _api.search(query: "Indonesia", subjectType: 1, page: 1, perPage: 20).catchError((e) {
+          print("Indonesian search error: $e");
+          return <String, dynamic>{};
+        }),
       ]);
 
       final resHome = responses[0];
@@ -94,49 +100,57 @@ class _HomeScreenState extends State<HomeScreen> {
       final List<dynamic> rawHomeItems = resHome['items'] ?? [];
       final List<dynamic> searchItems = resSearch['items'] ?? [];
 
-      // 2. Extract banners from Home
-      List<dynamic> banners = [];
-      final bannerSection = rawHomeItems.firstWhere(
-        (item) => item['type'] == 'BANNER',
-        orElse: () => null,
-      );
-      if (bannerSection != null && bannerSection['banner'] != null) {
-        banners = bannerSection['banner']['banners'] ?? [];
-      }
-
-      // Filter only subjects rows from Home (dynamic category rows)
-      final subjectsSections = rawHomeItems.where((item) => item['type'] == 'SUBJECTS_MOVIE').toList();
-
-      // Construct custom "Film Indonesia" category row
-      if (searchItems.isNotEmpty) {
-        final customIndoSection = {
-          "title": "Film Indonesia",
-          "subjects": searchItems,
-        };
-        if (subjectsSections.isNotEmpty) {
-          subjectsSections.insert(1, customIndoSection);
-        } else {
-          subjectsSections.add(customIndoSection);
+      if (rawHomeItems.isEmpty && searchItems.isEmpty) {
+        setState(() {
+          _errorMessage = "Gagal memuat katalog. Periksa koneksi internet Anda.";
+        });
+      } else {
+        // 2. Extract banners from Home
+        List<dynamic> banners = [];
+        final bannerSection = rawHomeItems.firstWhere(
+          (item) => item['type'] == 'BANNER',
+          orElse: () => null,
+        );
+        if (bannerSection != null && bannerSection['banner'] != null) {
+          banners = bannerSection['banner']['banners'] ?? [];
         }
-      }
 
-      setState(() {
-        _homeItems = subjectsSections;
-        _bannerItems = banners;
-      });
+        // Filter only subjects rows from Home (dynamic category rows)
+        final subjectsSections = rawHomeItems.where((item) => item['type'] == 'SUBJECTS_MOVIE').toList();
+
+        // Construct custom "Film Indonesia" category row
+        if (searchItems.isNotEmpty) {
+          final customIndoSection = {
+            "title": "Film Indonesia",
+            "subjects": searchItems,
+          };
+          if (subjectsSections.isNotEmpty) {
+            subjectsSections.insert(1, customIndoSection);
+          } else {
+            subjectsSections.add(customIndoSection);
+          }
+        }
+
+        setState(() {
+          _homeItems = subjectsSections;
+          _bannerItems = banners;
+        });
+      }
     } catch (e) {
       print("MovieBox Home Catalog Error: $e");
       setState(() {
-        _errorMessage = "Gagal memuat katalog. Silakan coba lagi.";
+        _errorMessage = "Gagal memuat katalog. Silakan periksa jaringan.";
       });
+    } finally {
+      // 3. Load favorites and recent progress
+      await _loadFavoritesAndProgress();
+
+      if (mounted) {
+        setState(() {
+          _isLoadingHome = false;
+        });
+      }
     }
-
-    // 3. Load favorites and recent progress
-    await _loadFavoritesAndProgress();
-
-    setState(() {
-      _isLoadingHome = false;
-    });
   }
 
   Future<void> _loadFavoritesAndProgress() async {
@@ -1027,6 +1041,41 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isLoadingHome) {
       return const Center(
         child: SpinKitRing(color: Colors.redAccent, size: 50.0),
+      );
+    }
+
+    if (_errorMessage.isNotEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.wifi_off_rounded, color: Colors.grey.shade600, size: 56),
+            const SizedBox(height: 16),
+            Text(
+              _errorMessage,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 15),
+            ),
+            const SizedBox(height: 20),
+            TvFocusableCard(
+              autoFocus: true,
+              onTap: _loadAllHomeData,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                color: Colors.redAccent.shade700,
+                child: Text(
+                  "Coba Lagi",
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       );
     }
 

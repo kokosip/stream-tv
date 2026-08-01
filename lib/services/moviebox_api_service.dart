@@ -40,15 +40,6 @@ class MovieBoxApiService {
     } catch (_) {}
   }
 
-  Future<void> _ensureToken() async {
-    if (_runtimeToken != null) return;
-    try {
-      await getHomepage(page: 1, tabId: 0);
-    } catch (e) {
-      print("Failed to initialize token: $e");
-    }
-  }
-
   /// MD5 Helper
   static String _md5Hex(String data) {
     return md5.convert(utf8.encode(data)).toString().toLowerCase();
@@ -201,11 +192,6 @@ class MovieBoxApiService {
     String pathAndQuery, {
     Map<String, dynamic>? body,
   }) async {
-    // Ensure we have a token before making any non-auth request
-    if (!pathAndQuery.contains("/tab-operating") && _runtimeToken == null) {
-      await _ensureToken();
-    }
-
     Object? lastError;
     
     // Order hosts starting with the active base
@@ -229,13 +215,14 @@ class MovieBoxApiService {
       try {
         final http.Response response;
         if (method == "GET") {
-          response = await http.get(Uri.parse(url), headers: headers);
+          response = await http.get(Uri.parse(url), headers: headers)
+              .timeout(const Duration(seconds: 8));
         } else {
           response = await http.post(
             Uri.parse(url),
             headers: headers,
             body: bodyStr,
-          );
+          ).timeout(const Duration(seconds: 8));
         }
 
         // Always try to absorb token if present in response headers

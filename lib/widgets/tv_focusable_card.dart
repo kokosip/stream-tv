@@ -51,13 +51,14 @@ class _TvFocusableCardState extends State<TvFocusableCard> {
             borderRadius: widget.borderRadius,
             border: Border.all(
               color: _isFocused ? Colors.redAccent.shade700 : Colors.transparent,
-              width: 2.5,
+              width: 3.0,
+              strokeAlign: BorderSide.strokeAlignOutside,
             ),
             boxShadow: _isFocused
                 ? [
                     BoxShadow(
-                      color: Colors.redAccent.shade700.withOpacity(0.4),
-                      blurRadius: 15,
+                      color: Colors.redAccent.shade700.withOpacity(0.45),
+                      blurRadius: 16,
                       spreadRadius: 2,
                     ),
                   ]
