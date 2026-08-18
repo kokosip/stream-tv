@@ -26,6 +26,14 @@ class _HomeScreenState extends State<HomeScreen> {
   late final FocusNode _nsfwFocusNode;
   late final FocusNode _langFocusNode;
 
+  // Bottom Navigation Bar state and focus nodes
+  int _currentTabIndex = 0;
+  late final FocusNode _navHomeFocusNode;
+  late final FocusNode _navSearchFocusNode;
+  late final FocusNode _navFavFocusNode;
+  late final FocusNode _navHistoryFocusNode;
+  late final FocusNode _navSettingsFocusNode;
+
   List<dynamic> _searchResults = [];
   List<dynamic> _rawSearchResults = [];
   bool _nsfwFilter = true;
@@ -53,6 +61,13 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _nsfwFocusNode = FocusNode();
     _langFocusNode = FocusNode();
+
+    _navHomeFocusNode = FocusNode();
+    _navSearchFocusNode = FocusNode();
+    _navFavFocusNode = FocusNode();
+    _navHistoryFocusNode = FocusNode();
+    _navSettingsFocusNode = FocusNode();
+
     _searchFocusNode = FocusNode(
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
@@ -896,6 +911,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _searchFocusNode.dispose();
     _nsfwFocusNode.dispose();
     _langFocusNode.dispose();
+    _navHomeFocusNode.dispose();
+    _navSearchFocusNode.dispose();
+    _navFavFocusNode.dispose();
+    _navHistoryFocusNode.dispose();
+    _navSettingsFocusNode.dispose();
     super.dispose();
   }
 
@@ -914,29 +934,747 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               // 1. Header (Logo & Remote action icons)
               _buildHeader(isTv),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
 
-              // 2. Search Input bar
-              _buildSearchBar(),
-              const SizedBox(height: 16),
-
-              // 3. Filter Row
-              _buildFilterRow(isTv),
-              const SizedBox(height: 16),
-
-              // 4. Dynamic content body
+              // 2. Active tab content body
               Expanded(
                 child: ClipRect(
-                  child: _isFiltering
-                      ? _buildFilteredResultsSection(isTv)
-                      : (_hasSearched 
-                          ? _buildSearchResultsSection(isTv)
-                          : _buildHomeSections(isTv)),
+                  child: _buildActiveTabBody(isTv),
                 ),
+              ),
+
+              // 3. Premium TV & Mobile Bottom Navigation Bar
+              _buildBottomNavBar(isTv),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActiveTabBody(bool isTv) {
+    switch (_currentTabIndex) {
+      case 1:
+        return _buildSearchTabView(isTv);
+      case 2:
+        return _buildFavoritesTabView(isTv);
+      case 3:
+        return _buildHistoryTabView(isTv);
+      case 4:
+        return _buildSettingsTabView(isTv);
+      case 0:
+      default:
+        return _buildHomeTabView(isTv);
+    }
+  }
+
+  Widget _buildHomeTabView(bool isTv) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildFilterRow(isTv),
+        const SizedBox(height: 12),
+        Expanded(
+          child: _isFiltering
+              ? _buildFilteredResultsSection(isTv)
+              : _buildHomeSections(isTv),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchTabView(bool isTv) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSearchBar(),
+        const SizedBox(height: 12),
+        Expanded(
+          child: _hasSearched || _searchController.text.isNotEmpty
+              ? _buildSearchResultsSection(isTv)
+              : _buildSearchRecommendationsSection(isTv),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchRecommendationsSection(bool isTv) {
+    final List<dynamic> popularItems = [];
+    for (final section in _homeItems) {
+      final List<dynamic> subjects = section['subjects'] ?? [];
+      popularItems.addAll(subjects);
+      if (popularItems.length >= 24) break;
+    }
+
+    if (popularItems.isEmpty && _bannerItems.isNotEmpty) {
+      for (final banner in _bannerItems) {
+        if (banner['subject'] != null) {
+          popularItems.add(banner['subject']);
+        }
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          child: Row(
+            children: [
+              const Icon(Icons.trending_up_rounded, color: Colors.redAccent, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                AppLanguageService.tr(en: "Popular & Trending Searches", id: "Pencarian Populer & Trending"),
+                style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ],
           ),
         ),
+        Expanded(
+          child: popularItems.isEmpty
+              ? Center(
+                  child: Text(
+                    AppLanguageService.tr(
+                      en: "Type keywords above to search movies or TV shows",
+                      id: "Ketik kata kunci di atas untuk mencari film atau serial TV",
+                    ),
+                    style: GoogleFonts.outfit(color: Colors.grey.shade500, fontSize: 14),
+                  ),
+                )
+              : GridView.builder(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: isTv ? 6 : 3,
+                    childAspectRatio: 0.7,
+                    crossAxisSpacing: 14,
+                    mainAxisSpacing: 14,
+                  ),
+                  itemCount: popularItems.length,
+                  itemBuilder: (context, index) {
+                    final item = popularItems[index];
+                    final title = item['title'] ?? item['name'] ?? "Untitled";
+                    final coverUrl = item['cover']?['url'] ?? item['coverUrl'] ?? "";
+                    final subjectId = item['subjectId'] ?? item['id'] ?? "";
+                    final rating = item['imdbRate'] ?? item['imdbRatingValue'] ?? "";
+
+                    return TvFocusableCard(
+                      onTap: () {
+                        if (subjectId.toString().isNotEmpty) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => DetailScreen(subjectId: subjectId.toString()),
+                            ),
+                          ).then((_) {
+                            _loadFavoritesAndProgress();
+                          });
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(10),
+                      scaleFactor: 1.04,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          CachedNetworkImage(
+                            imageUrl: coverUrl,
+                            memCacheWidth: 260,
+                            memCacheHeight: 390,
+                            fit: BoxFit.cover,
+                            errorWidget: (context, url, error) => Container(color: const Color(0xFF1E1E1E)),
+                          ),
+                          if (rating.toString().isNotEmpty)
+                            Positioned(
+                              top: 6,
+                              right: 6,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.8),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.star, color: Colors.amber, size: 10),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      "$rating",
+                                      style: GoogleFonts.outfit(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [Colors.transparent, Colors.black.withOpacity(0.9)],
+                                ),
+                              ),
+                              padding: const EdgeInsets.all(6.0),
+                              child: Text(
+                                title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFavoritesTabView(bool isTv) {
+    if (_favorites.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.favorite_border_rounded, color: Colors.grey.shade600, size: 56),
+            const SizedBox(height: 16),
+            Text(
+              AppLanguageService.tr(en: "No favorites added yet", id: "Belum ada favorit ditambahkan"),
+              style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              AppLanguageService.tr(
+                en: "Mark movies or TV shows as favorite to see them here",
+                id: "Tandai film atau serial TV sebagai favorit untuk melihatnya di sini",
+              ),
+              style: GoogleFonts.outfit(color: Colors.grey.shade600, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12.0),
+          child: Text(
+            AppLanguageService.tr(en: "My Favorites List", id: "Daftar Favorit Saya"),
+            style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+        ),
+        Expanded(
+          child: GridView.builder(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: isTv ? 6 : 3,
+              childAspectRatio: 0.7,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+            ),
+            itemCount: _favorites.length,
+            itemBuilder: (context, index) {
+              final item = _favorites[index];
+              final title = item['title'] ?? "Untitled";
+              final coverUrl = item['coverUrl'] ?? "";
+              final subjectId = item['subjectId'] ?? "";
+              final type = item['subjectType'];
+              final isShow = type == 2 || type?.toString() == '2' || type?.toString().toLowerCase() == 'tv';
+
+              return TvFocusableCard(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => DetailScreen(subjectId: subjectId),
+                    ),
+                  ).then((_) {
+                    _loadFavoritesAndProgress();
+                  });
+                },
+                borderRadius: BorderRadius.circular(10),
+                scaleFactor: 1.04,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CachedNetworkImage(
+                      imageUrl: coverUrl,
+                      memCacheWidth: 260,
+                      memCacheHeight: 390,
+                      fit: BoxFit.cover,
+                      errorWidget: (context, url, error) => Container(color: const Color(0xFF1E1E1E)),
+                    ),
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isShow ? Colors.blue.shade900.withOpacity(0.85) : Colors.red.shade900.withOpacity(0.85),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          isShow ? "TV" : "MOVIE",
+                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Colors.black.withOpacity(0.9)],
+                          ),
+                        ),
+                        padding: const EdgeInsets.all(8.0),
+                        child: Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHistoryTabView(bool isTv) {
+    if (_recentPlays.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.history_rounded, color: Colors.grey.shade600, size: 56),
+            const SizedBox(height: 16),
+            Text(
+              AppLanguageService.tr(en: "No watch history yet", id: "Belum ada riwayat tontonan"),
+              style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              AppLanguageService.tr(
+                en: "Videos you start watching will appear here to resume anytime",
+                id: "Video yang Anda tonton akan muncul di sini untuk dilanjutkan kapan saja",
+              ),
+              style: GoogleFonts.outfit(color: Colors.grey.shade600, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12.0),
+          child: Text(
+            AppLanguageService.tr(en: "Continue Watching / History", id: "Lanjutkan Nonton & Riwayat"),
+            style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            physics: const BouncingScrollPhysics(),
+            itemCount: _recentPlays.length,
+            itemBuilder: (context, index) {
+              final item = _recentPlays[index];
+              final title = item['title'] ?? "Untitled";
+              final coverUrl = item['coverUrl'] ?? "";
+              final subjectId = item['subjectId'] ?? "";
+              final season = item['season'] ?? 0;
+              final episode = item['episode'] ?? 0;
+              final pos = item['positionMs'] ?? 0;
+              final dur = item['durationMs'] ?? 1;
+
+              final progress = (pos / dur).clamp(0.0, 1.0);
+              final isShow = season > 0 || episode > 0;
+              final String subtitle = isShow 
+                  ? "Season $season: Episode $episode" 
+                  : (progress == 0 
+                      ? AppLanguageService.tr(en: "Re-watch", id: "Tonton Ulang") 
+                      : AppLanguageService.tr(en: "Resume playback", id: "Lanjutkan tontonan"));
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: TvFocusableCard(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => DetailScreen(subjectId: subjectId),
+                      ),
+                    ).then((_) {
+                      _loadFavoritesAndProgress();
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  scaleFactor: 1.02,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF161616),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF262626)),
+                    ),
+                    child: Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: CachedNetworkImage(
+                            imageUrl: coverUrl,
+                            memCacheWidth: 160,
+                            memCacheHeight: 240,
+                            width: 60,
+                            height: 85,
+                            fit: BoxFit.cover,
+                            errorWidget: (context, url, error) => Container(
+                              color: const Color(0xFF262626),
+                              width: 60,
+                              height: 85,
+                              child: const Icon(Icons.movie, size: 24, color: Colors.grey),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                subtitle,
+                                style: GoogleFonts.outfit(
+                                  color: Colors.cyan.shade400,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              if (progress > 0)
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(3),
+                                  child: LinearProgressIndicator(
+                                    value: progress,
+                                    minHeight: 4,
+                                    backgroundColor: const Color(0xFF262626),
+                                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.redAccent),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Icon(Icons.play_circle_fill_rounded, color: Colors.redAccent, size: 36),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSettingsTabView(bool isTv) {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16.0),
+            child: Text(
+              AppLanguageService.tr(en: "Settings & Preferences", id: "Pengaturan & Preferensi"),
+              style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+          // Language Card
+          TvFocusableCard(
+            onTap: () => _showLanguageSettingsDialog(),
+            borderRadius: BorderRadius.circular(14),
+            scaleFactor: 1.02,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF161616),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF262626)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.language, color: Colors.redAccent, size: 28),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          AppLanguageService.tr(en: "App Language", id: "Bahasa Aplikasi"),
+                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        ValueListenableBuilder<String>(
+                          valueListenable: AppLanguageService.currentLanguage,
+                          builder: (context, lang, child) {
+                            return Text(
+                              lang == 'id' ? 'Bahasa Indonesia (ID)' : 'English (EN)',
+                              style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 13),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // NSFW Filter Card
+          TvFocusableCard(
+            onTap: () {
+              if (_nsfwFilter) {
+                _showUnlockDialog();
+              } else {
+                setState(() {
+                  _nsfwFilter = true;
+                  _applySearchFilter();
+                  if (_isFiltering) {
+                    _applyCustomFilters();
+                  }
+                });
+              }
+            },
+            borderRadius: BorderRadius.circular(14),
+            scaleFactor: 1.02,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF161616),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF262626)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.security_rounded, color: _nsfwFilter ? Colors.green : Colors.redAccent, size: 28),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "NSFW Content Filter",
+                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _nsfwFilter 
+                              ? AppLanguageService.tr(en: "Filter Enabled (Restricted Content Hidden)", id: "Filter Aktif (Konten Dewasa Disembunyikan)") 
+                              : AppLanguageService.tr(en: "Filter Disabled (All Content Visible)", id: "Filter Nonaktif (Semua Konten Ditampilkan)"),
+                          style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _nsfwFilter ? Colors.green.shade800 : Colors.red.shade900,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      _nsfwFilter ? "ON" : "OFF",
+                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomNavBar(bool isTv) {
+    final navItems = [
+      {
+        'index': 0,
+        'icon': Icons.home_rounded,
+        'label': AppLanguageService.tr(en: 'Home', id: 'Beranda'),
+        'focusNode': _navHomeFocusNode,
+      },
+      {
+        'index': 1,
+        'icon': Icons.search_rounded,
+        'label': AppLanguageService.tr(en: 'Search', id: 'Cari'),
+        'focusNode': _navSearchFocusNode,
+      },
+      {
+        'index': 2,
+        'icon': Icons.favorite_rounded,
+        'label': AppLanguageService.tr(en: 'Favorites', id: 'Favorit'),
+        'badge': _favorites.length,
+        'focusNode': _navFavFocusNode,
+      },
+      {
+        'index': 3,
+        'icon': Icons.history_rounded,
+        'label': AppLanguageService.tr(en: 'History', id: 'Riwayat'),
+        'badge': _recentPlays.length,
+        'focusNode': _navHistoryFocusNode,
+      },
+      {
+        'index': 4,
+        'icon': Icons.settings_rounded,
+        'label': AppLanguageService.tr(en: 'Settings', id: 'Pengaturan'),
+        'focusNode': _navSettingsFocusNode,
+      },
+    ];
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8, bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF141414),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFF262626), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.5),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: navItems.map((item) {
+          final int index = item['index'] as int;
+          final bool isSelected = _currentTabIndex == index;
+          final IconData icon = item['icon'] as IconData;
+          final String label = item['label'] as String;
+          final int badge = item['badge'] as int? ?? 0;
+          final FocusNode fNode = item['focusNode'] as FocusNode;
+
+          return TvFocusableCard(
+            focusNode: fNode,
+            onTap: () {
+              setState(() {
+                _currentTabIndex = index;
+                if (index == 0) {
+                  _isFiltering = false;
+                  _hasSearched = false;
+                  _searchController.clear();
+                }
+              });
+
+              if (index == 1) {
+                Future.delayed(const Duration(milliseconds: 100), () {
+                  if (mounted) {
+                    _searchFocusNode.requestFocus();
+                  }
+                });
+              }
+            },
+            borderRadius: BorderRadius.circular(16),
+            scaleFactor: 1.05,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: EdgeInsets.symmetric(
+                horizontal: isTv ? 20 : 12,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: isSelected ? Colors.redAccent.shade700 : Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Icon(
+                        icon,
+                        color: isSelected ? Colors.white : Colors.grey.shade400,
+                        size: isTv ? 22 : 18,
+                      ),
+                      if (badge > 0 && !isSelected)
+                        Positioned(
+                          top: -4,
+                          right: -4,
+                          child: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: const BoxDecoration(
+                              color: Colors.redAccent,
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(minWidth: 12, minHeight: 12),
+                            child: Text(
+                              '$badge',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (isSelected) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      label,
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: isTv ? 14 : 12,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
