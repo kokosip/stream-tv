@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/moviebox_api_service.dart';
 import '../services/favorites_service.dart';
+import '../services/app_language_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import 'player_screen.dart';
 
@@ -80,6 +81,9 @@ class _DetailScreenState extends State<DetailScreen> {
       // Extract dubs list
       List<dynamic> dubsList = detailsRes['dubs'] ?? [];
       
+      String selectedAudioName = "Original";
+      String selectedSubId = widget.subjectId;
+
       // If there are no dubs, add "Original" as placeholder
       if (dubsList.isEmpty) {
         dubsList = [
@@ -94,6 +98,17 @@ class _DetailScreenState extends State<DetailScreen> {
             ...dubsList
           ];
         }
+
+        // Auto-select English audio track / dub if available
+        final englishDub = dubsList.firstWhere(
+          (d) {
+            final name = (d['lanName'] ?? d['language'] ?? '').toString().toLowerCase();
+            return name.contains('english') || name == 'en' || name == 'eng';
+          },
+          orElse: () => dubsList.first,
+        );
+        selectedAudioName = englishDub['lanName'] ?? englishDub['language'] ?? 'Original';
+        selectedSubId = englishDub['subjectId']?.toString() ?? widget.subjectId;
       }
 
       List<dynamic> seasonsList = [];
@@ -125,6 +140,8 @@ class _DetailScreenState extends State<DetailScreen> {
       setState(() {
         _details = detailsRes;
         _dubs = dubsList;
+        _selectedAudioName = selectedAudioName;
+        _selectedSubjectId = selectedSubId;
         _seasons = seasonsList;
         _episodesCount = initialEpisodesCount;
         _isLoadingDetails = false;
@@ -641,7 +658,7 @@ class _DetailScreenState extends State<DetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            "Audio Language",
+            AppLanguageService.tr(en: "Audio Language", id: "Bahasa Audio"),
             style: GoogleFonts.outfit(
               color: Colors.grey.shade400,
               fontWeight: FontWeight.bold,
@@ -652,7 +669,7 @@ class _DetailScreenState extends State<DetailScreen> {
           TvFocusableCard(
             onTap: () {
               _showOptionsDialog<String>(
-                title: "Select Audio Language",
+                title: AppLanguageService.tr(en: "Select Audio Language", id: "Pilih Bahasa Audio"),
                 items: _dubs.map<String>((d) => (d['lanName'] ?? d['language'] ?? 'Unknown').toString()).toList(),
                 selectedValue: currentAudioName,
                 itemLabel: (name) => name,
@@ -676,6 +693,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 border: Border.all(color: const Color(0xFF2C2C2C)),
               ),
               child: Row(
+                mainAxisSize: MainAxisSize.max,
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
@@ -723,7 +741,7 @@ class _DetailScreenState extends State<DetailScreen> {
               bottom: 8.0,
             ),
             child: Text(
-              "Available Streams",
+              AppLanguageService.tr(en: "Available Streams", id: "Kualitas Video Tersedia"),
               style: GoogleFonts.outfit(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,

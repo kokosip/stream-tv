@@ -171,7 +171,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Auto-select English or first subtitle if available
     if (_availableSubtitles.isNotEmpty) {
       final englishSub = _availableSubtitles.firstWhere(
-        (sub) => sub['lan'] == 'en' || sub['lan'] == 'eng',
+        (sub) {
+          final lan = (sub['lan'] ?? sub['lanName'] ?? sub['language'] ?? sub['lang'] ?? '').toString().toLowerCase();
+          return lan == 'en' || lan == 'eng' || lan.contains('english') || lan.contains('inggris');
+        },
         orElse: () => _availableSubtitles[0],
       );
       _selectedSubtitleUrl = englishSub['url'];

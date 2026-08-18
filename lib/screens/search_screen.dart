@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/moviebox_api_service.dart';
+import '../services/app_language_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import 'detail_screen.dart';
 
@@ -37,12 +38,18 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         _results = res['items'] ?? [];
         if (_results.isEmpty) {
-          _errorMessage = "No results found for '$query'";
+          _errorMessage = AppLanguageService.tr(
+            en: "No results found for '$query'",
+            id: "Tidak ada hasil untuk '$query'",
+          );
         }
       });
     } catch (e) {
       setState(() {
-        _errorMessage = "Error searching. Please try again.";
+        _errorMessage = AppLanguageService.tr(
+          en: "Error searching. Please try again.",
+          id: "Gagal mencari. Silakan coba lagi.",
+        );
       });
     } finally {
       setState(() {
@@ -69,7 +76,7 @@ class _SearchScreenState extends State<SearchScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Text(
-          'Search Movies & TV Shows',
+          AppLanguageService.tr(en: 'Search Movies & TV Shows', id: 'Cari Film & Serial TV'),
           style: GoogleFonts.outfit(
             fontWeight: FontWeight.bold,
             color: Colors.white,
@@ -94,7 +101,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       focusNode: _inputFocusNode,
                       style: GoogleFonts.outfit(color: Colors.white, fontSize: 15),
                       decoration: InputDecoration(
-                        hintText: "Search here...",
+                        hintText: AppLanguageService.tr(en: "Search here...", id: "Cari di sini..."),
                         hintStyle: GoogleFonts.outfit(color: Colors.grey.shade500, fontSize: 14),
                         prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 20),
                         border: InputBorder.none,
@@ -120,7 +127,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       vertical: 12,
                     ),
                     child: Text(
-                      'Search',
+                      AppLanguageService.tr(en: 'Search', id: 'Cari'),
                       style: GoogleFonts.outfit(
                         fontWeight: FontWeight.bold,
                         color: Colors.white,

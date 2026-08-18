@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/moviebox_api_service.dart';
 import '../services/favorites_service.dart';
 import '../services/playback_progress_service.dart';
+import '../services/app_language_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import '../widgets/tv_pin_pad_dialog.dart';
 import 'detail_screen.dart';
@@ -23,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   late final FocusNode _searchFocusNode;
   late final FocusNode _nsfwFocusNode;
+  late final FocusNode _langFocusNode;
 
   List<dynamic> _searchResults = [];
   List<dynamic> _rawSearchResults = [];
@@ -50,11 +52,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _nsfwFocusNode = FocusNode();
+    _langFocusNode = FocusNode();
     _searchFocusNode = FocusNode(
       onKeyEvent: (node, event) {
         if (event is KeyDownEvent) {
           if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-            _nsfwFocusNode.requestFocus();
+            _langFocusNode.requestFocus();
             return KeyEventResult.handled;
           } else if (event.logicalKey == LogicalKeyboardKey.arrowDown ||
               event.logicalKey == LogicalKeyboardKey.arrowRight) {
@@ -325,6 +328,8 @@ class _HomeScreenState extends State<HomeScreen> {
             }
           } else if (_selectedLanguage == "English") {
             if (!language.contains("english") && 
+                !language.contains("en") && 
+                !language.contains("eng") && 
                 !country.contains("united states") && 
                 !country.contains("united kingdom") && 
                 !country.contains("canada") && 
@@ -415,7 +420,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Row(
         children: [
           _buildFilterDropdown(
-            label: "Bahasa",
+            label: AppLanguageService.tr(en: "Language", id: "Bahasa"),
             value: _selectedLanguage,
             items: ["Semua", "English", "Indonesia", "Korea", "Japan", "China"],
             onChanged: (val) {
@@ -429,7 +434,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(width: 12),
           _buildFilterDropdown(
-            label: "Genre",
+            label: AppLanguageService.tr(en: "Genre", id: "Genre"),
             value: _selectedGenre,
             items: ["Semua", "Romantic", "Horror", "Anime", "Action", "Comedy", "Drama"],
             onChanged: (val) {
@@ -443,7 +448,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(width: 12),
           _buildFilterDropdown(
-            label: "Tipe",
+            label: AppLanguageService.tr(en: "Type", id: "Tipe"),
             value: _selectedType,
             items: ["Semua", "Movies", "TV Series"],
             onChanged: (val) {
@@ -457,7 +462,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(width: 12),
           _buildFilterDropdown(
-            label: "Rating",
+            label: AppLanguageService.tr(en: "Rating", id: "Rating"),
             value: _selectedRating,
             items: ["Semua", "G", "PG", "PG-13", "R", "NC-17", "TV-G", "TV-PG", "TV-14", "TV-MA"],
             onChanged: (val) {
@@ -492,7 +497,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     const Icon(Icons.refresh, color: Colors.white, size: 16),
                     const SizedBox(width: 4),
                     Text(
-                      "Reset",
+                      AppLanguageService.tr(en: "Reset", id: "Reset"),
                       style: GoogleFonts.outfit(
                         color: Colors.white,
                         fontSize: 12,
@@ -547,9 +552,25 @@ class _HomeScreenState extends State<HomeScreen> {
                 fontWeight: FontWeight.bold,
               ),
               items: items.map((String item) {
+                String labelText = item;
+                if (item == "Semua") {
+                  labelText = AppLanguageService.tr(en: "All", id: "Semua");
+                } else if (item == "Indonesia") {
+                  labelText = AppLanguageService.tr(en: "Indonesian", id: "Indonesia");
+                } else if (item == "Korea") {
+                  labelText = AppLanguageService.tr(en: "Korean", id: "Korea");
+                } else if (item == "Japan") {
+                  labelText = AppLanguageService.tr(en: "Japanese", id: "Japan");
+                } else if (item == "China") {
+                  labelText = AppLanguageService.tr(en: "Chinese", id: "China");
+                } else if (item == "Movies") {
+                  labelText = AppLanguageService.tr(en: "Movies", id: "Film");
+                } else if (item == "TV Series") {
+                  labelText = AppLanguageService.tr(en: "TV Series", id: "Serial TV");
+                }
                 return DropdownMenuItem<String>(
                   value: item,
-                  child: Text(item),
+                  child: Text(labelText),
                 );
               }).toList(),
               onChanged: onChanged,
@@ -733,11 +754,148 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _showLanguageSettingsDialog() async {
+    final currentLang = AppLanguageService.currentLanguage.value;
+    final selected = await showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: const Color(0xFF1A1A1A),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            width: 380,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.language, color: Colors.redAccent, size: 24),
+                    const SizedBox(width: 10),
+                    Text(
+                      AppLanguageService.tr(
+                        en: "App Language Settings",
+                        id: "Pengaturan Bahasa Aplikasi",
+                      ),
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  AppLanguageService.tr(
+                    en: "Select preferred language for app interface & default audio/subtitles",
+                    id: "Pilih bahasa tampilan aplikasi & preferensi audio/subtitle",
+                  ),
+                  style: GoogleFonts.outfit(
+                    color: Colors.grey.shade400,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                _buildLanguageOptionItem(
+                  code: 'en',
+                  title: 'English',
+                  flag: '🇬🇧',
+                  isSelected: currentLang == 'en',
+                ),
+                const SizedBox(height: 10),
+                _buildLanguageOptionItem(
+                  code: 'id',
+                  title: 'Bahasa Indonesia',
+                  flag: '🇮🇩',
+                  isSelected: currentLang == 'id',
+                ),
+                const SizedBox(height: 20),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TvFocusableCard(
+                    onTap: () => Navigator.of(context).pop(),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade800,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        AppLanguageService.tr(en: "Close", id: "Tutup"),
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (selected != null && selected != currentLang) {
+      await AppLanguageService.setLanguage(selected);
+      setState(() {});
+    }
+  }
+
+  Widget _buildLanguageOptionItem({
+    required String code,
+    required String title,
+    required String flag,
+    required bool isSelected,
+  }) {
+    return TvFocusableCard(
+      onTap: () => Navigator.of(context).pop(code),
+      borderRadius: BorderRadius.circular(10),
+      scaleFactor: 1.02,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.redAccent.withValues(alpha: 0.2) : const Color(0xFF242424),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? Colors.redAccent : const Color(0xFF333333),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            Text(flag, style: const TextStyle(fontSize: 20)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: GoogleFonts.outfit(
+                  color: isSelected ? Colors.white : Colors.grey.shade300,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+            if (isSelected)
+              const Icon(Icons.check_circle, color: Colors.redAccent, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
     _nsfwFocusNode.dispose();
+    _langFocusNode.dispose();
     super.dispose();
   }
 
@@ -788,93 +946,116 @@ class _HomeScreenState extends State<HomeScreen> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         // App Title Logo
-        Text(
-          'MOVIEBOX',
-          style: GoogleFonts.outfit(
-            fontSize: isTv ? 32 : 24,
-            fontWeight: FontWeight.w900,
-            color: Colors.redAccent.shade700,
-            letterSpacing: 2,
+        Flexible(
+          child: Text(
+            'MOVIEBOX',
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.outfit(
+              fontSize: isTv ? 30 : 22,
+              fontWeight: FontWeight.w900,
+              color: Colors.redAccent.shade700,
+              letterSpacing: 1.5,
+            ),
           ),
         ),
-        // NSFW Filter Action Button (Focusable with TV D-Pad)
-        TvFocusableCard(
-          focusNode: _nsfwFocusNode,
-          onTap: () {
-            if (_nsfwFilter) {
-              _showUnlockDialog();
-            } else {
-              setState(() {
-                _nsfwFilter = true;
-                _applySearchFilter();
-                if (_isFiltering) {
-                  _applyCustomFilters();
-                }
-              });
-            }
-          },
-          borderRadius: BorderRadius.circular(20),
-          scaleFactor: 1.05,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFF161616),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFF2C2C2C)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'NSFW Filter',
-                  style: GoogleFonts.outfit(
-                    color: Colors.grey.shade300,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Compact App Language Setting Button
+            TvFocusableCard(
+              focusNode: _langFocusNode,
+              onTap: () {
+                _showLanguageSettingsDialog();
+              },
+              borderRadius: BorderRadius.circular(16),
+              scaleFactor: 1.04,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF161616),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF2C2C2C)),
                 ),
-                const SizedBox(width: 8),
-                Container(
-                  width: 48,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: _nsfwFilter ? Colors.green.shade800 : Colors.red.shade900,
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Positioned(
-                        left: _nsfwFilter ? 6 : null,
-                        right: _nsfwFilter ? null : 6,
-                        child: Text(
-                          _nsfwFilter ? 'ON' : 'OFF',
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.language, color: Colors.redAccent, size: 14),
+                    const SizedBox(width: 4),
+                    ValueListenableBuilder<String>(
+                      valueListenable: AppLanguageService.currentLanguage,
+                      builder: (context, lang, child) {
+                        return Text(
+                          lang.toUpperCase(),
                           style: GoogleFonts.outfit(
-                            fontSize: 8,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
+                            color: Colors.grey.shade300,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
                           ),
-                        ),
-                      ),
-                      AnimatedAlign(
-                        duration: const Duration(milliseconds: 150),
-                        alignment: _nsfwFilter ? Alignment.centerRight : Alignment.centerLeft,
-                        child: Container(
-                          width: 18,
-                          height: 18,
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                        );
+                      },
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+            // Compact NSFW Filter Action Button
+            TvFocusableCard(
+              focusNode: _nsfwFocusNode,
+              onTap: () {
+                if (_nsfwFilter) {
+                  _showUnlockDialog();
+                } else {
+                  setState(() {
+                    _nsfwFilter = true;
+                    _applySearchFilter();
+                    if (_isFiltering) {
+                      _applyCustomFilters();
+                    }
+                  });
+                }
+              },
+              borderRadius: BorderRadius.circular(16),
+              scaleFactor: 1.04,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF161616),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF2C2C2C)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'NSFW',
+                      style: GoogleFonts.outfit(
+                        color: Colors.grey.shade300,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: _nsfwFilter ? Colors.green.shade800 : Colors.red.shade900,
+                      ),
+                      child: Text(
+                        _nsfwFilter ? 'ON' : 'OFF',
+                        style: GoogleFonts.outfit(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -892,7 +1073,10 @@ class _HomeScreenState extends State<HomeScreen> {
         focusNode: _searchFocusNode,
         style: GoogleFonts.outfit(color: Colors.white, fontSize: 15),
         decoration: InputDecoration(
-          hintText: "Cari film atau serial TV di sini...",
+          hintText: AppLanguageService.tr(
+            en: "Search movies or TV shows here...",
+            id: "Cari film atau serial TV di sini...",
+          ),
           hintStyle: GoogleFonts.outfit(color: Colors.grey.shade600, fontSize: 14),
           prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 20),
           suffixIcon: _searchController.text.isNotEmpty || _hasSearched
@@ -1065,7 +1249,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 color: Colors.redAccent.shade700,
                 child: Text(
-                  "Coba Lagi",
+                  AppLanguageService.tr(en: "Retry", id: "Coba Lagi"),
                   style: GoogleFonts.outfit(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
@@ -1240,7 +1424,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4.0),
           child: Text(
-            "Lanjutkan Nonton",
+            AppLanguageService.tr(en: "Continue Watching", id: "Lanjutkan Nonton"),
             style: GoogleFonts.outfit(
               color: Colors.white,
               fontSize: 18,
@@ -1269,7 +1453,9 @@ class _HomeScreenState extends State<HomeScreen> {
               final isShow = season > 0 || episode > 0;
               final String subtitle = isShow 
                   ? "S$season:E$episode" 
-                  : (progress == 0 ? "Tonton Ulang" : "Lanjutkan");
+                  : (progress == 0 
+                      ? AppLanguageService.tr(en: "Re-watch", id: "Tonton Ulang") 
+                      : AppLanguageService.tr(en: "Resume", id: "Lanjutkan"));
 
               return Padding(
                 padding: const EdgeInsets.only(right: 14.0),
@@ -1374,7 +1560,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const Icon(Icons.favorite, color: Colors.redAccent, size: 18),
               const SizedBox(width: 6),
               Text(
-                "Favorit Saya",
+                AppLanguageService.tr(en: "My Favorites", id: "Favorit Saya"),
                 style: GoogleFonts.outfit(
                   color: Colors.white,
                   fontSize: 18,
