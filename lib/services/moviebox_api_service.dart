@@ -2,6 +2,36 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
+class RateLimitException implements Exception {
+  final String message;
+  final Duration? retryAfter;
+  RateLimitException(this.message, {this.retryAfter});
+  @override
+  String toString() => message;
+}
+
+class NetworkConnectionException implements Exception {
+  final String message;
+  NetworkConnectionException(this.message);
+  @override
+  String toString() => message;
+}
+
+class NoStreamAvailableException implements Exception {
+  final String message;
+  NoStreamAvailableException(this.message);
+  @override
+  String toString() => message;
+}
+
+class ApiException implements Exception {
+  final String message;
+  final int statusCode;
+  ApiException(this.message, {required this.statusCode});
+  @override
+  String toString() => message;
+}
+
 class MovieBoxApiService {
   static const List<String> HOST_POOL = [
     "https://api6.aoneroom.com",
@@ -261,6 +291,50 @@ class MovieBoxApiService {
             return Map<String, dynamic>.from(resData["data"]);
           }
           return Map<String, dynamic>.from(resData);
+        } else if (response.statusCode == 429) {
+          int retryAfterSec = 2;
+          final retryHeader = response.headers['retry-after'];
+          if (retryHeader != null) {
+            retryAfterSec = int.tryParse(retryHeader) ?? 2;
+          }
+          print("Rate limited (429) on $url. Waiting ${retryAfterSec}s before retrying...");
+          await Future.delayed(Duration(seconds: retryAfterSec));
+          
+          final retryHeaders = _buildSignedHeaders(
+            method: method,
+            url: url,
+            contentType: contentType,
+            body: bodyStr,
+            authToken: _runtimeToken,
+          );
+          final http.Response retryResponse;
+          if (method == "GET") {
+            retryResponse = await http.get(Uri.parse(url), headers: retryHeaders)
+                .timeout(const Duration(seconds: 8));
+          } else {
+            retryResponse = await http.post(
+              Uri.parse(url),
+              headers: retryHeaders,
+              body: bodyStr,
+            ).timeout(const Duration(seconds: 8));
+          }
+
+          _absorbXUser(retryResponse.headers);
+
+          if (retryResponse.statusCode == 200) {
+            final resData = jsonDecode(retryResponse.body);
+            _activeBase = base;
+            if (resData is Map && resData.containsKey("data")) {
+              return Map<String, dynamic>.from(resData["data"]);
+            }
+            return Map<String, dynamic>.from(resData);
+          } else {
+            lastError = RateLimitException(
+              "Server membatasi akses (Rate Limited oleh server). Silakan tunggu beberapa saat.",
+              retryAfter: Duration(seconds: retryAfterSec),
+            );
+            continue;
+          }
         } else {
           if (response.statusCode == 401 || response.statusCode == 403 || response.statusCode == 441) {
             _runtimeToken = null; // Clear token to force refresh
@@ -297,19 +371,31 @@ class MovieBoxApiService {
                   }
                   return Map<String, dynamic>.from(resData);
                 } else {
-                  lastError = Exception("Server returned code ${retryResponse.statusCode} for $url (after retry)");
+                  lastError = ApiException(
+                    "Server mengembalikan kode ${retryResponse.statusCode} untuk $url",
+                    statusCode: retryResponse.statusCode,
+                  );
                   continue; // Try next host
                 }
               }
             }
           }
-          lastError = Exception("Server returned code ${response.statusCode} for $url");
+          lastError = ApiException(
+            "Server mengembalikan kode ${response.statusCode} untuk $url",
+            statusCode: response.statusCode,
+          );
         }
       } catch (e) {
-        lastError = e;
+        if (e is RateLimitException || e is ApiException) {
+          lastError = e;
+        } else {
+          lastError = NetworkConnectionException(
+            "Koneksi jaringan gagal ke $url. Periksa koneksi internet Anda.",
+          );
+        }
       }
     }
-    throw lastError ?? Exception("All hosts in pool failed to respond.");
+    throw lastError ?? NetworkConnectionException("Semua host server gagal merespons. Periksa koneksi internet Anda.");
   }
 
   // --- API Endpoints ---

@@ -99,16 +99,22 @@ class _DetailScreenState extends State<DetailScreen> {
           ];
         }
 
-        // Auto-select English audio track / dub if available
-        final englishDub = dubsList.firstWhere(
+        // Auto-select Indonesian audio track if available, else English, else Original
+        final selectedDub = dubsList.firstWhere(
           (d) {
             final name = (d['lanName'] ?? d['language'] ?? '').toString().toLowerCase();
-            return name.contains('english') || name == 'en' || name == 'eng';
+            return name.contains('indonesia') || name.contains('indonesian') || name == 'id' || name == 'ina';
           },
-          orElse: () => dubsList.first,
+          orElse: () => dubsList.firstWhere(
+            (d) {
+              final name = (d['lanName'] ?? d['language'] ?? '').toString().toLowerCase();
+              return name.contains('english') || name == 'en' || name == 'eng';
+            },
+            orElse: () => dubsList.first,
+          ),
         );
-        selectedAudioName = englishDub['lanName'] ?? englishDub['language'] ?? 'Original';
-        selectedSubId = englishDub['subjectId']?.toString() ?? widget.subjectId;
+        selectedAudioName = selectedDub['lanName'] ?? selectedDub['language'] ?? 'Original';
+        selectedSubId = selectedDub['subjectId']?.toString() ?? widget.subjectId;
       }
 
       List<dynamic> seasonsList = [];
@@ -152,7 +158,11 @@ class _DetailScreenState extends State<DetailScreen> {
 
     } catch (e) {
       setState(() {
-        _errorMessage = "Failed to load details: $e";
+        _errorMessage = e is RateLimitException 
+            ? "Server membatasi request (Rate Limited). Silakan tekan Coba Lagi."
+            : e is NetworkConnectionException 
+                ? "Gagal terhubung ke jaringan. Periksa koneksi internet Anda."
+                : "Gagal memuat detail: $e";
         _isLoadingDetails = false;
       });
     }
@@ -169,24 +179,32 @@ class _DetailScreenState extends State<DetailScreen> {
       final seNum = isTvShow ? _selectedSeasonNumber : 0;
       final epNum = isTvShow ? _selectedEpisodeNumber : 0;
 
-      // Target resolutions to fetch concurrently
+      // Target resolutions to fetch with concurrency control (batch 2 requests at a time to prevent HTTP 429)
       final List<int> targetResolutions = [1080, 720, 480, 360];
-      
-      final List<Future<Map<String, dynamic>>> futures = targetResolutions.map((res) {
-        return _api.getResources(
-          subjectId: _selectedSubjectId,
-          se: seNum,
-          ep: epNum,
-          resolution: res,
-        );
-      }).toList();
-
-      final results = await Future.wait(futures);
       final List<dynamic> combinedList = [];
-      
-      for (final resData in results) {
-        final List<dynamic> fileList = resData['list'] ?? [];
-        combinedList.addAll(fileList);
+
+      for (int i = 0; i < targetResolutions.length; i += 2) {
+        final batch = targetResolutions.sublist(
+          i, 
+          i + 2 > targetResolutions.length ? targetResolutions.length : i + 2,
+        );
+
+        final batchResults = await Future.wait(batch.map((res) {
+          return _api.getResources(
+            subjectId: _selectedSubjectId,
+            se: seNum,
+            ep: epNum,
+            resolution: res,
+          ).catchError((e) {
+            print("Failed fetching resolution $res: $e");
+            return <String, dynamic>{};
+          });
+        }));
+
+        for (final resData in batchResults) {
+          final List<dynamic> fileList = resData['list'] ?? [];
+          combinedList.addAll(fileList);
+        }
       }
 
       // Filter by season and episode on the client side if it is a TV show
@@ -240,8 +258,11 @@ class _DetailScreenState extends State<DetailScreen> {
         _isLoadingStreams = false;
       });
       if (mounted) {
+        final msg = e is RateLimitException 
+            ? "Batas request server tercapai. Silakan tunggu sebentar."
+            : "Gagal memuat stream: $e";
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load streams: $e')),
+          SnackBar(content: Text(msg)),
         );
       }
     }
@@ -865,8 +886,48 @@ class _DetailScreenState extends State<DetailScreen> {
     if (_errorMessage.isNotEmpty) {
       return Scaffold(
         backgroundColor: const Color(0xFF0F0F0F),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
         body: Center(
-          child: Text(_errorMessage, style: GoogleFonts.outfit(color: Colors.grey, fontSize: 18)),
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.redAccent, size: 64),
+                const SizedBox(height: 16),
+                Text(
+                  _errorMessage,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 18),
+                ),
+                const SizedBox(height: 24),
+                TvFocusableCard(
+                  onTap: () {
+                    _loadDetails();
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      AppLanguageService.tr(en: "Retry", id: "Coba Lagi"),
+                      style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       );
     }

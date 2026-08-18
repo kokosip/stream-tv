@@ -157,7 +157,11 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       print("MovieBox Home Catalog Error: $e");
       setState(() {
-        _errorMessage = "Gagal memuat katalog. Silakan periksa jaringan.";
+        _errorMessage = e is RateLimitException
+            ? "Server membatasi request (Rate Limited). Silakan coba beberapa saat lagi."
+            : e is NetworkConnectionException
+                ? "Koneksi jaringan gagal. Periksa koneksi internet Anda."
+                : "Gagal memuat katalog. Silakan periksa jaringan.";
       });
     } finally {
       // 3. Load favorites and recent progress
