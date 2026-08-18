@@ -319,7 +319,12 @@ class _DetailScreenState extends State<DetailScreen> {
           subjectId: _selectedSubjectId,
           resourceId: resourceId,
         );
-        captions = subsRes['extCaptions'] ?? subsRes['external_captions'] ?? [];
+        captions = subsRes['extCaptions'] ?? 
+                   subsRes['external_captions'] ?? 
+                   subsRes['list'] ?? 
+                   subsRes['captions'] ?? 
+                   subsRes['subtitles'] ?? 
+                   [];
       }
     } catch (e) {
       print("Failed to load subtitles: $e");

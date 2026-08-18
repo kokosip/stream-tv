@@ -194,7 +194,7 @@ class MovieBoxApiService {
       "User-Agent": userAgent,
       "Accept": accept,
       "Content-Type": contentType,
-      "Accept-Language": "en-MG,en;q=0.9",
+      "Accept-Language": "en-MG,en;q=0.9,id;q=0.8,*;q=0.5",
       "Accept-Country": "MG",
       "Accept-Timezone": "Europe/Paris",
       "X-Language": "en",

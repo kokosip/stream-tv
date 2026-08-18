@@ -582,18 +582,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                               ),
                                             ),
                                             ..._availableSubtitles.map((sub) {
-                                              final label = sub['lanName'] ?? sub['language'] ?? "Unknown";
+                                              final label = sub['lanName'] ?? 
+                                                            sub['language'] ?? 
+                                                            sub['lan'] ?? 
+                                                            sub['lang'] ?? 
+                                                            sub['name'] ?? 
+                                                            sub['disName'] ?? 
+                                                            sub['title'] ?? 
+                                                            "Subtitle";
+                                              final subUrl = (sub['url'] ?? sub['link'] ?? sub['src'] ?? sub['path'] ?? '').toString();
+                                              if (subUrl.isEmpty) return null;
+
+                                              final isSelected = _selectedSubtitleUrl == subUrl;
                                               return PopupMenuItem<String>(
-                                                value: sub['url'],
+                                                value: subUrl,
                                                 child: Text(
-                                                  label,
+                                                  label.toString(),
                                                   style: GoogleFonts.outfit(
-                                                    color: _selectedSubtitleUrl == sub['url'] ? Colors.redAccent : Colors.white,
-                                                    fontWeight: FontWeight.bold,
+                                                    color: isSelected ? Colors.redAccent : Colors.white,
+                                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                                                   ),
                                                 ),
                                               );
-                                            }),
+                                            }).whereType<PopupMenuItem<String>>(),
                                           ];
                                         },
                                         child: const Padding(
