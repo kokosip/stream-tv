@@ -36,7 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<dynamic> _searchResults = [];
   List<dynamic> _rawSearchResults = [];
-  bool _nsfwFilter = true;
+  bool _nsfwFilter = false;
   bool _isLoadingSearch = false;
   bool _isLoadingHome = true;
   String _errorMessage = "";
@@ -90,7 +90,31 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     _loadAllHomeData();
+    _loadNsfwFilterPreference();
     _checkPasscodeSetup();
+  }
+
+  Future<void> _loadNsfwFilterPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _nsfwFilter = prefs.getBool('nsfw_filter_enabled') ?? false;
+      });
+    }
+  }
+
+  Future<void> _toggleNsfwFilter(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('nsfw_filter_enabled', enabled);
+    if (mounted) {
+      setState(() {
+        _nsfwFilter = enabled;
+        _applySearchFilter();
+        if (_isFiltering) {
+          _applyCustomFilters();
+        }
+      });
+    }
   }
 
   Future<void> _loadAllHomeData() async {
@@ -763,13 +787,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (unlocked == true && mounted) {
-      setState(() {
-        _nsfwFilter = false;
-        _applySearchFilter();
-        if (_isFiltering) {
-          _applyCustomFilters();
-        }
-      });
+      _toggleNsfwFilter(false);
     }
   }
 
@@ -1479,13 +1497,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (_nsfwFilter) {
                 _showUnlockDialog();
               } else {
-                setState(() {
-                  _nsfwFilter = true;
-                  _applySearchFilter();
-                  if (_isFiltering) {
-                    _applyCustomFilters();
-                  }
-                });
+                _toggleNsfwFilter(true);
               }
             },
             borderRadius: BorderRadius.circular(14),
@@ -1748,13 +1760,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (_nsfwFilter) {
                   _showUnlockDialog();
                 } else {
-                  setState(() {
-                    _nsfwFilter = true;
-                    _applySearchFilter();
-                    if (_isFiltering) {
-                      _applyCustomFilters();
-                    }
-                  });
+                  _toggleNsfwFilter(true);
                 }
               },
               borderRadius: BorderRadius.circular(16),
