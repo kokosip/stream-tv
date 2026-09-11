@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/moviebox_api_service.dart';
+import '../services/fourkhdhub_service.dart';
 import '../services/favorites_service.dart';
 import '../services/playback_progress_service.dart';
 import '../services/app_language_service.dart';
@@ -21,6 +22,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final MovieBoxApiService _api = MovieBoxApiService();
+  final FourKHdHubService _fourkApi = FourKHdHubService();
+  String _selectedSearchProvider = "all";
   final TextEditingController _searchController = TextEditingController();
   late final FocusNode _searchFocusNode;
   late final FocusNode _nsfwFocusNode;
@@ -248,18 +251,83 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final res = await _api.search(query: query);
-      setState(() {
-        _rawSearchResults = res['items'] ?? [];
-        _applySearchFilter();
-        if (_searchResults.isEmpty) {
-          _errorMessage = "Tidak ada hasil untuk '$query'";
+      if (_selectedSearchProvider == '4khdhub') {
+        final hubResults = await _fourkApi.search(query);
+        final mapped = hubResults.map((item) => {
+          ...item,
+          'provider': '4khdhub',
+          'subjectId': item['pathId'],
+          'cover': {'url': item['coverUrl']},
+        }).toList();
+
+        setState(() {
+          _rawSearchResults = mapped;
+          _searchResults = mapped;
+          if (_searchResults.isEmpty) {
+            _errorMessage = "Tidak ada hasil di 4KHDHub untuk '$query'";
+          }
+        });
+      } else if (_selectedSearchProvider == 'moviebox') {
+        final res = await _api.search(query: query);
+        final mbItems = ((res['items'] ?? []) as List<dynamic>).map((item) => {
+          ...item,
+          'provider': 'moviebox',
+        }).toList();
+
+        setState(() {
+          _rawSearchResults = mbItems;
+          _applySearchFilter();
+          if (_searchResults.isEmpty) {
+            _errorMessage = "Tidak ada hasil di MovieBox untuk '$query'";
+          }
+        });
+      } else {
+        // 'all': Search both concurrently
+        final results = await Future.wait([
+          _api.search(query: query).catchError((e) {
+            print("MovieBox search error in All: $e");
+            return <String, dynamic>{'items': []};
+          }),
+          _fourkApi.search(query).catchError((e) {
+            print("4KHDHub search error in All: $e");
+            return <Map<String, dynamic>>[];
+          }),
+        ]);
+
+        final mbRaw = (results[0] as Map<String, dynamic>)['items'] ?? [];
+        final List<dynamic> mbList = (mbRaw as List<dynamic>).map((item) => {
+          ...item,
+          'provider': 'moviebox',
+        }).toList();
+
+        final hubRaw = results[1] as List<Map<String, dynamic>>;
+        final List<dynamic> hubList = hubRaw.map((item) => {
+          ...item,
+          'provider': '4khdhub',
+          'subjectId': item['pathId'],
+          'cover': {'url': item['coverUrl']},
+        }).toList();
+
+        // Interleave results so user gets a mix of MovieBox and 4KHDHub
+        final List<dynamic> combined = [];
+        int maxLen = mbList.length > hubList.length ? mbList.length : hubList.length;
+        for (int i = 0; i < maxLen; i++) {
+          if (i < hubList.length) combined.add(hubList[i]);
+          if (i < mbList.length) combined.add(mbList[i]);
         }
-      });
+
+        setState(() {
+          _rawSearchResults = combined;
+          _searchResults = combined;
+          if (_searchResults.isEmpty) {
+            _errorMessage = "Tidak ada hasil untuk '$query'";
+          }
+        });
+      }
     } catch (e) {
-      print("MovieBox Search Error: $e");
+      print("Search Error: $e");
       setState(() {
-        _errorMessage = "Error menghubungkan ke MovieBox ($e). Silakan coba lagi.";
+        _errorMessage = "Error saat mencari ($e). Silakan coba lagi.";
       });
     } finally {
       setState(() {
@@ -1014,6 +1082,8 @@ class _HomeScreenState extends State<HomeScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSearchBar(),
+        const SizedBox(height: 10),
+        _buildSearchProviderFilterRow(),
         const SizedBox(height: 12),
         Expanded(
           child: _hasSearched || _searchController.text.isNotEmpty
@@ -1021,6 +1091,84 @@ class _HomeScreenState extends State<HomeScreen> {
               : _buildSearchRecommendationsSection(isTv),
         ),
       ],
+    );
+  }
+
+  Widget _buildSearchProviderFilterRow() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _buildProviderFilterChip(
+            id: 'all',
+            label: AppLanguageService.tr(en: "All Providers", id: "Semua Provider"),
+            icon: Icons.layers_rounded,
+            color: Colors.redAccent,
+          ),
+          const SizedBox(width: 8),
+          _buildProviderFilterChip(
+            id: 'moviebox',
+            label: "MovieBox",
+            icon: Icons.movie_rounded,
+            color: Colors.redAccent,
+          ),
+          const SizedBox(width: 8),
+          _buildProviderFilterChip(
+            id: '4khdhub',
+            label: "4KHDHub (4K UHD)",
+            icon: Icons.hd_rounded,
+            color: Colors.cyanAccent,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProviderFilterChip({
+    required String id,
+    required String label,
+    required IconData icon,
+    required Color color,
+  }) {
+    final isSelected = _selectedSearchProvider == id;
+    return TvFocusableCard(
+      onTap: () {
+        setState(() {
+          _selectedSearchProvider = id;
+        });
+        if (_searchController.text.trim().isNotEmpty) {
+          _onSearch();
+        }
+      },
+      borderRadius: BorderRadius.circular(20),
+      scaleFactor: 1.04,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withValues(alpha: 0.2) : const Color(0xFF181818),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? color : const Color(0xFF303030),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: isSelected ? color : Colors.grey.shade400),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: GoogleFonts.outfit(
+                color: isSelected ? Colors.white : Colors.grey.shade400,
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1938,8 +2086,9 @@ class _HomeScreenState extends State<HomeScreen> {
       itemBuilder: (context, index) {
         final item = _searchResults[index];
         final title = item['title'] ?? item['subjectTitle'] ?? "Untitled";
-        final coverUrl = item['cover']?['url'] ?? "";
+        final coverUrl = item['cover']?['url'] ?? item['coverUrl'] ?? "";
         final subjectId = item['subjectId'] ?? item['id']?.toString() ?? "";
+        final provider = item['provider'] ?? (subjectId.toString().startsWith('/') ? '4khdhub' : 'moviebox');
         final rating = item['imdbRate'] ?? item['imdbRatingValue'] ?? "";
 
         return TvFocusableCard(
@@ -1947,7 +2096,10 @@ class _HomeScreenState extends State<HomeScreen> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => DetailScreen(subjectId: subjectId),
+                builder: (context) => DetailScreen(
+                  subjectId: subjectId,
+                  provider: provider,
+                ),
               ),
             ).then((_) {
               _loadFavoritesAndProgress();
@@ -1972,6 +2124,34 @@ class _HomeScreenState extends State<HomeScreen> {
                 errorWidget: (context, url, error) => Container(
                   color: const Color(0xFF1E1E1E),
                   child: const Icon(Icons.movie, size: 40, color: Colors.grey),
+                ),
+              ),
+              // Provider Badge (Top Right)
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: provider == '4khdhub'
+                        ? Colors.cyan.shade900.withValues(alpha: 0.85)
+                        : Colors.red.shade900.withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: provider == '4khdhub'
+                          ? Colors.cyanAccent.withValues(alpha: 0.5)
+                          : Colors.redAccent.withValues(alpha: 0.3),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: Text(
+                    provider == '4khdhub' ? "4KHDHub" : "MovieBox",
+                    style: GoogleFonts.outfit(
+                      color: provider == '4khdhub' ? Colors.cyanAccent : Colors.white,
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ),
               // Rating Badge
