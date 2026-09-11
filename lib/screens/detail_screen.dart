@@ -4,13 +4,21 @@ import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/moviebox_api_service.dart';
 import '../services/favorites_service.dart';
 import '../services/app_language_service.dart';
+import '../services/playback_progress_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import 'player_screen.dart';
 
 class DetailScreen extends StatefulWidget {
   final String subjectId;
+  final int? initialSeason;
+  final int? initialEpisode;
 
-  const DetailScreen({super.key, required this.subjectId});
+  const DetailScreen({
+    super.key,
+    required this.subjectId,
+    this.initialSeason,
+    this.initialEpisode,
+  });
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -156,10 +164,6 @@ class _DetailScreenState extends State<DetailScreen> {
         try {
           final seasonsRes = await _api.getSeasonInfo(subjectId: widget.subjectId);
           seasonsList = seasonsRes['seasons'] ?? [];
-          if (seasonsList.isNotEmpty) {
-            _selectedSeasonNumber = seasonsList[0]['se'] ?? 1;
-            initialEpisodesCount = seasonsList[0]['maxEp'] ?? 0;
-          }
         } catch (e) {
           print("Failed to load seasons info: $e");
         }
@@ -170,9 +174,33 @@ class _DetailScreenState extends State<DetailScreen> {
           seasonsList = [
             {"se": 1, "maxEp": totalEp}
           ];
-          _selectedSeasonNumber = 1;
-          initialEpisodesCount = totalEp;
         }
+
+        // Determine target season and episode based on initial parameters or recent progress
+        int targetSeason = 1;
+        int targetEpisode = 1;
+
+        if (widget.initialSeason != null && widget.initialEpisode != null) {
+          targetSeason = widget.initialSeason!;
+          targetEpisode = widget.initialEpisode!;
+        } else {
+          final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+          if (recentPlay != null) {
+            final recSeason = recentPlay['season'] as int? ?? 1;
+            final recEpisode = recentPlay['episode'] as int? ?? 1;
+            if (recSeason > 0) targetSeason = recSeason;
+            if (recEpisode > 0) targetEpisode = recEpisode;
+          }
+        }
+
+        final matchingSeason = seasonsList.firstWhere(
+          (s) => (s['se'] ?? 1) == targetSeason,
+          orElse: () => seasonsList.first,
+        );
+
+        _selectedSeasonNumber = matchingSeason['se'] ?? 1;
+        initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
+        _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
       }
 
       setState(() {
@@ -353,6 +381,127 @@ class _DetailScreenState extends State<DetailScreen> {
     _loadStreams();
   }
 
+  Future<PlayerNextEpisodeData?> _fetchNextEpisodeStream(int nextSeason, int nextEpisode) async {
+    try {
+      final List<int> targetResolutions = [1080, 720, 480, 360];
+      final List<dynamic> combinedList = [];
+
+      for (int i = 0; i < targetResolutions.length; i += 2) {
+        final batch = targetResolutions.sublist(
+          i,
+          i + 2 > targetResolutions.length ? targetResolutions.length : i + 2,
+        );
+
+        final batchResults = await Future.wait(batch.map((res) {
+          return _api.getResources(
+            subjectId: _selectedSubjectId,
+            se: nextSeason,
+            ep: nextEpisode,
+            resolution: res,
+          ).catchError((e) => <String, dynamic>{});
+        }));
+
+        for (final resData in batchResults) {
+          final List<dynamic> fileList = resData['list'] ?? [];
+          combinedList.addAll(fileList);
+        }
+      }
+
+      final filteredList = combinedList.where((item) {
+        final itemSe = int.tryParse(item['se']?.toString() ?? '') ?? 0;
+        final itemEp = int.tryParse(item['ep']?.toString() ?? '') ?? 0;
+        return itemSe == nextSeason && itemEp == nextEpisode;
+      }).toList();
+
+      if (filteredList.isEmpty) return null;
+
+      filteredList.sort((a, b) {
+        final codecA = (a['codecName'] ?? a['codec_name'] ?? "").toString().toLowerCase();
+        final codecB = (b['codecName'] ?? b['codec_name'] ?? "").toString().toLowerCase();
+        final isHevcA = codecA.contains('hevc') || codecA.contains('h265') || codecA.contains('h.265');
+        final isHevcB = codecB.contains('hevc') || codecB.contains('h265') || codecB.contains('h.265');
+        if (isHevcA && !isHevcB) return 1;
+        if (!isHevcA && isHevcB) return -1;
+        final resComp = (b['resolution'] ?? 0).compareTo(a['resolution'] ?? 0);
+        if (resComp != 0) return resComp;
+        final sizeA = int.tryParse(a['size']?.toString() ?? '0') ?? 0;
+        final sizeB = int.tryParse(b['size']?.toString() ?? '0') ?? 0;
+        return sizeB.compareTo(sizeA);
+      });
+
+      final bestStream = filteredList.first;
+      final String nextStreamUrl = bestStream['resourceLink'] ?? bestStream['resource_link'] ?? '';
+      final String nextResourceId = bestStream['resourceId'] ?? bestStream['resource_id'] ?? '';
+      if (nextStreamUrl.isEmpty) return null;
+
+      final List<String> siblingIds = [widget.subjectId];
+      for (final d in _dubs) {
+        final sId = d['subjectId']?.toString() ?? '';
+        if (sId.isNotEmpty && !siblingIds.contains(sId)) {
+          siblingIds.add(sId);
+        }
+      }
+
+      List<dynamic> nextCaptions = [];
+      if (nextResourceId.isNotEmpty) {
+        try {
+          nextCaptions = await _api.getCleanExtCaptions(
+            subjectId: _selectedSubjectId,
+            resourceId: nextResourceId,
+            siblingSubjectIds: siblingIds,
+            se: nextSeason,
+            ep: nextEpisode,
+          );
+        } catch (e) {
+          print("Failed loading next captions: $e");
+        }
+      }
+
+      int nextNextSeason = nextSeason;
+      int nextNextEpisode = nextEpisode + 1;
+      bool hasNextNext = false;
+      int maxEpOfSeason = 0;
+      for (final s in _seasons) {
+        if ((s['se'] ?? 0) == nextSeason) {
+          maxEpOfSeason = (s['maxEp'] ?? 0) as int;
+          break;
+        }
+      }
+
+      if (nextNextEpisode <= maxEpOfSeason) {
+        hasNextNext = true;
+      } else {
+        final followingSeason = _seasons.any((s) => (s['se'] ?? 0) == nextSeason + 1);
+        if (followingSeason) {
+          nextNextSeason = nextSeason + 1;
+          nextNextEpisode = 1;
+          hasNextNext = true;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _selectedSeasonNumber = nextSeason;
+          _selectedEpisodeNumber = nextEpisode;
+          if (maxEpOfSeason > 0) _episodesCount = maxEpOfSeason;
+        });
+      }
+
+      return PlayerNextEpisodeData(
+        streamUrl: nextStreamUrl,
+        title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
+        season: nextSeason,
+        episode: nextEpisode,
+        captions: nextCaptions,
+        hasNextEpisode: hasNextNext,
+        nextEpisodeLabel: hasNextNext ? "S$nextNextSeason:E$nextNextEpisode" : null,
+      );
+    } catch (e) {
+      print("Error fetching next episode stream: $e");
+      return null;
+    }
+  }
+
   void _playStream(Map<String, dynamic> stream) async {
     final String streamUrl = stream['resourceLink'] ?? stream['resource_link'] ?? "";
     final String resourceId = stream['resourceId'] ?? stream['resource_id'] ?? "";
@@ -402,8 +551,26 @@ class _DetailScreenState extends State<DetailScreen> {
       Navigator.pop(context);
     }
 
+    // Compute next episode availability
+    int nextSeason = _selectedSeasonNumber;
+    int nextEpisode = _selectedEpisodeNumber + 1;
+    bool hasNext = false;
+
+    if (_isTvShow) {
+      if (nextEpisode <= _episodesCount) {
+        hasNext = true;
+      } else {
+        final nextSeasonIndex = _seasons.indexWhere((s) => (s['se'] ?? 0) == _selectedSeasonNumber + 1);
+        if (nextSeasonIndex != -1) {
+          nextSeason = _selectedSeasonNumber + 1;
+          nextEpisode = 1;
+          hasNext = true;
+        }
+      }
+    }
+
     if (mounted) {
-      Navigator.push(
+      final result = await Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => PlayerScreen(
@@ -415,9 +582,35 @@ class _DetailScreenState extends State<DetailScreen> {
             captions: captions,
             coverUrl: _details?['cover']?['url'] ?? _details?['coverUrl'] ?? "",
             subjectType: _details?['subjectType'] ?? _details?['subject_type'] ?? 1,
+            maxEpisodesInSeason: _episodesCount,
+            hasNextEpisode: hasNext,
+            nextEpisodeLabel: hasNext ? "S$nextSeason:E$nextEpisode" : null,
+            onFetchNextEpisode: hasNext ? () => _fetchNextEpisodeStream(nextSeason, nextEpisode) : null,
           ),
         ),
       );
+
+      if (mounted) {
+        if (result is Map) {
+          if (result['season'] != null && result['episode'] != null) {
+            final s = result['season'] as int;
+            final e = result['episode'] as int;
+            if (s > 0 && e > 0 && (s != _selectedSeasonNumber || e != _selectedEpisodeNumber)) {
+              setState(() {
+                _selectedSeasonNumber = s;
+                _selectedEpisodeNumber = e;
+              });
+            }
+          }
+          if (result['completed'] == true && _isTvShow && hasNext) {
+            setState(() {
+              _selectedSeasonNumber = nextSeason;
+              _selectedEpisodeNumber = nextEpisode;
+            });
+          }
+        }
+        _loadStreams();
+      }
     }
   }
 

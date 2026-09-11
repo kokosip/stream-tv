@@ -9,6 +9,27 @@ import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:http/http.dart' as http;
 import '../widgets/tv_focusable_card.dart';
 import '../services/playback_progress_service.dart';
+import '../services/app_language_service.dart';
+
+class PlayerNextEpisodeData {
+  final String streamUrl;
+  final String title;
+  final int season;
+  final int episode;
+  final List<dynamic> captions;
+  final bool hasNextEpisode;
+  final String? nextEpisodeLabel;
+
+  PlayerNextEpisodeData({
+    required this.streamUrl,
+    required this.title,
+    required this.season,
+    required this.episode,
+    this.captions = const [],
+    this.hasNextEpisode = false,
+    this.nextEpisodeLabel,
+  });
+}
 
 class PlayerScreen extends StatefulWidget {
   final String streamUrl;
@@ -19,6 +40,10 @@ class PlayerScreen extends StatefulWidget {
   final List<dynamic> captions;
   final String? coverUrl;
   final int? subjectType;
+  final int maxEpisodesInSeason;
+  final bool hasNextEpisode;
+  final String? nextEpisodeLabel;
+  final Future<PlayerNextEpisodeData?> Function()? onFetchNextEpisode;
 
   const PlayerScreen({
     super.key,
@@ -30,6 +55,10 @@ class PlayerScreen extends StatefulWidget {
     this.captions = const [],
     this.coverUrl,
     this.subjectType,
+    this.maxEpisodesInSeason = 0,
+    this.hasNextEpisode = false,
+    this.nextEpisodeLabel,
+    this.onFetchNextEpisode,
   });
 
   @override
@@ -53,6 +82,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? _progressSaveTimer;
   String? _resumeMessage;
   
+  // Dynamic episode & playback state
+  late String _currentTitle;
+  late int _currentSeason;
+  late int _currentEpisode;
+  late bool _hasNextEpisode;
+  String? _nextEpisodeLabel;
+
+  // Auto-next episode countdown state
+  bool _showNextEpisodeOverlay = false;
+  int _nextEpisodeCountdown = 8;
+  Timer? _nextEpisodeTimer;
+  bool _isSwitchingNextEpisode = false;
+  late FocusNode _playNextFocusNode;
+
   String? _selectedSubtitleUrl;
   List<dynamic> _availableSubtitles = [];
   List<SubtitleEntry> _subtitleEntries = [];
@@ -166,24 +209,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _playPauseFocusNode.requestFocus();
     });
 
-    // Parse captions list
-    _availableSubtitles = widget.captions;
-    
-    // Auto-select English or first subtitle if available
-    if (_availableSubtitles.isNotEmpty) {
-      final englishSub = _availableSubtitles.firstWhere(
-        (sub) {
-          final lan = (sub['lan'] ?? sub['lanName'] ?? sub['language'] ?? sub['lang'] ?? '').toString().toLowerCase();
-          return lan == 'en' || lan == 'eng' || lan.contains('english') || lan.contains('inggris');
-        },
-        orElse: () => _availableSubtitles[0],
-      );
-      _selectedSubtitleUrl = englishSub['url'];
-    }
+    _currentTitle = widget.title;
+    _currentSeason = widget.season;
+    _currentEpisode = widget.episode;
+    _hasNextEpisode = widget.hasNextEpisode;
+    _nextEpisodeLabel = widget.nextEpisodeLabel;
+    _playNextFocusNode = FocusNode();
 
-    if (_selectedSubtitleUrl != null) {
-      _loadSubtitles(_selectedSubtitleUrl!);
-    }
+    // Parse and clean captions list
+    _setupSubtitles(widget.captions);
 
     _initializePlayer();
     _startHideTimer();
@@ -255,7 +289,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _subscriptions.add(
         _player.stream.completed.listen((completed) {
           if (completed) {
-            Navigator.pop(context);
+            if (_hasNextEpisode && !_isSwitchingNextEpisode) {
+              _triggerNextEpisodeCountdown();
+            } else {
+              if (mounted) {
+                Navigator.pop(context, {
+                  'completed': true,
+                  'season': _currentSeason,
+                  'episode': _currentEpisode,
+                });
+              }
+            }
           }
         }),
       );
@@ -275,6 +319,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 didResume = true;
                 _player.seek(Duration(milliseconds: savedMs));
                 _showResumeToast(savedMs);
+              }
+            }
+
+            // Check for Smart Next Episode overlay trigger (watched >= 90% or last 25s)
+            if (_isInitialized && _hasNextEpisode && !_showNextEpisodeOverlay && !_isSwitchingNextEpisode) {
+              final durMs = dur.inMilliseconds;
+              final posMs = pos.inMilliseconds;
+              if (durMs > 0 && (posMs >= durMs * 0.90 || (durMs - posMs) <= 25000)) {
+                _triggerNextEpisodeCountdown();
               }
             }
           }
@@ -382,13 +435,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (posMs > 0 && durMs > 0) {
       PlaybackProgressService.saveProgress(
         widget.subjectId,
-        widget.season,
-        widget.episode,
+        _currentSeason,
+        _currentEpisode,
         posMs,
         durMs,
-        title: widget.title,
+        title: _currentTitle,
         coverUrl: widget.coverUrl,
         subjectType: widget.subjectType,
+        maxEpisodesInSeason: widget.maxEpisodesInSeason > 0 ? widget.maxEpisodesInSeason : null,
       );
     }
   }
@@ -397,6 +451,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     _pipChannel.invokeMethod('setPipEnabled', {'enabled': false});
     _hideTimer?.cancel();
+    _nextEpisodeTimer?.cancel();
+    _progressSaveTimer?.cancel();
+    _saveCurrentProgress();
+
     for (final s in _subscriptions) {
       s.cancel();
     }
@@ -413,6 +471,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _playPauseFocusNode.dispose();
     _forwardFocusNode.dispose();
     _sliderFocusNode.dispose();
+    _playNextFocusNode.dispose();
     
     // Restore default system UI modes when exiting fullscreen player
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
@@ -461,7 +520,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
             // Handle back/escape to exit player
             if (event.logicalKey == LogicalKeyboardKey.escape ||
                 event.logicalKey == LogicalKeyboardKey.backspace) {
-              Navigator.pop(context);
+              Navigator.pop(context, {
+                'season': _currentSeason,
+                'episode': _currentEpisode,
+              });
               return KeyEventResult.handled;
             }
           }
@@ -557,7 +619,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 TvFocusableCard(
                                   focusNode: _backFocusNode,
                                   borderRadius: BorderRadius.circular(24),
-                                  onTap: () => Navigator.pop(context),
+                                  onTap: () => Navigator.pop(context, {
+                                    'season': _currentSeason,
+                                    'episode': _currentEpisode,
+                                  }),
                                   child: const Padding(
                                     padding: EdgeInsets.all(8.0),
                                     child: Icon(Icons.arrow_back, color: Colors.white, size: 28),
@@ -566,7 +631,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    widget.title,
+                                    (_currentSeason > 0 || _currentEpisode > 0)
+                                        ? "$_currentTitle • S$_currentSeason E$_currentEpisode"
+                                        : _currentTitle,
                                     style: GoogleFonts.outfit(
                                       color: Colors.white,
                                       fontSize: 20,
@@ -612,13 +679,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                               ),
                                             ),
                                             ..._availableSubtitles.map((sub) {
-                                              final label = sub['lanName'] ?? 
+                                              final label = sub['normalizedLan'] ??
+                                                            sub['lanName'] ?? 
                                                             sub['language'] ?? 
                                                             sub['lan'] ?? 
                                                             sub['lang'] ?? 
-                                                            sub['name'] ?? 
-                                                            sub['disName'] ?? 
-                                                            sub['title'] ?? 
                                                             "Subtitle";
                                               final subUrl = (sub['url'] ?? sub['link'] ?? sub['src'] ?? sub['path'] ?? '').toString();
                                               if (subUrl.isEmpty) return null;
@@ -903,6 +968,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                   ),
                 ),
+
+              // 5. Smart Next Episode Floating Overlay
+              if (_showNextEpisodeOverlay && _hasNextEpisode)
+                _buildNextEpisodeOverlay(),
+
+              // 6. Switching Next Episode Spinner
+              if (_isSwitchingNextEpisode)
+                _buildSwitchingNextOverlay(),
             ],
           ),
         ),
@@ -927,6 +1000,357 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
     return "";
+  }
+
+  static String normalizeSubtitleLanguage(dynamic sub) {
+    if (sub is! Map) return "Subtitle";
+    final raw = (sub['lanName'] ?? 
+                 sub['language'] ?? 
+                 sub['lan'] ?? 
+                 sub['lang'] ?? 
+                 sub['name'] ?? 
+                 sub['disName'] ?? 
+                 sub['title'] ?? 
+                 'Unknown').toString().trim();
+                 
+    final lower = raw.toLowerCase();
+    if (lower == 'in' || lower == 'in_id' || lower == 'id' || lower == 'ina' || lower.contains('indonesia')) {
+      return "Indonesian";
+    }
+    if (lower == 'en' || lower == 'eng' || lower.contains('english') || lower.contains('inggris')) {
+      return "English";
+    }
+    if (lower == 'es' || lower == 'spa' || lower.contains('spanish') || lower.contains('spanyol') || lower.contains('espanol')) {
+      return "Spanish";
+    }
+    if (lower == 'fr' || lower == 'fra' || lower == 'fre' || lower.contains('french') || lower.contains('prancis') || lower.contains('francais')) {
+      return "French";
+    }
+    if (lower == 'de' || lower == 'deu' || lower == 'ger' || lower.contains('german') || lower.contains('jerman') || lower.contains('deutsch')) {
+      return "German";
+    }
+    if (lower == 'ja' || lower == 'jpn' || lower.contains('japanese') || lower.contains('jepang')) {
+      return "Japanese";
+    }
+    if (lower == 'ko' || lower == 'kor' || lower.contains('korean') || lower.contains('korea')) {
+      return "Korean";
+    }
+    if (lower == 'zh' || lower == 'chi' || lower == 'zho' || lower.contains('chinese') || lower.contains('mandarin')) {
+      return "Chinese";
+    }
+    if (lower == 'ar' || lower == 'ara' || lower.contains('arabic') || lower.contains('arab')) {
+      return "Arabic";
+    }
+    if (lower == 'hi' || lower == 'hin' || lower.contains('hindi')) {
+      return "Hindi";
+    }
+    if (lower == 'pt' || lower == 'por' || lower.contains('portuguese') || lower.contains('portugis')) {
+      return "Portuguese";
+    }
+    if (lower == 'ru' || lower == 'rus' || lower.contains('russian') || lower.contains('rusia')) {
+      return "Russian";
+    }
+    if (lower == 'th' || lower == 'tha' || lower.contains('thai')) {
+      return "Thai";
+    }
+    if (lower == 'vi' || lower == 'vie' || lower.contains('vietnamese') || lower.contains('vietnam')) {
+      return "Vietnamese";
+    }
+    if (lower == 'ms' || lower == 'msa' || lower == 'may' || lower.contains('malay') || lower.contains('melayu')) {
+      return "Malay";
+    }
+    if (lower == 'tl' || lower == 'tgl' || lower == 'fil' || lower.contains('filipino') || lower.contains('tagalog')) {
+      return "Filipino";
+    }
+    return raw.isNotEmpty ? raw : "Subtitle";
+  }
+
+  void _setupSubtitles(List<dynamic> rawCaptions) {
+    final List<dynamic> cleanSubs = [];
+    final Set<String> seenUrls = {};
+
+    for (final sub in rawCaptions) {
+      if (sub is! Map) continue;
+      final url = (sub['url'] ?? sub['link'] ?? sub['src'] ?? sub['path'] ?? '').toString().trim();
+      if (url.isEmpty || url.contains('aa348f2541d13ffe')) continue;
+
+      final rawSize = sub['size'];
+      int size = 0;
+      if (rawSize is num) {
+        size = rawSize.toInt();
+      } else if (rawSize != null) {
+        size = int.tryParse(rawSize.toString()) ?? 0;
+      }
+      // Filter dummy/empty 34-50 byte caption placeholder files
+      if (size > 0 && size <= 50) continue;
+
+      final normalizedLang = normalizeSubtitleLanguage(sub);
+      if (normalizedLang == 'Indonesian' && size > 0 && size <= 100) continue;
+
+      if (seenUrls.add(url)) {
+        final entry = Map<String, dynamic>.from(sub);
+        entry['normalizedLan'] = normalizedLang;
+        cleanSubs.add(entry);
+      }
+    }
+
+    _availableSubtitles = cleanSubs;
+
+    if (_availableSubtitles.isNotEmpty) {
+      // Prioritize Indonesian if app language is 'id', else English, else first
+      final isIdLang = AppLanguageService.currentLanguage.value == 'id';
+      final preferred = _availableSubtitles.firstWhere(
+        (sub) => sub['normalizedLan'] == (isIdLang ? 'Indonesian' : 'English'),
+        orElse: () => _availableSubtitles.firstWhere(
+          (sub) => sub['normalizedLan'] == (isIdLang ? 'English' : 'Indonesian'),
+          orElse: () => _availableSubtitles[0],
+        ),
+      );
+      _selectedSubtitleUrl = preferred['url'] ?? preferred['link'];
+    } else {
+      _selectedSubtitleUrl = null;
+    }
+
+    if (_selectedSubtitleUrl != null) {
+      _loadSubtitles(_selectedSubtitleUrl!);
+    }
+  }
+
+  void _triggerNextEpisodeCountdown() {
+    if (_showNextEpisodeOverlay || _isSwitchingNextEpisode || !_hasNextEpisode) return;
+    setState(() {
+      _showNextEpisodeOverlay = true;
+      _nextEpisodeCountdown = 8;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _playNextFocusNode.requestFocus();
+      }
+    });
+
+    _nextEpisodeTimer?.cancel();
+    _nextEpisodeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_nextEpisodeCountdown <= 1) {
+        timer.cancel();
+        _playNextEpisode();
+      } else {
+        setState(() {
+          _nextEpisodeCountdown--;
+        });
+      }
+    });
+  }
+
+  void _playNextEpisode() async {
+    _nextEpisodeTimer?.cancel();
+    if (_isSwitchingNextEpisode) return;
+
+    setState(() {
+      _isSwitchingNextEpisode = true;
+      _showNextEpisodeOverlay = false;
+    });
+
+    // Save current episode progress as completed
+    _saveCurrentProgress();
+
+    if (widget.onFetchNextEpisode != null) {
+      try {
+        final nextData = await widget.onFetchNextEpisode!();
+        if (nextData != null && mounted) {
+          setState(() {
+            _currentTitle = nextData.title;
+            _currentSeason = nextData.season;
+            _currentEpisode = nextData.episode;
+            _hasNextEpisode = nextData.hasNextEpisode;
+            _nextEpisodeLabel = nextData.nextEpisodeLabel;
+            _isSwitchingNextEpisode = false;
+            _isInitialized = false;
+          });
+
+          _setupSubtitles(nextData.captions);
+          await _player.open(Media(nextData.streamUrl));
+          _startHideTimer();
+          return;
+        }
+      } catch (e) {
+        print("Failed switching to next episode: $e");
+      }
+    }
+
+    // If no seamless handler or fetch failed, exit back to DetailScreen with next cue
+    if (mounted) {
+      Navigator.pop(context, {
+        'completed': true,
+        'playNext': true,
+        'season': _currentSeason,
+        'episode': _currentEpisode,
+      });
+    }
+  }
+
+  Widget _buildNextEpisodeOverlay() {
+    final label = _nextEpisodeLabel ?? "Next Episode";
+
+    return Positioned(
+      bottom: 90,
+      right: 24,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: 320,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF141414).withOpacity(0.95),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.redAccent.withOpacity(0.6), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.6),
+                blurRadius: 16,
+                spreadRadius: 4,
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.skip_next, color: Colors.redAccent, size: 24),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      "${_nextEpisodeCountdown}s",
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                AppLanguageService.tr(
+                  en: "Next episode will play automatically",
+                  id: "Episode selanjutnya akan otomatis diputar",
+                ),
+                style: GoogleFonts.outfit(
+                  color: Colors.grey.shade400,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: TvFocusableCard(
+                      focusNode: _playNextFocusNode,
+                      onTap: _playNextEpisode,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.play_arrow, color: Colors.white, size: 18),
+                            const SizedBox(width: 4),
+                            Text(
+                              AppLanguageService.tr(en: "Play Now", id: "Putar Sekarang"),
+                              style: GoogleFonts.outfit(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  TvFocusableCard(
+                    onTap: () {
+                      _nextEpisodeTimer?.cancel();
+                      setState(() {
+                        _showNextEpisodeOverlay = false;
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF262626),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF383838)),
+                      ),
+                      child: Text(
+                        AppLanguageService.tr(en: "Cancel", id: "Batal"),
+                        style: GoogleFonts.outfit(
+                          color: Colors.grey.shade300,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSwitchingNextOverlay() {
+    return Container(
+      color: Colors.black.withOpacity(0.75),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SpinKitRing(color: Colors.redAccent, size: 48.0),
+            const SizedBox(height: 16),
+            Text(
+              AppLanguageService.tr(
+                en: "Loading next episode...",
+                id: "Memuat episode berikutnya...",
+              ),
+              style: GoogleFonts.outfit(color: Colors.white, fontSize: 16),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   String _formatDuration(Duration duration) {

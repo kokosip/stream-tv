@@ -1337,8 +1337,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
               final progress = (pos / dur).clamp(0.0, 1.0);
               final isShow = season > 0 || episode > 0;
+              final isNextCue = item['isNextCue'] == true;
               final String subtitle = isShow 
-                  ? "Season $season: Episode $episode" 
+                  ? (isNextCue 
+                      ? "Season $season: Episode $episode • ${AppLanguageService.tr(en: "Next Episode", id: "Episode Selanjutnya")}"
+                      : "Season $season: Episode $episode") 
                   : (progress == 0 
                       ? AppLanguageService.tr(en: "Re-watch", id: "Tonton Ulang") 
                       : AppLanguageService.tr(en: "Resume playback", id: "Lanjutkan tontonan"));
@@ -1350,7 +1353,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => DetailScreen(subjectId: subjectId),
+                        builder: (context) => DetailScreen(
+                          subjectId: subjectId,
+                          initialSeason: isShow ? season : null,
+                          initialEpisode: isShow ? episode : null,
+                        ),
                       ),
                     ).then((_) {
                       _loadFavoritesAndProgress();
@@ -2199,8 +2206,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
               final progress = (pos / dur).clamp(0.0, 1.0);
               final isShow = season > 0 || episode > 0;
+              final isNextCue = item['isNextCue'] == true;
               final String subtitle = isShow 
-                  ? "S$season:E$episode" 
+                  ? (isNextCue 
+                      ? "S$season:E$episode • ${AppLanguageService.tr(en: "Next", id: "Selanjutnya")}"
+                      : "S$season:E$episode") 
                   : (progress == 0 
                       ? AppLanguageService.tr(en: "Re-watch", id: "Tonton Ulang") 
                       : AppLanguageService.tr(en: "Resume", id: "Lanjutkan"));
@@ -2212,7 +2222,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => DetailScreen(subjectId: subjectId),
+                        builder: (context) => DetailScreen(
+                          subjectId: subjectId,
+                          initialSeason: isShow ? season : null,
+                          initialEpisode: isShow ? episode : null,
+                        ),
                       ),
                     ).then((_) {
                       _loadFavoritesAndProgress();
