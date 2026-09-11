@@ -469,4 +469,111 @@ class MovieBoxApiService {
       "/wefeed-mobile-bff/subject-api/get-ext-captions?subjectId=$subjectId&resourceId=$resourceId",
     );
   }
+
+  /// Get clean, valid external captions with cross-dub aggregation and filtering.
+  /// Filters dummy/corrupted placeholder files (size <= 50 bytes or placeholder hashes)
+  /// and normalizes Indonesian/other language tags.
+  Future<List<dynamic>> getCleanExtCaptions({
+    required String subjectId,
+    required String resourceId,
+    List<String> siblingSubjectIds = const [],
+    int se = 0,
+    int ep = 0,
+  }) async {
+    final List<dynamic> allCaptions = [];
+    final Set<String> seenUrls = {};
+
+    void appendCaptions(dynamic rawList) {
+      if (rawList is! List) return;
+      for (final cap in rawList) {
+        if (cap is! Map) continue;
+        final url = (cap['url'] ?? '').toString();
+        if (url.isEmpty || url.contains('aa348f2541d13ffe')) continue;
+
+        final rawSize = cap['size'];
+        int size = 0;
+        if (rawSize is num) {
+          size = rawSize.toInt();
+        } else if (rawSize != null) {
+          size = int.tryParse(rawSize.toString()) ?? 0;
+        }
+
+        // Filter out dummy/empty 34-50 byte caption placeholder files
+        if (size > 0 && size <= 50) continue;
+
+        String lanName = (cap['lanName'] ?? cap['lan'] ?? cap['language'] ?? 'Unknown').toString().trim();
+        if (lanName.isEmpty) lanName = 'Unknown';
+
+        // Normalize Indonesian language naming
+        final lanLower = lanName.toLowerCase();
+        if (lanLower == 'in' || lanLower == 'in_id' || lanLower == 'id' || lanLower == 'ina') {
+          if (size > 0 && size <= 100) continue; // Filter corrupted in captions
+          lanName = 'Indonesian';
+        } else if (lanLower == 'en' || lanLower == 'eng') {
+          lanName = 'English';
+        }
+
+        if (seenUrls.add(url)) {
+          final cleanCap = Map<String, dynamic>.from(cap);
+          cleanCap['lanName'] = lanName;
+          cleanCap['url'] = url;
+          allCaptions.add(cleanCap);
+        }
+      }
+    }
+
+    // 1. Fetch from active stream's resourceId & subjectId
+    try {
+      if (resourceId.isNotEmpty) {
+        final res = await getExtCaptions(subjectId: subjectId, resourceId: resourceId);
+        final list = res['extCaptions'] ?? (res['data'] is Map ? res['data']['extCaptions'] : null);
+        appendCaptions(list);
+      }
+    } catch (e) {
+      print("Primary caption fetch error: $e");
+    }
+
+    // 2. Cross-dub fallback: If active dub has few/no captions (< 5), query sibling dubs
+    if (allCaptions.length < 5 && siblingSubjectIds.isNotEmpty) {
+      final validSiblings = siblingSubjectIds
+          .where((id) => id.isNotEmpty && id != subjectId)
+          .take(3)
+          .toList();
+
+      if (validSiblings.isNotEmpty) {
+        final siblingResults = await Future.wait(validSiblings.map((sibId) async {
+          try {
+            final resList = await getResources(subjectId: sibId, se: se, ep: ep, resolution: 1080);
+            final files = resList['list'] ?? [];
+            if (files is List && files.isNotEmpty) {
+              final sibRid = files[0]['resourceId']?.toString() ?? files[0]['id']?.toString() ?? '';
+              if (sibRid.isNotEmpty) {
+                final sibSubs = await getExtCaptions(subjectId: sibId, resourceId: sibRid);
+                return sibSubs['extCaptions'] ?? (sibSubs['data'] is Map ? sibSubs['data']['extCaptions'] : null);
+              }
+            }
+          } catch (_) {}
+          return null;
+        }));
+
+        for (final sList in siblingResults) {
+          if (sList != null) {
+            appendCaptions(sList);
+          }
+        }
+      }
+    }
+
+    // Deduplicate by language name so user doesn't see duplicate tracks for the same language
+    final List<dynamic> deduplicated = [];
+    final Set<String> seenLanguages = {};
+    for (final cap in allCaptions) {
+      final lang = (cap['lanName'] ?? '').toString().toLowerCase();
+      if (seenLanguages.add(lang)) {
+        deduplicated.add(cap);
+      }
+    }
+
+    return deduplicated;
+  }
 }

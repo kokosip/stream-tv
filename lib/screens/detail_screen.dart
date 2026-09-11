@@ -67,6 +67,25 @@ class _DetailScreenState extends State<DetailScreen> {
     _checkFavorite();
   }
 
+  String _formatDubLabel(dynamic dub) {
+    if (dub is! Map) return "Original Audio";
+    final lanName = (dub['lanName'] ?? dub['language'] ?? dub['title'] ?? 'Original').toString().trim();
+    final lanCode = (dub['lanCode'] ?? '').toString().trim().toUpperCase();
+    final isOriginal = dub['original'] == true || lanName.toLowerCase().contains('original');
+
+    if (isOriginal) {
+      if (!lanName.toLowerCase().contains('original')) {
+        return lanCode.isNotEmpty ? "$lanName (Original · $lanCode)" : "$lanName (Original)";
+      }
+      return lanCode.isNotEmpty ? "$lanName ($lanCode)" : lanName;
+    }
+    
+    if (!lanName.toLowerCase().contains('dub')) {
+      return lanCode.isNotEmpty ? "$lanName Dub ($lanCode)" : "$lanName Dub";
+    }
+    return lanCode.isNotEmpty ? "$lanName ($lanCode)" : lanName;
+  }
+
   void _loadDetails() async {
     setState(() {
       _isLoadingDetails = true;
@@ -78,23 +97,33 @@ class _DetailScreenState extends State<DetailScreen> {
       final type = detailsRes['subjectType'] ?? detailsRes['subject_type'];
       final isTvShow = type == 2 || type?.toString() == '2' || type?.toString().toLowerCase() == 'tv';
       
-      // Extract dubs list
-      List<dynamic> dubsList = detailsRes['dubs'] ?? [];
+      // Extract dubs list (support both direct and nested subject['dubs'])
+      List<dynamic> rawDubs = detailsRes['dubs'] ?? 
+          (detailsRes['subject'] is Map ? detailsRes['subject']['dubs'] : null) ?? [];
       
-      String selectedAudioName = "Original";
+      List<dynamic> dubsList = [];
+      for (final d in rawDubs) {
+        if (d is Map) {
+          dubsList.add(Map<String, dynamic>.from(d));
+        }
+      }
+
+      String selectedAudioName = "Original Audio";
       String selectedSubId = widget.subjectId;
 
-      // If there are no dubs, add "Original" as placeholder
       if (dubsList.isEmpty) {
         dubsList = [
-          {"lanName": "Original", "subjectId": widget.subjectId}
+          {"lanName": "Original Audio", "subjectId": widget.subjectId, "original": true}
         ];
       } else {
         // Ensure "Original" is in the list
-        bool hasOriginal = dubsList.any((d) => d['lanName'] == 'Original' || d['original'] == true);
+        bool hasOriginal = dubsList.any((d) => 
+            d['original'] == true || 
+            (d['lanName'] ?? '').toString().toLowerCase().contains('original'));
+            
         if (!hasOriginal) {
           dubsList = [
-            {"lanName": "Original", "subjectId": widget.subjectId},
+            {"lanName": "Original Audio", "subjectId": widget.subjectId, "original": true},
             ...dubsList
           ];
         }
@@ -110,10 +139,13 @@ class _DetailScreenState extends State<DetailScreen> {
               final name = (d['lanName'] ?? d['language'] ?? '').toString().toLowerCase();
               return name.contains('english') || name == 'en' || name == 'eng';
             },
-            orElse: () => dubsList.first,
+            orElse: () => dubsList.firstWhere(
+              (d) => d['original'] == true || (d['lanName'] ?? '').toString().toLowerCase().contains('original'),
+              orElse: () => dubsList.first,
+            ),
           ),
         );
-        selectedAudioName = selectedDub['lanName'] ?? selectedDub['language'] ?? 'Original';
+        selectedAudioName = _formatDubLabel(selectedDub);
         selectedSubId = selectedDub['subjectId']?.toString() ?? widget.subjectId;
       }
 
@@ -268,11 +300,40 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  void _onAudioChanged(String name, String subId) {
+  void _onAudioChanged(dynamic dub) async {
+    final subId = dub['subjectId']?.toString() ?? widget.subjectId;
+    final name = _formatDubLabel(dub);
+    
     setState(() {
       _selectedAudioName = name;
       _selectedSubjectId = subId;
     });
+
+    // If TV Show, sync season and episode info with the selected dub's subjectId
+    if (_isTvShow) {
+      try {
+        final seasonsRes = await _api.getSeasonInfo(subjectId: subId);
+        final List<dynamic> newSeasons = seasonsRes['seasons'] ?? [];
+        if (newSeasons.isNotEmpty) {
+          final matchingSeason = newSeasons.firstWhere(
+            (s) => (s['se'] ?? 1) == _selectedSeasonNumber,
+            orElse: () => newSeasons[0],
+          );
+          final maxEp = (matchingSeason['maxEp'] ?? 1) as int;
+          setState(() {
+            _seasons = newSeasons;
+            _selectedSeasonNumber = matchingSeason['se'] ?? 1;
+            _episodesCount = maxEp;
+            if (_selectedEpisodeNumber > maxEp || _selectedEpisodeNumber < 1) {
+              _selectedEpisodeNumber = 1;
+            }
+          });
+        }
+      } catch (e) {
+        print("Failed refreshing seasons for dub $subId: $e");
+      }
+    }
+
     _loadStreams();
   }
 
@@ -312,19 +373,25 @@ class _DetailScreenState extends State<DetailScreen> {
       ),
     );
 
+    // Collect all sibling subject IDs for cross-dub subtitle resolution
+    final List<String> siblingIds = [widget.subjectId];
+    for (final d in _dubs) {
+      final sId = d['subjectId']?.toString() ?? '';
+      if (sId.isNotEmpty && !siblingIds.contains(sId)) {
+        siblingIds.add(sId);
+      }
+    }
+
     List<dynamic> captions = [];
     try {
       if (resourceId.isNotEmpty) {
-        final subsRes = await _api.getExtCaptions(
+        captions = await _api.getCleanExtCaptions(
           subjectId: _selectedSubjectId,
           resourceId: resourceId,
+          siblingSubjectIds: siblingIds,
+          se: _isTvShow ? _selectedSeasonNumber : 0,
+          ep: _isTvShow ? _selectedEpisodeNumber : 0,
         );
-        captions = subsRes['extCaptions'] ?? 
-                   subsRes['external_captions'] ?? 
-                   subsRes['list'] ?? 
-                   subsRes['captions'] ?? 
-                   subsRes['subtitles'] ?? 
-                   [];
       }
     } catch (e) {
       print("Failed to load subtitles: $e");
@@ -674,38 +741,62 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Widget _buildAudioDropdown({required bool isTv}) {
-    final currentAudioName = _dubs.any((d) => (d['lanName'] ?? d['language'] ?? 'Unknown') == _selectedAudioName)
-        ? _selectedAudioName
-        : (_dubs.isNotEmpty ? (_dubs.first['lanName'] ?? _dubs.first['language'] ?? 'Original') : 'Original');
+    if (_dubs.length <= 1) {
+      return const SizedBox.shrink();
+    }
+
+    final currentDub = _dubs.firstWhere(
+      (d) => _formatDubLabel(d) == _selectedAudioName || d['subjectId']?.toString() == _selectedSubjectId,
+      orElse: () => _dubs.first,
+    );
+    final currentAudioLabel = _formatDubLabel(currentDub);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            AppLanguageService.tr(en: "Audio Language", id: "Bahasa Audio"),
-            style: GoogleFonts.outfit(
-              color: Colors.grey.shade400,
-              fontWeight: FontWeight.bold,
-              fontSize: isTv ? 15 : 13,
-            ),
+          Row(
+            children: [
+              Icon(Icons.record_voice_over_outlined, color: Colors.grey.shade400, size: isTv ? 18 : 16),
+              const SizedBox(width: 8),
+              Text(
+                AppLanguageService.tr(en: "Audio Dubbing / Language", id: "Bahasa Sulih Suara (Audio)"),
+                style: GoogleFonts.outfit(
+                  color: Colors.grey.shade400,
+                  fontWeight: FontWeight.bold,
+                  fontSize: isTv ? 15 : 13,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
+                ),
+                child: Text(
+                  "${_dubs.length} ${AppLanguageService.tr(en: "Tracks", id: "Pilihan")}",
+                  style: GoogleFonts.outfit(
+                    color: Colors.redAccent,
+                    fontSize: isTv ? 11 : 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 6),
           TvFocusableCard(
             onTap: () {
-              _showOptionsDialog<String>(
+              _showOptionsDialog<dynamic>(
                 title: AppLanguageService.tr(en: "Select Audio Language", id: "Pilih Bahasa Audio"),
-                items: _dubs.map<String>((d) => (d['lanName'] ?? d['language'] ?? 'Unknown').toString()).toList(),
-                selectedValue: currentAudioName,
-                itemLabel: (name) => name,
-                onSelected: (newName) {
-                  final targetDub = _dubs.firstWhere(
-                    (d) => (d['lanName'] ?? d['language'] ?? 'Unknown') == newName,
-                    orElse: () => {"lanName": newName, "subjectId": widget.subjectId},
-                  );
-                  final subId = targetDub['subjectId'] ?? widget.subjectId;
-                  _onAudioChanged(newName, subId);
+                items: _dubs,
+                selectedValue: currentDub,
+                itemLabel: (dub) => _formatDubLabel(dub),
+                onSelected: (newDub) {
+                  _onAudioChanged(newDub);
                 },
               );
             },
@@ -722,13 +813,36 @@ class _DetailScreenState extends State<DetailScreen> {
                 mainAxisSize: MainAxisSize.max,
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    currentAudioName,
-                    style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontSize: isTv ? 16 : 14,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        currentAudioLabel,
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontSize: isTv ? 16 : 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (currentDub['original'] == true) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                          ),
+                          child: Text(
+                            "ORIGINAL",
+                            style: GoogleFonts.outfit(
+                              color: Colors.amber,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   const Icon(Icons.arrow_drop_down, color: Colors.redAccent),
                 ],
@@ -755,10 +869,12 @@ class _DetailScreenState extends State<DetailScreen> {
             const Divider(color: Color(0xFF222222), height: 1),
           ],
           
-          const SizedBox(height: 8),
-          _buildAudioDropdown(isTv: isTv),
-          const SizedBox(height: 8),
-          const Divider(color: Color(0xFF222222), height: 1),
+          if (_dubs.length > 1) ...[
+            const SizedBox(height: 8),
+            _buildAudioDropdown(isTv: isTv),
+            const SizedBox(height: 8),
+            const Divider(color: Color(0xFF222222), height: 1),
+          ],
           
           Padding(
             padding: EdgeInsets.only(
