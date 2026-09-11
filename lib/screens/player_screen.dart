@@ -12,6 +12,22 @@ import '../widgets/tv_focusable_card.dart';
 import '../services/playback_progress_service.dart';
 import '../services/app_language_service.dart';
 
+class PlayerSwitchAudioResult {
+  final String streamUrl;
+  final String audioName;
+  final List<dynamic> captions;
+  final List<dynamic> availableStreams;
+  final Map<String, dynamic>? currentStream;
+
+  PlayerSwitchAudioResult({
+    required this.streamUrl,
+    required this.audioName,
+    this.captions = const [],
+    this.availableStreams = const [],
+    this.currentStream,
+  });
+}
+
 class PlayerNextEpisodeData {
   final String streamUrl;
   final String title;
@@ -20,6 +36,9 @@ class PlayerNextEpisodeData {
   final List<dynamic> captions;
   final bool hasNextEpisode;
   final String? nextEpisodeLabel;
+  final List<dynamic> availableStreams;
+  final Map<String, dynamic>? currentStream;
+  final String? currentAudioName;
 
   PlayerNextEpisodeData({
     required this.streamUrl,
@@ -29,6 +48,9 @@ class PlayerNextEpisodeData {
     this.captions = const [],
     this.hasNextEpisode = false,
     this.nextEpisodeLabel,
+    this.availableStreams = const [],
+    this.currentStream,
+    this.currentAudioName,
   });
 }
 
@@ -45,6 +67,14 @@ class PlayerScreen extends StatefulWidget {
   final int maxEpisodesInSeason;
   final bool hasNextEpisode;
   final String? nextEpisodeLabel;
+  final List<dynamic> dubs;
+  final String? currentAudioName;
+  final List<dynamic> availableStreams;
+  final Map<String, dynamic>? currentStream;
+  final List<dynamic> seasons;
+  final Future<PlayerSwitchAudioResult?> Function(dynamic dub)? onSwitchAudio;
+  final Future<String?> Function(Map<String, dynamic> stream)? onSwitchQuality;
+  final Future<PlayerNextEpisodeData?> Function(int season, int episode)? onSelectEpisode;
   final Future<PlayerNextEpisodeData?> Function()? onFetchNextEpisode;
 
   const PlayerScreen({
@@ -61,6 +91,14 @@ class PlayerScreen extends StatefulWidget {
     this.maxEpisodesInSeason = 0,
     this.hasNextEpisode = false,
     this.nextEpisodeLabel,
+    this.dubs = const [],
+    this.currentAudioName,
+    this.availableStreams = const [],
+    this.currentStream,
+    this.seasons = const [],
+    this.onSwitchAudio,
+    this.onSwitchQuality,
+    this.onSelectEpisode,
     this.onFetchNextEpisode,
   });
 
@@ -100,6 +138,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _nextEpisodeDismissed = false;
   late FocusNode _playNextFocusNode;
   late FocusNode _cancelNextFocusNode;
+
+  // In-player audio, quality, and episode state
+  late List<dynamic> _dubs;
+  String? _currentAudioName;
+  late List<dynamic> _availableStreams;
+  Map<String, dynamic>? _currentStream;
+  late List<dynamic> _seasons;
+
+  bool _isSwitchingAudio = false;
+  bool _isSwitchingQuality = false;
+
+  late FocusNode _audioFocusNode;
+  late FocusNode _qualityFocusNode;
+  late FocusNode _episodesFocusNode;
+
+  final GlobalKey<PopupMenuButtonState<dynamic>> _audioPopupMenuKey = GlobalKey<PopupMenuButtonState<dynamic>>();
+  final GlobalKey<PopupMenuButtonState<Map<String, dynamic>>> _qualityPopupMenuKey = GlobalKey<PopupMenuButtonState<Map<String, dynamic>>>();
 
   String? _selectedSubtitleUrl;
   List<dynamic> _availableSubtitles = [];
@@ -221,6 +276,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _nextEpisodeLabel = widget.nextEpisodeLabel;
     _playNextFocusNode = FocusNode();
     _cancelNextFocusNode = FocusNode();
+
+    _dubs = List.from(widget.dubs);
+    _currentAudioName = widget.currentAudioName;
+    _availableStreams = List.from(widget.availableStreams);
+    _currentStream = widget.currentStream;
+    _seasons = List.from(widget.seasons);
+
+    _audioFocusNode = FocusNode();
+    _qualityFocusNode = FocusNode();
+    _episodesFocusNode = FocusNode();
 
     // Parse and clean captions list
     _setupSubtitles(widget.captions);
@@ -486,6 +551,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _sliderFocusNode.dispose();
     _playNextFocusNode.dispose();
     _cancelNextFocusNode.dispose();
+    _audioFocusNode.dispose();
+    _qualityFocusNode.dispose();
+    _episodesFocusNode.dispose();
     
     // Restore default system UI modes when exiting fullscreen player
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
@@ -655,6 +723,129 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     ),
                                   ),
                                 ),
+                                // Episodes Drawer Button (TV Series)
+                                if (_seasons.isNotEmpty || _currentSeason > 0) ...[
+                                  TvFocusableCard(
+                                    focusNode: _episodesFocusNode,
+                                    borderRadius: BorderRadius.circular(24),
+                                    onTap: _showEpisodeModal,
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(8.0),
+                                      child: Icon(Icons.video_library, color: Colors.white, size: 28),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                ],
+                                // Audio Dub Selector Button
+                                if (_dubs.isNotEmpty && widget.onSwitchAudio != null) ...[
+                                  TvFocusableCard(
+                                    focusNode: _audioFocusNode,
+                                    borderRadius: BorderRadius.circular(24),
+                                    onTap: () {
+                                      _audioPopupMenuKey.currentState?.showButtonMenu();
+                                    },
+                                    child: IgnorePointer(
+                                      child: PopupMenuButton<dynamic>(
+                                        key: _audioPopupMenuKey,
+                                        color: const Color(0xFF1E1E1E),
+                                        onSelected: (dub) => _switchAudio(dub),
+                                        itemBuilder: (context) {
+                                          return _dubs.map((dub) {
+                                            final label = _formatDubLabel(dub);
+                                            final isSelected = label == _currentAudioName;
+                                            return PopupMenuItem<dynamic>(
+                                              value: dub,
+                                              child: Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
+                                                  Text(
+                                                    label,
+                                                    style: GoogleFonts.outfit(
+                                                      color: isSelected ? Colors.redAccent : Colors.white,
+                                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                                    ),
+                                                  ),
+                                                  if (isSelected)
+                                                    const Icon(Icons.check, color: Colors.redAccent, size: 18),
+                                                ],
+                                              ),
+                                            );
+                                          }).toList();
+                                        },
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(8.0),
+                                          child: Icon(Icons.audiotrack, color: Colors.white, size: 28),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                ],
+                                // Video Quality Selector Button
+                                if (_availableStreams.isNotEmpty) ...[
+                                  TvFocusableCard(
+                                    focusNode: _qualityFocusNode,
+                                    borderRadius: BorderRadius.circular(24),
+                                    onTap: () {
+                                      _qualityPopupMenuKey.currentState?.showButtonMenu();
+                                    },
+                                    child: IgnorePointer(
+                                      child: PopupMenuButton<Map<String, dynamic>>(
+                                        key: _qualityPopupMenuKey,
+                                        color: const Color(0xFF1E1E1E),
+                                        onSelected: (stream) => _switchQuality(stream),
+                                        itemBuilder: (context) {
+                                          return _availableStreams.map((s) {
+                                            final mapStream = Map<String, dynamic>.from(s is Map ? s : {});
+                                            final label = _formatStreamQualityLabel(mapStream);
+                                            final isSelected = _currentStream != null &&
+                                                ((_currentStream!['resourceId'] != null && _currentStream!['resourceId'] == mapStream['resourceId']) ||
+                                                 (_currentStream!['url'] != null && _currentStream!['url'] == mapStream['url']) ||
+                                                 (_currentStream!['resourceLink'] != null && _currentStream!['resourceLink'] == mapStream['resourceLink']));
+                                            return PopupMenuItem<Map<String, dynamic>>(
+                                              value: mapStream,
+                                              child: Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
+                                                  Text(
+                                                    label,
+                                                    style: GoogleFonts.outfit(
+                                                      color: isSelected ? Colors.redAccent : Colors.white,
+                                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                                    ),
+                                                  ),
+                                                  if (isSelected)
+                                                    const Icon(Icons.check, color: Colors.redAccent, size: 18),
+                                                ],
+                                              ),
+                                            );
+                                          }).toList();
+                                        },
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(8.0),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.high_quality, color: Colors.white, size: 28),
+                                              if (_currentStream != null) ...[
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  _formatShortQualityLabel(_currentStream),
+                                                  style: GoogleFonts.outfit(
+                                                    color: Colors.white70,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                ],
                                 // Subtitle Selector Button
                                 if (_availableSubtitles.isNotEmpty) ...[
                                   TvFocusableCard(
@@ -990,6 +1181,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
               // 6. Switching Next Episode Spinner
               if (_isSwitchingNextEpisode)
                 _buildSwitchingNextOverlay(),
+
+              // 7. Switching Audio / Quality Loading Overlay
+              if (_isSwitchingAudio || _isSwitchingQuality)
+                Container(
+                  color: Colors.black.withValues(alpha: 0.7),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SpinKitRing(color: Colors.redAccent, size: 48.0),
+                        const SizedBox(height: 16),
+                        Text(
+                          _isSwitchingAudio 
+                              ? AppLanguageService.tr(en: "Switching audio...", id: "Mengganti audio...")
+                              : AppLanguageService.tr(en: "Switching quality...", id: "Mengganti kualitas..."),
+                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -1128,6 +1340,306 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (_selectedSubtitleUrl != null) {
       _loadSubtitles(_selectedSubtitleUrl!);
     }
+  }
+
+  String _formatDubLabel(dynamic dub) {
+    if (dub is! Map) return "Original Audio";
+    final lanName = (dub['lanName'] ?? dub['language'] ?? dub['title'] ?? 'Original').toString().trim();
+    final lanCode = (dub['lanCode'] ?? '').toString().trim().toUpperCase();
+    final isOriginal = dub['original'] == true || lanName.toLowerCase().contains('original');
+
+    if (isOriginal) {
+      if (!lanName.toLowerCase().contains('original')) {
+        return lanCode.isNotEmpty ? "$lanName (Original · $lanCode)" : "$lanName (Original)";
+      }
+      return lanCode.isNotEmpty ? "$lanName ($lanCode)" : lanName;
+    }
+    
+    if (!lanName.toLowerCase().contains('dub')) {
+      return lanCode.isNotEmpty ? "$lanName Dub ($lanCode)" : "$lanName Dub";
+    }
+    return lanCode.isNotEmpty ? "$lanName ($lanCode)" : lanName;
+  }
+
+  String _formatStreamQualityLabel(dynamic stream) {
+    if (stream is! Map) return "HD";
+    if (stream['resolution'] != null && stream['resolution'] != 0) {
+      final res = stream['resolution'];
+      if (res >= 2160) return "4K UHD (2160p)";
+      if (res >= 1080) return "FHD (1080p)";
+      if (res >= 720) return "HD (720p)";
+      return "${res}p";
+    }
+    final title = (stream['qualityTitle'] ?? stream['title'] ?? stream['quality'] ?? '').toString();
+    if (title.isNotEmpty) return title;
+    return "HD";
+  }
+
+  String _formatShortQualityLabel(dynamic stream) {
+    if (stream is! Map) return "HD";
+    if (stream['resolution'] != null && stream['resolution'] != 0) {
+      final res = stream['resolution'];
+      if (res >= 2160) return "4K";
+      if (res >= 1080) return "1080p";
+      if (res >= 720) return "720p";
+      return "${res}p";
+    }
+    final title = (stream['qualityTitle'] ?? stream['title'] ?? '').toString().toLowerCase();
+    if (title.contains('2160') || title.contains('4k')) return "4K";
+    if (title.contains('1080')) return "1080p";
+    if (title.contains('720')) return "720p";
+    return "HD";
+  }
+
+  void _switchAudio(dynamic dub) async {
+    if (widget.onSwitchAudio == null) return;
+    final currentPos = _player.state.position;
+
+    setState(() {
+      _isSwitchingAudio = true;
+    });
+
+    try {
+      final res = await widget.onSwitchAudio!(dub);
+      if (res != null && mounted) {
+        setState(() {
+          _currentAudioName = res.audioName;
+          if (res.availableStreams.isNotEmpty) {
+            _availableStreams = res.availableStreams;
+          }
+          if (res.currentStream != null) {
+            _currentStream = res.currentStream;
+          }
+        });
+        _setupSubtitles(res.captions);
+        await _player.open(Media(res.streamUrl));
+        await _player.seek(currentPos);
+      }
+    } catch (e) {
+      print("Error switching audio: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSwitchingAudio = false;
+        });
+      }
+    }
+  }
+
+  void _switchQuality(Map<String, dynamic> stream) async {
+    final currentPos = _player.state.position;
+
+    setState(() {
+      _isSwitchingQuality = true;
+    });
+
+    try {
+      String? newUrl;
+      if (widget.onSwitchQuality != null) {
+        newUrl = await widget.onSwitchQuality!(stream);
+      } else {
+        newUrl = (stream['url'] ?? stream['link'] ?? stream['src'] ?? '').toString();
+      }
+
+      if (newUrl != null && newUrl.isNotEmpty && mounted) {
+        setState(() {
+          _currentStream = stream;
+        });
+        await _player.open(Media(newUrl));
+        await _player.seek(currentPos);
+      }
+    } catch (e) {
+      print("Error switching quality: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSwitchingQuality = false;
+        });
+      }
+    }
+  }
+
+  void _selectEpisode(int season, int episode) async {
+    if (widget.onSelectEpisode == null) return;
+
+    _saveCurrentProgress();
+
+    setState(() {
+      _isSwitchingNextEpisode = true;
+    });
+
+    try {
+      final nextData = await widget.onSelectEpisode!(season, episode);
+      if (nextData != null && mounted) {
+        setState(() {
+          _currentTitle = nextData.title;
+          _currentSeason = nextData.season;
+          _currentEpisode = nextData.episode;
+          _hasNextEpisode = nextData.hasNextEpisode;
+          _nextEpisodeLabel = nextData.nextEpisodeLabel;
+          if (nextData.availableStreams.isNotEmpty) {
+            _availableStreams = nextData.availableStreams;
+          }
+          if (nextData.currentStream != null) {
+            _currentStream = nextData.currentStream;
+          }
+          if (nextData.currentAudioName != null) {
+            _currentAudioName = nextData.currentAudioName;
+          }
+          _isInitialized = false;
+          _nextEpisodeDismissed = false;
+        });
+
+        _setupSubtitles(nextData.captions);
+        await _player.open(Media(nextData.streamUrl));
+        _startHideTimer();
+      }
+    } catch (e) {
+      print("Error selecting episode: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSwitchingNextEpisode = false;
+        });
+      }
+    }
+  }
+
+  void _showEpisodeModal() {
+    int selectedSeasonTab = _currentSeason > 0 ? _currentSeason : 1;
+    final seasonData = _seasons.firstWhere(
+      (s) => (s['se'] ?? 1) == selectedSeasonTab,
+      orElse: () => _seasons.isNotEmpty ? _seasons.first : {'se': 1, 'maxEp': widget.maxEpisodesInSeason},
+    );
+    int epCount = (seasonData['maxEp'] ?? widget.maxEpisodesInSeason) as int;
+    if (epCount <= 0) epCount = 1;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xF2141414),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              height: 380,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        AppLanguageService.tr(en: "Select Episode", id: "Pilih Episode"),
+                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.grey),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_seasons.length > 1) ...[
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: _seasons.map((s) {
+                          final seNum = s['se'] ?? 1;
+                          final isTabSelected = selectedSeasonTab == seNum;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 10),
+                            child: TvFocusableCard(
+                              onTap: () {
+                                setModalState(() {
+                                  selectedSeasonTab = seNum;
+                                  epCount = (s['maxEp'] ?? 1) as int;
+                                  if (epCount <= 0) epCount = 1;
+                                });
+                              },
+                              borderRadius: BorderRadius.circular(20),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: isTabSelected ? Colors.redAccent : const Color(0xFF222222),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  "Season $seNum",
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white,
+                                    fontWeight: isTabSelected ? FontWeight.bold : FontWeight.normal,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  Expanded(
+                    child: GridView.builder(
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 5,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                        childAspectRatio: 2.2,
+                      ),
+                      itemCount: epCount,
+                      itemBuilder: (context, index) {
+                        final epNum = index + 1;
+                        final isCurrentEp = _currentSeason == selectedSeasonTab && _currentEpisode == epNum;
+                        return TvFocusableCard(
+                          onTap: () {
+                            Navigator.pop(context);
+                            _selectEpisode(selectedSeasonTab, epNum);
+                          },
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: isCurrentEp ? Colors.redAccent.withValues(alpha: 0.3) : const Color(0xFF1E1E1E),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isCurrentEp ? Colors.redAccent : const Color(0xFF2E2E2E),
+                                width: isCurrentEp ? 1.5 : 1.0,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (isCurrentEp) ...[
+                                  const Icon(Icons.play_circle_fill, color: Colors.redAccent, size: 14),
+                                  const SizedBox(width: 4),
+                                ],
+                                Text(
+                                  "Ep $epNum",
+                                  style: GoogleFonts.outfit(
+                                    color: isCurrentEp ? Colors.redAccent : Colors.white,
+                                    fontWeight: isCurrentEp ? FontWeight.bold : FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   void _triggerNextEpisodeCountdown() {
