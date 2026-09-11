@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -96,7 +97,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _nextEpisodeCountdown = 8;
   Timer? _nextEpisodeTimer;
   bool _isSwitchingNextEpisode = false;
+  bool _nextEpisodeDismissed = false;
   late FocusNode _playNextFocusNode;
+  late FocusNode _cancelNextFocusNode;
 
   String? _selectedSubtitleUrl;
   List<dynamic> _availableSubtitles = [];
@@ -217,6 +220,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _hasNextEpisode = widget.hasNextEpisode;
     _nextEpisodeLabel = widget.nextEpisodeLabel;
     _playNextFocusNode = FocusNode();
+    _cancelNextFocusNode = FocusNode();
 
     // Parse and clean captions list
     _setupSubtitles(widget.captions);
@@ -291,7 +295,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _subscriptions.add(
         _player.stream.completed.listen((completed) {
           if (completed) {
-            if (_hasNextEpisode && !_isSwitchingNextEpisode) {
+            if (_hasNextEpisode && !_isSwitchingNextEpisode && !_nextEpisodeDismissed) {
               _triggerNextEpisodeCountdown();
             } else {
               if (mounted) {
@@ -324,10 +328,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
               }
             }
 
+            final durMs = dur.inMilliseconds;
+            final posMs = pos.inMilliseconds;
+
+            // Reset dismissed state if user rewinds back before the end credits zone
+            if (durMs > 0 && posMs < durMs * 0.85) {
+              _nextEpisodeDismissed = false;
+            }
+
             // Check for Smart Next Episode overlay trigger (watched >= 90% or last 25s)
-            if (_isInitialized && _hasNextEpisode && !_showNextEpisodeOverlay && !_isSwitchingNextEpisode) {
-              final durMs = dur.inMilliseconds;
-              final posMs = pos.inMilliseconds;
+            if (_isInitialized && _hasNextEpisode && !_showNextEpisodeOverlay && !_isSwitchingNextEpisode && !_nextEpisodeDismissed) {
               if (durMs > 0 && (posMs >= durMs * 0.90 || (durMs - posMs) <= 25000)) {
                 _triggerNextEpisodeCountdown();
               }
@@ -475,6 +485,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _forwardFocusNode.dispose();
     _sliderFocusNode.dispose();
     _playNextFocusNode.dispose();
+    _cancelNextFocusNode.dispose();
     
     // Restore default system UI modes when exiting fullscreen player
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
@@ -1120,14 +1131,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _triggerNextEpisodeCountdown() {
-    if (_showNextEpisodeOverlay || _isSwitchingNextEpisode || !_hasNextEpisode) return;
+    if (_showNextEpisodeOverlay || _isSwitchingNextEpisode || !_hasNextEpisode || _nextEpisodeDismissed) return;
     setState(() {
       _showNextEpisodeOverlay = true;
       _nextEpisodeCountdown = 8;
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
+      if (mounted && _showNextEpisodeOverlay) {
         _playNextFocusNode.requestFocus();
       }
     });
@@ -1156,6 +1167,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() {
       _isSwitchingNextEpisode = true;
       _showNextEpisodeOverlay = false;
+      _nextEpisodeDismissed = false;
     });
 
     // Save current episode progress as completed
@@ -1200,134 +1212,139 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final label = _nextEpisodeLabel ?? "Next Episode";
 
     return Positioned(
-      bottom: 90,
+      bottom: 76,
       right: 24,
       child: Material(
         color: Colors.transparent,
-        child: Container(
-          width: 320,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFF141414).withOpacity(0.95),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.redAccent.withOpacity(0.6), width: 1.5),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.6),
-                blurRadius: 16,
-                spreadRadius: 4,
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.skip_next, color: Colors.redAccent, size: 24),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.redAccent,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      "${_nextEpisodeCountdown}s",
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.18), width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.4),
+                    blurRadius: 14,
+                    spreadRadius: 2,
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                AppLanguageService.tr(
-                  en: "Next episode will play automatically",
-                  id: "Episode selanjutnya akan otomatis diputar",
-                ),
-                style: GoogleFonts.outfit(
-                  color: Colors.grey.shade400,
-                  fontSize: 12,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Row(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: TvFocusableCard(
-                      focusNode: _playNextFocusNode,
-                      onTap: _playNextEpisode,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        decoration: BoxDecoration(
-                          color: Colors.redAccent,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.play_arrow, color: Colors.white, size: 18),
-                            const SizedBox(width: 4),
-                            Text(
-                              AppLanguageService.tr(en: "Play Now", id: "Putar Sekarang"),
+                  // Next Episode Info & Timer
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            AppLanguageService.tr(en: "NEXT IN", id: "LANJUT DALAM"),
+                            style: GoogleFonts.outfit(
+                              color: Colors.redAccent,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent.withValues(alpha: 0.3),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              "${_nextEpisodeCountdown}s",
                               style: GoogleFonts.outfit(
                                 color: Colors.white,
+                                fontSize: 10,
                                 fontWeight: FontWeight.bold,
-                                fontSize: 13,
                               ),
                             ),
-                          ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 150),
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 14),
+                  // Netflix style White Play Button
+                  TvFocusableCard(
+                    focusNode: _playNextFocusNode,
+                    onTap: _playNextEpisode,
+                    borderRadius: BorderRadius.circular(6),
+                    scaleFactor: 1.05,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.play_arrow, color: Colors.black, size: 16),
+                          const SizedBox(width: 3),
+                          Text(
+                            AppLanguageService.tr(en: "Play", id: "Putar"),
+                            style: GoogleFonts.outfit(
+                              color: Colors.black,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
+                  // Compact Close Button
                   TvFocusableCard(
+                    focusNode: _cancelNextFocusNode,
                     onTap: () {
                       _nextEpisodeTimer?.cancel();
                       setState(() {
                         _showNextEpisodeOverlay = false;
+                        _nextEpisodeDismissed = true;
                       });
+                      _playPauseFocusNode.requestFocus();
                     },
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(6),
+                    scaleFactor: 1.05,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.all(7),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF262626),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF383838)),
+                        color: Colors.white.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 0.8),
                       ),
-                      child: Text(
-                        AppLanguageService.tr(en: "Cancel", id: "Batal"),
-                        style: GoogleFonts.outfit(
-                          color: Colors.grey.shade300,
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      child: const Icon(Icons.close, color: Colors.white, size: 16),
                     ),
                   ),
                 ],
               ),
-            ],
+            ),
           ),
         ),
       ),

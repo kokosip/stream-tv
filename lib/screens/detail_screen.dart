@@ -711,12 +711,13 @@ class _DetailScreenState extends State<DetailScreen> {
         }
       }
 
+      final resolvedUrl = streamUrl;
       if (mounted) {
         final result = await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => PlayerScreen(
-              streamUrl: streamUrl,
+              streamUrl: resolvedUrl,
               title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
               subjectId: widget.subjectId,
               provider: widget.provider,
