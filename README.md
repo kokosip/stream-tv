@@ -1,41 +1,97 @@
-# StreamTV (MovieBox TV Client)
+# StreamTV (MovieBox & 4KHDHub TV Client)
 
-A premium, TV-optimized Flutter application designed for Android and Android TV devices to stream movies and TV series.
+A premium, cinema-grade Flutter streaming application designed specifically for **Android TV** and **Android** devices. Built for an effortless 10-foot viewing experience with full D-Pad remote control support.
 
-## Features
+---
 
-- **TV Focusable UI**: Fully compatible with Android TV remote controllers (D-Pad navigation).
-- **Search**: Search for any movie or TV show.
-- **Dubs & Subtitles**: Easily switch audio language tracks and toggle external subtitles.
-- **Interactive Player**: Upgraded with a seekable progress bar (drag-to-seek) and remote control shortcuts (back, play/pause, rewind, fast forward).
-- **Favorites / Quick Access**: Bookmark your favorite movies and series directly to the Home screen for quick access.
-- **Stream Selector**: Multi-resolution options (up to 1080p) sorted dynamically by resolution and codecs (AVC prioritized over HEVC for wider compatibility).
+## 🌟 Key Features
 
-## Credits
+### 1. 🎬 Multi-Provider Streaming Engine
+- **MovieBox API**: Stream thousands of global movies and TV series with multiple audio dubs and subtitle tracks.
+- **4KHDHub Integration (4K UHD & 1080p REMUX)**:
+  - Access ultra-high-definition releases up to **4K UHD (2160p REMUX, HDR10, Dolby Vision)** and **1080p 10-Bit**.
+  - Dynamic HubCloud CDN mirror resolver with smart fallback and preflight byte-range probing to guarantee working stream links.
+- **Multi-Provider Search**: Search MovieBox and 4KHDHub simultaneously with provider filter chips and clear visual badges (`[4KHDHub]` and `[MovieBox]`).
 
-- Special thanks and credit to the creator of the [MovieBox TUI](https://github.com/mesamirh/MovieBox-Tui) and its underlying backend API services.
+### 2. 📺 TVMaze API Metadata Catalog
+- **Rich TV Series Metadata**: Integrated with the open **[TVMaze API](https://www.tvmaze.com/)** to enrich TV series cataloging.
+- **16:9 Episode Still Thumbnails**: Each episode card showcases the official scene still shot instead of a generic show poster.
+- **Official Episode Names & Synopses**: Displays genuine episode titles (e.g., *"Glorious Purpose"*, *"Winter is Coming"*) and full plot summaries cleanly stripped of HTML formatting.
+- **Gold Star Episode Ratings**: Highlights community ratings directly on the episode cards.
+- **In-Memory Caching & Title Normalizer**: Automatically handles show name variations and caches responses to keep navigation blazing fast.
 
-## Disclaimer
+### 3. 🍿 Detail-First, Cinematic User Journey
+- **Informative Detail Pages**: No disruptive auto-play. Explore high-res posters, release years, genres, ratings, and plot overviews first.
+- **One-Click Hero Play & Resume**: Instant play button automatically selects the **Original Audio** and **Best Available Quality**, with smart resume support if you've watched before.
+- **Clean Interface**: No cluttered manual resolution lists on the detail screen—everything is handled effortlessly inside the player.
 
-> [!IMPORTANT]
-> **Client-Side Only Disclaimer**
->
-> This application is strictly a **client-side wrapper/interface** designed to improve the viewing experience on Android TV.
->
-> - **We do not host, store, or upload any movies, TV shows, or videos.**
-> - All media files and streams are accessed directly from third-party public API providers.
-> - The application only fetches and parses media links for streaming.
+### 4. 🎛️ Full In-Player Controls
+- **On-the-Fly Quality Switcher (`Icons.high_quality`)**: Switch between 4K UHD, 1080p, 720p, and mirrors directly during playback without losing your timestamps (*seamless seek*).
+- **Audio Dub Track Switcher (`Icons.audiotrack`)**: Switch between multiple audio language tracks on-the-fly.
+- **TV Series Episode Drawer (`Icons.video_library`)**: Browse and jump to any season or episode in a sleek Netflix-style drawer while the video continues playing.
+- **Netflix-Style Smart Next Episode**: Compact, transparent glassmorphism countdown popup near the credit roll with remote-focused play and dismiss buttons.
 
-## Getting Started
+### 5. 🔊 Audio Dubs & Clean Subtitles
+- **Multi-Language Audio Dubs**: Supports alternate language tracks when available.
+- **Garbage Subtitle Filter**: Automatically filters out spam, bot-generated, and corrupted subtitle files.
+- **Cross-Dub Subtitle Sharing**: Subtitles are intelligently shared across dub variants so you never miss translations.
 
-To run this application locally, ensure you have the Flutter SDK installed and a device connected.
+### 6. 📺 Android TV & Remote Optimization
+- **D-Pad First**: Engineered from the ground up for TV remotes with responsive focus scaling, glowing borders, and intuitive navigation.
+- **TV PIN Pad Dialog**: Remote-friendly on-screen numeric pad for protected settings and parental controls.
+- **Continue Watching & Favorites**: Multi-provider watchlist with playback progress badges and 4K UHD indicators on the home screen.
 
-1. Clone this repository.
+---
+
+## 🛠️ Technology Stack
+
+- **Framework**: [Flutter](https://flutter.dev/) (Android & Android TV)
+- **Media Catalog**: [TVMaze API](https://www.tvmaze.com/) (Open TV Metadata & Episode Stills)
+- **Streaming Sources**: MovieBox API & 4KHDHub Scraper
+- **Typography & Aesthetics**: Google Fonts (`Outfit`), Custom Glassmorphism, Dark Mode Cinema Theme
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- Flutter SDK (v3.19+ recommended)
+- Android TV / Android Box / Emulator or Device running Android 7.0+ (API 24+)
+
+### Installation
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/your-username/stream-tv.git
+   cd stream-tv
+   ```
+
 2. Install dependencies:
    ```bash
    flutter pub get
    ```
-3. Run the application:
+
+3. Run on your connected Android TV device or emulator:
    ```bash
    flutter run --release
    ```
+
+---
+
+## 👏 Credits & Attributions
+
+- **[TVMaze](https://www.tvmaze.com/)**: Free TV shows, episode still photography, and series metadata via their public REST API.
+- **[MovieBox TUI](https://github.com/mesamirh/MovieBox-Tui)**: Inspiration and foundational research on MovieBox API signatures and endpoints.
+- **4KHDHub**: High-resolution movie and series releases.
+
+---
+
+## ⚖️ Disclaimer
+
+> [!IMPORTANT]
+> **Client-Side Interface Only**
+>
+> This software is strictly an open-source, client-side application interface intended for personal use and media browsing on Android TV.
+>
+> - **We do not host, store, stream, or upload any media or copyright-protected files.**
+> - All media links and metadata are retrieved in real-time from third-party publicly available APIs and web scrapers.
+> - The developers assume no liability for the content retrieved through third-party services.

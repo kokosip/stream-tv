@@ -6,6 +6,7 @@ import '../services/fourkhdhub_service.dart';
 import '../services/favorites_service.dart';
 import '../services/app_language_service.dart';
 import '../services/playback_progress_service.dart';
+import '../services/tvmaze_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import 'player_screen.dart';
 
@@ -48,6 +49,7 @@ class _DetailScreenState extends State<DetailScreen> {
   String _errorMessage = "";
   bool _isFavorite = false;
   int _savedProgressMs = 0;
+  Map<String, TvMazeEpisode> _tvMazeEpisodes = {};
 
   bool get _isTvShow {
     final type = _details?['subjectType'] ?? _details?['subject_type'];
@@ -284,6 +286,11 @@ class _DetailScreenState extends State<DetailScreen> {
         _isLoadingDetails = false;
       });
 
+      if (_isTvShow) {
+        final seriesTitle = (detailsRes['title'] ?? detailsRes['subjectTitle'] ?? detailsRes['name'] ?? '').toString();
+        _fetchTvMazeEpisodes(seriesTitle);
+      }
+
       // Load available streams for the initial selection
       _loadStreams();
 
@@ -297,6 +304,18 @@ class _DetailScreenState extends State<DetailScreen> {
         _isLoadingDetails = false;
       });
     }
+  }
+
+  void _fetchTvMazeEpisodes(String title) async {
+    if (title.trim().isEmpty) return;
+    try {
+      final epMap = await TvMazeService.instance.getEpisodesMap(title);
+      if (mounted && epMap.isNotEmpty) {
+        setState(() {
+          _tvMazeEpisodes = epMap;
+        });
+      }
+    } catch (_) {}
   }
 
   void _loadStreams() async {
@@ -1537,9 +1556,25 @@ class _DetailScreenState extends State<DetailScreen> {
             final epItem = epList[index];
             final epNum = epItem is Map ? (epItem['ep'] ?? (index + 1)) : (index + 1);
             final isSelected = _selectedEpisodeNumber == epNum;
-            final epTitle = (epItem is Map ? (epItem['title'] ?? epItem['name'] ?? "Episode $epNum") : "Episode $epNum").toString();
-            final epDesc = (epItem is Map ? (epItem['description'] ?? epItem['desc'] ?? epItem['intro'] ?? "") : "").toString();
-            final epThumb = (epItem is Map ? (epItem['thumbnail'] ?? epItem['cover'] ?? epItem['pic'] ?? epItem['still_path'] ?? "") : "").toString();
+
+            // Check TVMaze metadata for official title, synopsis, still image, and rating
+            final mazeKey = 'S${_selectedSeasonNumber}E$epNum';
+            final mazeData = _tvMazeEpisodes[mazeKey];
+
+            String epTitle = (epItem is Map ? (epItem['title'] ?? epItem['name'] ?? "Episode $epNum") : "Episode $epNum").toString();
+            if (mazeData != null && mazeData.name.isNotEmpty) {
+              epTitle = mazeData.name;
+            }
+
+            String epDesc = (epItem is Map ? (epItem['description'] ?? epItem['desc'] ?? epItem['intro'] ?? "") : "").toString();
+            if (mazeData != null && mazeData.overview.isNotEmpty) {
+              epDesc = mazeData.overview;
+            }
+
+            String epThumb = (epItem is Map ? (epItem['thumbnail'] ?? epItem['cover'] ?? epItem['pic'] ?? epItem['still_path'] ?? "") : "").toString();
+            if (mazeData != null && mazeData.imageUrl != null && mazeData.imageUrl!.isNotEmpty) {
+              epThumb = mazeData.imageUrl!;
+            }
             final displayThumb = epThumb.isNotEmpty ? epThumb : coverUrl;
 
             return Padding(
@@ -1650,6 +1685,32 @@ class _DetailScreenState extends State<DetailScreen> {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
+                                if (mazeData?.rating != null) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.amber.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: Colors.amber.withValues(alpha: 0.5), width: 0.5),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.star, color: Colors.amber, size: 10),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          mazeData!.rating!.toStringAsFixed(1),
+                                          style: GoogleFonts.outfit(
+                                            color: Colors.amber,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                                 if (epTitle.isNotEmpty && epTitle != "Episode $epNum") ...[
                                   const SizedBox(width: 8),
                                   Expanded(
