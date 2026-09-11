@@ -40,6 +40,7 @@ class PlayerScreen extends StatefulWidget {
   final List<dynamic> captions;
   final String? coverUrl;
   final int? subjectType;
+  final String provider;
   final int maxEpisodesInSeason;
   final bool hasNextEpisode;
   final String? nextEpisodeLabel;
@@ -50,6 +51,7 @@ class PlayerScreen extends StatefulWidget {
     required this.streamUrl,
     required this.title,
     required this.subjectId,
+    this.provider = 'moviebox',
     this.season = 0,
     this.episode = 0,
     this.captions = const [],
@@ -443,6 +445,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         coverUrl: widget.coverUrl,
         subjectType: widget.subjectType,
         maxEpisodesInSeason: widget.maxEpisodesInSeason > 0 ? widget.maxEpisodesInSeason : null,
+        provider: widget.provider,
       );
     }
   }

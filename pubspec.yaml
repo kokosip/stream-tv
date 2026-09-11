@@ -43,6 +43,7 @@ dependencies:
   media_kit_video: ^1.2.4
   media_kit_libs_video: ^1.0.4
   shared_preferences: ^2.5.5
+  html: ^0.15.7
 
 dev_dependencies:
   flutter_test:

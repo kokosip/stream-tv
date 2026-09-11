@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/moviebox_api_service.dart';
+import '../services/fourkhdhub_service.dart';
 import '../services/favorites_service.dart';
 import '../services/app_language_service.dart';
 import '../services/playback_progress_service.dart';
@@ -10,12 +11,14 @@ import 'player_screen.dart';
 
 class DetailScreen extends StatefulWidget {
   final String subjectId;
+  final String provider;
   final int? initialSeason;
   final int? initialEpisode;
 
   const DetailScreen({
     super.key,
     required this.subjectId,
+    this.provider = 'moviebox',
     this.initialSeason,
     this.initialEpisode,
   });
@@ -26,6 +29,9 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   final MovieBoxApiService _api = MovieBoxApiService();
+  final FourKHdHubService _fourkApi = FourKHdHubService();
+  
+  bool get _is4kHub => widget.provider.toLowerCase() == '4khdhub';
   
   Map<String, dynamic>? _details;
   List<dynamic> _dubs = [];
@@ -70,7 +76,10 @@ class _DetailScreenState extends State<DetailScreen> {
     if (_isFavorite) {
       await FavoritesService.removeFavorite(widget.subjectId);
     } else {
-      await FavoritesService.addFavorite(_details!);
+      final favData = Map<String, dynamic>.from(_details!);
+      favData['provider'] = widget.provider;
+      favData['subjectId'] = widget.subjectId;
+      await FavoritesService.addFavorite(favData);
     }
     _checkFavorite();
   }
@@ -99,6 +108,55 @@ class _DetailScreenState extends State<DetailScreen> {
       _isLoadingDetails = true;
       _errorMessage = "";
     });
+
+    if (_is4kHub) {
+      try {
+        final detailsRes = await _fourkApi.getDetails(widget.subjectId);
+        final isTvShow = detailsRes['subjectType'] == 2;
+        List<dynamic> seasonsList = detailsRes['seasons'] ?? [];
+        int initialEpisodesCount = 0;
+        int targetSeason = widget.initialSeason ?? 1;
+        int targetEpisode = widget.initialEpisode ?? 1;
+
+        if (widget.initialSeason == null || widget.initialEpisode == null) {
+          final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+          if (recentPlay != null) {
+            final recSeason = recentPlay['season'] as int? ?? 1;
+            final recEpisode = recentPlay['episode'] as int? ?? 1;
+            if (recSeason > 0) targetSeason = recSeason;
+            if (recEpisode > 0) targetEpisode = recEpisode;
+          }
+        }
+
+        if (isTvShow && seasonsList.isNotEmpty) {
+          final matchingSeason = seasonsList.firstWhere(
+            (s) => (s['se'] ?? 1) == targetSeason,
+            orElse: () => seasonsList.first,
+          );
+          _selectedSeasonNumber = matchingSeason['se'] ?? 1;
+          initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
+          _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
+        }
+
+        setState(() {
+          _details = detailsRes;
+          _dubs = [];
+          _selectedAudioName = detailsRes['audios'] ?? "Original Audio";
+          _selectedSubjectId = widget.subjectId;
+          _seasons = seasonsList;
+          _episodesCount = initialEpisodesCount;
+          _isLoadingDetails = false;
+        });
+
+        _loadStreams();
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail 4KHDHub: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
 
     try {
       final detailsRes = await _api.getDetails(subjectId: widget.subjectId);
@@ -233,6 +291,32 @@ class _DetailScreenState extends State<DetailScreen> {
       _isLoadingStreams = true;
       _streams = [];
     });
+
+    if (_is4kHub) {
+      try {
+        final releases = await _fourkApi.getReleases(
+          widget.subjectId,
+          rawHtml: _details?['rawHtml'],
+          season: _isTvShow ? _selectedSeasonNumber : 0,
+          episode: _isTvShow ? _selectedEpisodeNumber : 0,
+        );
+
+        setState(() {
+          _streams = releases;
+          _isLoadingStreams = false;
+        });
+      } catch (e) {
+        setState(() {
+          _isLoadingStreams = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal memuat rilis 4KHDHub: $e")),
+          );
+        }
+      }
+      return;
+    }
 
     try {
       final isTvShow = _isTvShow;
@@ -382,6 +466,65 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Future<PlayerNextEpisodeData?> _fetchNextEpisodeStream(int nextSeason, int nextEpisode) async {
+    if (_is4kHub) {
+      try {
+        final releases = await _fourkApi.getReleases(
+          widget.subjectId,
+          rawHtml: _details?['rawHtml'],
+          season: nextSeason,
+          episode: nextEpisode,
+        );
+        if (releases.isEmpty) return null;
+
+        final bestRelease = releases.first;
+        final streamUrl = await _fourkApi.resolveReleaseStream(bestRelease);
+        if (streamUrl == null || streamUrl.isEmpty) return null;
+
+        int nextNextSeason = nextSeason;
+        int nextNextEpisode = nextEpisode + 1;
+        bool hasNextNext = false;
+        int maxEpOfSeason = 0;
+        for (final s in _seasons) {
+          if ((s['se'] ?? 0) == nextSeason) {
+            maxEpOfSeason = (s['maxEp'] ?? 0) as int;
+            break;
+          }
+        }
+
+        if (nextNextEpisode <= maxEpOfSeason) {
+          hasNextNext = true;
+        } else {
+          final followingSeason = _seasons.any((s) => (s['se'] ?? 0) == nextSeason + 1);
+          if (followingSeason) {
+            nextNextSeason = nextSeason + 1;
+            nextNextEpisode = 1;
+            hasNextNext = true;
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _selectedSeasonNumber = nextSeason;
+            _selectedEpisodeNumber = nextEpisode;
+            if (maxEpOfSeason > 0) _episodesCount = maxEpOfSeason;
+          });
+        }
+
+        return PlayerNextEpisodeData(
+          streamUrl: streamUrl,
+          title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
+          season: nextSeason,
+          episode: nextEpisode,
+          captions: const [],
+          hasNextEpisode: hasNextNext,
+          nextEpisodeLabel: hasNextNext ? "S$nextNextSeason:E$nextNextEpisode" : null,
+        );
+      } catch (e) {
+        print("Error fetching next 4khdhub episode: $e");
+        return null;
+      }
+    }
+
     try {
       final List<int> targetResolutions = [1080, 720, 480, 360];
       final List<dynamic> combinedList = [];
@@ -503,6 +646,118 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   void _playStream(Map<String, dynamic> stream) async {
+    if (_is4kHub) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          content: Row(
+            children: [
+              const SpinKitRing(color: Colors.cyanAccent, size: 36.0),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Text(
+                  AppLanguageService.tr(
+                    en: "Resolving 4KHDHub CDN mirror...",
+                    id: "Menghubungkan ke mirror 4KHDHub...",
+                  ),
+                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      String? streamUrl;
+      try {
+        streamUrl = await _fourkApi.resolveReleaseStream(stream);
+      } catch (e) {
+        print("Error resolving stream: $e");
+      }
+
+      if (mounted) {
+        Navigator.pop(context);
+      }
+
+      if (streamUrl == null || streamUrl.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(AppLanguageService.tr(
+                en: "Mirror is dead or expired. Please try another quality/release.",
+                id: "Mirror tidak aktif / kadaluarsa. Silakan pilih rilis/kualitas lain.",
+              )),
+            ),
+          );
+        }
+        return;
+      }
+
+      int nextSeason = _selectedSeasonNumber;
+      int nextEpisode = _selectedEpisodeNumber + 1;
+      bool hasNext = false;
+      if (_isTvShow) {
+        if (nextEpisode <= _episodesCount) {
+          hasNext = true;
+        } else {
+          final nextSeasonIndex = _seasons.indexWhere((s) => (s['se'] ?? 0) == _selectedSeasonNumber + 1);
+          if (nextSeasonIndex != -1) {
+            nextSeason = _selectedSeasonNumber + 1;
+            nextEpisode = 1;
+            hasNext = true;
+          }
+        }
+      }
+
+      if (mounted) {
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PlayerScreen(
+              streamUrl: streamUrl,
+              title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
+              subjectId: widget.subjectId,
+              provider: widget.provider,
+              season: _isTvShow ? _selectedSeasonNumber : 0,
+              episode: _isTvShow ? _selectedEpisodeNumber : 0,
+              captions: const [],
+              coverUrl: _details?['cover']?['url'] ?? _details?['coverUrl'] ?? "",
+              subjectType: _details?['subjectType'] ?? _details?['subject_type'] ?? 1,
+              maxEpisodesInSeason: _episodesCount,
+              hasNextEpisode: hasNext,
+              nextEpisodeLabel: hasNext ? "S$nextSeason:E$nextEpisode" : null,
+              onFetchNextEpisode: hasNext ? () => _fetchNextEpisodeStream(nextSeason, nextEpisode) : null,
+            ),
+          ),
+        );
+
+        if (mounted) {
+          if (result is Map) {
+            if (result['season'] != null && result['episode'] != null) {
+              final s = result['season'] as int;
+              final e = result['episode'] as int;
+              if (s > 0 && e > 0 && (s != _selectedSeasonNumber || e != _selectedEpisodeNumber)) {
+                setState(() {
+                  _selectedSeasonNumber = s;
+                  _selectedEpisodeNumber = e;
+                });
+              }
+            }
+            if (result['completed'] == true && _isTvShow && hasNext) {
+              setState(() {
+                _selectedSeasonNumber = nextSeason;
+                _selectedEpisodeNumber = nextEpisode;
+              });
+            }
+          }
+          _loadStreams();
+        }
+      }
+      return;
+    }
+
     final String streamUrl = stream['resourceLink'] ?? stream['resource_link'] ?? "";
     final String resourceId = stream['resourceId'] ?? stream['resource_id'] ?? "";
 
@@ -577,6 +832,7 @@ class _DetailScreenState extends State<DetailScreen> {
             streamUrl: streamUrl,
             title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
             subjectId: _selectedSubjectId,
+            provider: widget.provider,
             season: _isTvShow ? _selectedSeasonNumber : 0,
             episode: _isTvShow ? _selectedEpisodeNumber : 0,
             captions: captions,
@@ -616,8 +872,11 @@ class _DetailScreenState extends State<DetailScreen> {
 
   String _formatSize(dynamic bytes) {
     if (bytes == null) return "Unknown size";
+    if (bytes is String && (bytes.contains('GB') || bytes.contains('MB') || bytes.contains('KB'))) {
+      return bytes;
+    }
     final int? sizeInt = int.tryParse(bytes.toString());
-    if (sizeInt == null || sizeInt <= 0) return "Unknown size";
+    if (sizeInt == null || sizeInt <= 0) return bytes.toString();
     final mb = sizeInt / (1024 * 1024);
     return "${mb.toStringAsFixed(0)}MB";
   }
@@ -671,9 +930,17 @@ class _DetailScreenState extends State<DetailScreen> {
               runSpacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                _buildBadge("★ IMDb $rating", Colors.amber, isTv: isTv),
+                if (_is4kHub)
+                  _buildBadge("4KHDHub · 4K UHD", Colors.cyanAccent, isTv: isTv),
+                if (_is4kHub && _details?['imdbRating'] != null && _details!['imdbRating'].isNotEmpty)
+                  _buildBadge("★ ${_details!['imdbRating']}", Colors.amber, isTv: isTv)
+                else if (!_is4kHub && rating != "-")
+                  _buildBadge("★ IMDb $rating", Colors.amber, isTv: isTv),
                 _buildBadge(_isTvShow ? "TV Series" : "Movie", Colors.redAccent, isTv: isTv),
-                _buildBadge(releaseDate.toString().split('-')[0], Colors.grey, isTv: isTv),
+                if (_details?['year'] != null)
+                  _buildBadge("${_details!['year']}", Colors.grey, isTv: isTv)
+                else
+                  _buildBadge(releaseDate.toString().split('-')[0], Colors.grey, isTv: isTv),
               ],
             ),
           ] else ...[
@@ -694,11 +961,23 @@ class _DetailScreenState extends State<DetailScreen> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                _buildBadge("★ IMDb $rating", Colors.amber, isTv: isTv),
-                const SizedBox(width: 8),
+                if (_is4kHub) ...[
+                  _buildBadge("4KHDHub · 4K UHD", Colors.cyanAccent, isTv: isTv),
+                  const SizedBox(width: 8),
+                ],
+                if (_is4kHub && _details?['imdbRating'] != null && _details!['imdbRating'].isNotEmpty) ...[
+                  _buildBadge("★ ${_details!['imdbRating']}", Colors.amber, isTv: isTv),
+                  const SizedBox(width: 8),
+                ] else if (!_is4kHub && rating != "-") ...[
+                  _buildBadge("★ IMDb $rating", Colors.amber, isTv: isTv),
+                  const SizedBox(width: 8),
+                ],
                 _buildBadge(_isTvShow ? "TV Series" : "Movie", Colors.redAccent, isTv: isTv),
                 const SizedBox(width: 8),
-                _buildBadge(releaseDate.toString().split('-')[0], Colors.grey, isTv: isTv),
+                if (_details?['year'] != null)
+                  _buildBadge("${_details!['year']}", Colors.grey, isTv: isTv)
+                else
+                  _buildBadge(releaseDate.toString().split('-')[0], Colors.grey, isTv: isTv),
               ],
             ),
           ],
@@ -1112,7 +1391,9 @@ class _DetailScreenState extends State<DetailScreen> {
                       itemCount: _streams.length,
                       itemBuilder: (context, index) {
                         final stream = _streams[index];
-                        final res = stream['resolution'] != null ? "${stream['resolution']}p" : "Unknown Res";
+                        final res = _is4kHub
+                            ? (stream['quality'] ?? (stream['resolution'] != null ? "${stream['resolution']}p" : "HD"))
+                            : (stream['resolution'] != null ? "${stream['resolution']}p" : "Unknown Res");
                         final sizeStr = _formatSize(stream['size']);
                         final codec = stream['codecName'] ?? stream['codec_name'] ?? "";
                         final codecLower = codec.toString().toLowerCase();

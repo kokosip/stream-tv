@@ -52,6 +52,7 @@ class PlaybackProgressService {
     String? coverUrl,
     int? subjectType,
     int? maxEpisodesInSeason,
+    String? provider,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final key = _getKey(subjectId, season, episode);
@@ -96,6 +97,7 @@ class PlaybackProgressService {
 
       final entry = {
         'subjectId': subjectId,
+        'provider': provider ?? (subjectId.startsWith('/') || subjectId.contains('-movie-') || subjectId.contains('-series-') ? '4khdhub' : 'moviebox'),
         'season': savedSeason,
         'episode': savedEpisode,
         'originalSeason': season,

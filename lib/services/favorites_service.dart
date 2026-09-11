@@ -37,7 +37,8 @@ class FavoritesService {
       'title': item['title'] ?? item['subjectTitle'] ?? "Untitled",
       'coverUrl': item['cover']?['url'] ?? item['coverUrl'] ?? "",
       'subjectType': item['subjectType'] ?? item['subject_type'] ?? 1,
-      'releaseDate': item['releaseDate'] ?? item['release_date'] ?? "",
+      'releaseDate': item['releaseDate'] ?? item['release_date'] ?? item['year']?.toString() ?? "",
+      'provider': item['provider'] ?? (subjectId.startsWith('/') ? '4khdhub' : 'moviebox'),
     };
     
     list.insert(0, newFav); // Add to the top

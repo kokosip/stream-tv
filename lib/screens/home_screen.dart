@@ -662,6 +662,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final title = item['title'] ?? item['subjectTitle'] ?? "Untitled";
         final coverUrl = item['cover']?['url'] ?? "";
         final subjectId = item['subjectId'] ?? item['id']?.toString() ?? "";
+        final provider = item['provider'] ?? (subjectId.toString().startsWith('/') ? '4khdhub' : 'moviebox');
         final rating = item['imdbRate'] ?? item['imdbRatingValue'] ?? "";
         final type = item['subjectType'] ?? item['subject_type'] ?? 1;
         final isShow = type == 2 || type?.toString() == '2' || type?.toString().toLowerCase() == 'tv';
@@ -671,7 +672,10 @@ class _HomeScreenState extends State<HomeScreen> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => DetailScreen(subjectId: subjectId),
+                builder: (context) => DetailScreen(
+                  subjectId: subjectId,
+                  provider: provider,
+                ),
               ),
             ).then((_) {
               _loadFavoritesAndProgress();
@@ -1210,6 +1214,7 @@ class _HomeScreenState extends State<HomeScreen> {
               final title = item['title'] ?? "Untitled";
               final coverUrl = item['coverUrl'] ?? "";
               final subjectId = item['subjectId'] ?? "";
+              final provider = item['provider'] ?? (subjectId.toString().startsWith('/') ? '4khdhub' : 'moviebox');
               final type = item['subjectType'];
               final isShow = type == 2 || type?.toString() == '2' || type?.toString().toLowerCase() == 'tv';
 
@@ -1218,7 +1223,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => DetailScreen(subjectId: subjectId),
+                      builder: (context) => DetailScreen(
+                        subjectId: subjectId,
+                        provider: provider,
+                      ),
                     ),
                   ).then((_) {
                     _loadFavoritesAndProgress();
@@ -1251,6 +1259,23 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ),
+                    if (provider == '4khdhub')
+                      Positioned(
+                        top: 6,
+                        left: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.cyan.shade900.withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: Colors.cyanAccent.withOpacity(0.5), width: 0.8),
+                          ),
+                          child: Text(
+                            "4K UHD",
+                            style: GoogleFonts.outfit(color: Colors.cyanAccent, fontSize: 8, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
                     Positioned(
                       bottom: 0,
                       left: 0,
@@ -1330,6 +1355,7 @@ class _HomeScreenState extends State<HomeScreen> {
               final title = item['title'] ?? "Untitled";
               final coverUrl = item['coverUrl'] ?? "";
               final subjectId = item['subjectId'] ?? "";
+              final provider = item['provider'] ?? (subjectId.toString().startsWith('/') ? '4khdhub' : 'moviebox');
               final season = item['season'] ?? 0;
               final episode = item['episode'] ?? 0;
               final pos = item['positionMs'] ?? 0;
@@ -1355,6 +1381,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       MaterialPageRoute(
                         builder: (context) => DetailScreen(
                           subjectId: subjectId,
+                          provider: provider,
                           initialSeason: isShow ? season : null,
                           initialEpisode: isShow ? episode : null,
                         ),
@@ -1396,15 +1423,36 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
+                              Row(
+                                children: [
+                                  if (provider == '4khdhub') ...[
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                      margin: const EdgeInsets.only(right: 6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.cyan.shade900.withOpacity(0.85),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: Colors.cyanAccent.withOpacity(0.4), width: 0.8),
+                                      ),
+                                      child: Text(
+                                        "4K UHD",
+                                        style: GoogleFonts.outfit(color: Colors.cyanAccent, fontSize: 9, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ],
+                                  Expanded(
+                                    child: Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.outfit(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 6),
                               Text(
@@ -2199,6 +2247,7 @@ class _HomeScreenState extends State<HomeScreen> {
               final title = item['title'] ?? "Untitled";
               final coverUrl = item['coverUrl'] ?? "";
               final subjectId = item['subjectId'] ?? "";
+              final provider = item['provider'] ?? (subjectId.toString().startsWith('/') ? '4khdhub' : 'moviebox');
               final season = item['season'] ?? 0;
               final episode = item['episode'] ?? 0;
               final pos = item['positionMs'] ?? 0;
@@ -2224,6 +2273,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       MaterialPageRoute(
                         builder: (context) => DetailScreen(
                           subjectId: subjectId,
+                          provider: provider,
                           initialSeason: isShow ? season : null,
                           initialEpisode: isShow ? episode : null,
                         ),
@@ -2344,6 +2394,7 @@ class _HomeScreenState extends State<HomeScreen> {
               final title = item['title'] ?? "Untitled";
               final coverUrl = item['coverUrl'] ?? "";
               final subjectId = item['subjectId'] ?? "";
+              final provider = item['provider'] ?? (subjectId.toString().startsWith('/') ? '4khdhub' : 'moviebox');
               final type = item['subjectType'];
               final isShow = type == 2 || type?.toString() == '2' || type?.toString().toLowerCase() == 'tv';
 
@@ -2354,7 +2405,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => DetailScreen(subjectId: subjectId),
+                        builder: (context) => DetailScreen(
+                          subjectId: subjectId,
+                          provider: provider,
+                        ),
                       ),
                     ).then((_) {
                       _loadFavoritesAndProgress();
@@ -2390,6 +2444,23 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         ),
+                        if (provider == '4khdhub')
+                          Positioned(
+                            top: 6,
+                            left: 6,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.cyan.shade900.withOpacity(0.9),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.cyanAccent.withOpacity(0.5), width: 0.8),
+                              ),
+                              child: Text(
+                                "4K UHD",
+                                style: GoogleFonts.outfit(color: Colors.cyanAccent, fontSize: 8, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
                         // Title Fade overlay
                         Positioned(
                           bottom: 0,
