@@ -13,6 +13,9 @@ import '../widgets/tv_focusable_card.dart';
 import '../widgets/tv_pin_pad_dialog.dart';
 import 'detail_screen.dart';
 import 'live_tv_screen.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import '../services/update_service.dart';
+import '../widgets/update_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -98,6 +101,95 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadAllHomeData();
     _loadNsfwFilterPreference();
     _checkPasscodeSetup();
+    _checkAutoUpdateSilently();
+  }
+
+  Future<void> _checkAutoUpdateSilently() async {
+    // Wait for initial screen rendering to settle
+    await Future.delayed(const Duration(seconds: 4));
+    if (!mounted) return;
+
+    try {
+      final release = await UpdateService.instance.checkForUpdate();
+      if (release != null && mounted) {
+        UpdateDialog.show(context, release);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _checkUpdateManually() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1C1C1C),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF2C2C2C)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SpinKitRing(color: Colors.redAccent, size: 36),
+              const SizedBox(height: 16),
+              Text(
+                AppLanguageService.tr(
+                  en: "Checking for updates on GitHub...",
+                  id: "Memeriksa pembaruan di GitHub...",
+                ),
+                style: GoogleFonts.outfit(color: Colors.white, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final release = await UpdateService.instance.checkForUpdate();
+    if (!mounted) return;
+    Navigator.pop(context); // Dismiss loading dialog
+
+    if (release != null) {
+      UpdateDialog.show(context, release);
+    } else {
+      final pkgInfo = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF1C1C1C),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.check_circle_outline_rounded, color: Colors.greenAccent, size: 24),
+              const SizedBox(width: 10),
+              Text(
+                AppLanguageService.tr(en: "Up to Date", id: "Versi Terbaru"),
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+              ),
+            ],
+          ),
+          content: Text(
+            AppLanguageService.tr(
+              en: "You are already using the latest version of MovieBox (v${pkgInfo.version}).",
+              id: "Anda sudah menggunakan versi terbaru MovieBox (v${pkgInfo.version}).",
+            ),
+            style: GoogleFonts.outfit(color: Colors.grey.shade300, fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                AppLanguageService.tr(en: "OK", id: "OK"),
+                style: GoogleFonts.outfit(color: Colors.redAccent, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   Future<void> _loadNsfwFilterPreference() async {
@@ -1757,6 +1849,53 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
                     ),
                   ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Check for Updates Card
+          TvFocusableCard(
+            onTap: _checkUpdateManually,
+            borderRadius: BorderRadius.circular(14),
+            scaleFactor: 1.02,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF161616),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF262626)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.system_update_rounded, color: Colors.redAccent, size: 28),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          AppLanguageService.tr(en: "Check for Updates", id: "Periksa Pembaruan"),
+                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        FutureBuilder<PackageInfo>(
+                          future: PackageInfo.fromPlatform(),
+                          builder: (context, snapshot) {
+                            final ver = snapshot.hasData ? "v${snapshot.data!.version}" : "v1.2.4";
+                            return Text(
+                              AppLanguageService.tr(
+                                en: "Current Version: $ver • Tap to check latest release on GitHub",
+                                id: "Versi saat ini: $ver • Ketuk untuk cek rilis terbaru di GitHub",
+                              ),
+                              style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 13),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded, color: Colors.grey),
                 ],
               ),
             ),

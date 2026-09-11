@@ -47,7 +47,12 @@ A premium, cinema-grade Flutter streaming application designed specifically for 
 - **Garbage Subtitle Filter**: Automatically filters out spam, bot-generated, and corrupted subtitle files.
 - **Cross-Dub Subtitle Sharing**: Subtitles are intelligently shared across dub variants so you never miss translations.
 
-### 7. 📺 Android TV & Remote Optimization
+### 7. 🔄 In-App GitHub OTA Auto-Update
+- **Automatic & Manual Release Check**: Silently checks for newer releases from GitHub (`kokosip/stream-tv/releases/latest`) on app startup, with manual checking option under the **Settings / Pengaturan** tab.
+- **TV & Mobile Update Dialog**: Shows new version tag, release notes, and download size with remote D-Pad navigation.
+- **Live Progress & Auto-Install**: Streams APK download with live progress bar and MB counters, automatically launching the Android system package installer on completion.
+
+### 8. 📺 Android TV & Remote Optimization
 - **D-Pad First**: Engineered from the ground up for TV remotes with responsive focus scaling, glowing borders, and intuitive navigation.
 - **TV PIN Pad Dialog**: Remote-friendly on-screen numeric pad for protected settings and parental controls.
 - **Continue Watching & Favorites**: Multi-provider watchlist with playback progress badges and 4K UHD indicators on the home screen.
