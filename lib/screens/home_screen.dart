@@ -12,6 +12,7 @@ import '../services/app_language_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import '../widgets/tv_pin_pad_dialog.dart';
 import 'detail_screen.dart';
+import 'live_tv_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -33,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentTabIndex = 0;
   late final FocusNode _navHomeFocusNode;
   late final FocusNode _navSearchFocusNode;
+  late final FocusNode _navLiveTvFocusNode;
   late final FocusNode _navFavFocusNode;
   late final FocusNode _navHistoryFocusNode;
   late final FocusNode _navSettingsFocusNode;
@@ -67,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     _navHomeFocusNode = FocusNode();
     _navSearchFocusNode = FocusNode();
+    _navLiveTvFocusNode = FocusNode();
     _navFavFocusNode = FocusNode();
     _navHistoryFocusNode = FocusNode();
     _navSettingsFocusNode = FocusNode();
@@ -1007,6 +1010,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _langFocusNode.dispose();
     _navHomeFocusNode.dispose();
     _navSearchFocusNode.dispose();
+    _navLiveTvFocusNode.dispose();
     _navFavFocusNode.dispose();
     _navHistoryFocusNode.dispose();
     _navSettingsFocusNode.dispose();
@@ -1016,19 +1020,25 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final isTv = size.width > 800;
+    final isTv = size.width > 800 && size.height > 500;
+    final isShortScreen = size.height < 480;
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0A),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+          padding: EdgeInsets.symmetric(
+            horizontal: isTv ? 24.0 : (isShortScreen ? 12.0 : 16.0), 
+            vertical: isShortScreen ? 4.0 : 8.0,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 1. Header (Logo & Remote action icons)
-              _buildHeader(isTv),
-              const SizedBox(height: 12),
+              if (!isShortScreen) ...[
+                _buildHeader(isTv),
+                const SizedBox(height: 8),
+              ],
 
               // 2. Active tab content body
               Expanded(
@@ -1051,10 +1061,12 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1:
         return _buildSearchTabView(isTv);
       case 2:
-        return _buildFavoritesTabView(isTv);
+        return const LiveTvScreen();
       case 3:
-        return _buildHistoryTabView(isTv);
+        return _buildFavoritesTabView(isTv);
       case 4:
+        return _buildHistoryTabView(isTv);
+      case 5:
         return _buildSettingsTabView(isTv);
       case 0:
       default:
@@ -1770,20 +1782,26 @@ class _HomeScreenState extends State<HomeScreen> {
       },
       {
         'index': 2,
+        'icon': Icons.live_tv_rounded,
+        'label': AppLanguageService.tr(en: 'Live TV', id: 'Live TV'),
+        'focusNode': _navLiveTvFocusNode,
+      },
+      {
+        'index': 3,
         'icon': Icons.favorite_rounded,
         'label': AppLanguageService.tr(en: 'Favorites', id: 'Favorit'),
         'badge': _favorites.length,
         'focusNode': _navFavFocusNode,
       },
       {
-        'index': 3,
+        'index': 4,
         'icon': Icons.history_rounded,
         'label': AppLanguageService.tr(en: 'History', id: 'Riwayat'),
         'badge': _recentPlays.length,
         'focusNode': _navHistoryFocusNode,
       },
       {
-        'index': 4,
+        'index': 5,
         'icon': Icons.settings_rounded,
         'label': AppLanguageService.tr(en: 'Settings', id: 'Pengaturan'),
         'focusNode': _navSettingsFocusNode,
@@ -1791,22 +1809,23 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     return Container(
+      width: double.infinity,
       margin: const EdgeInsets.only(top: 8, bottom: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: EdgeInsets.symmetric(horizontal: isTv ? 16 : 8, vertical: isTv ? 6 : 4),
       decoration: BoxDecoration(
         color: const Color(0xFF141414),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: const Color(0xFF262626), width: 1),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.5),
+            color: Colors.black.withValues(alpha: 0.5),
             blurRadius: 16,
             offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: navItems.map((item) {
           final int index = item['index'] as int;
           final bool isSelected = _currentTabIndex == index;
@@ -1840,8 +1859,8 @@ class _HomeScreenState extends State<HomeScreen> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               padding: EdgeInsets.symmetric(
-                horizontal: isTv ? 20 : 12,
-                vertical: 6,
+                horizontal: isSelected ? (isTv ? 18 : 12) : (isTv ? 12 : 8),
+                vertical: isTv ? 8 : 6,
               ),
               decoration: BoxDecoration(
                 color: isSelected ? Colors.redAccent.shade700 : Colors.transparent,
@@ -1856,7 +1875,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Icon(
                         icon,
                         color: isSelected ? Colors.white : Colors.grey.shade400,
-                        size: isTv ? 22 : 18,
+                        size: isTv ? 22 : 20,
                       ),
                       if (badge > 0 && !isSelected)
                         Positioned(
@@ -1879,13 +1898,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   if (isSelected) ...[
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Text(
                       label,
                       style: GoogleFonts.outfit(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: isTv ? 14 : 12,
+                        fontSize: isTv ? 13 : 12,
                       ),
                     ),
                   ],
