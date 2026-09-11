@@ -58,6 +58,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   List<SubtitleEntry> _subtitleEntries = [];
   static const MethodChannel _pipChannel = MethodChannel('com.koko.moviebox/pip');
   bool _isPipMode = false;
+  bool _isErrorDialogShowing = false;
   Color _selectedSubtitleColor = Colors.white;
   BoxFit _selectedFitMode = BoxFit.contain;
 
@@ -201,6 +202,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         await platform.setProperty('hwdec', 'mediacodec');
         await platform.setProperty('vd-lavc-fast', 'yes');
         await platform.setProperty('vd-lavc-skiploopfilter', 'all');
+        // Auto-reconnect on network drops for HLS / HTTP streams to prevent ffurl_read timeouts
+        await platform.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
+        await platform.setProperty('demuxer-max-bytes', '33554432');
+        await platform.setProperty('demuxer-max-back-bytes', '16777216');
       }
 
       // Check for saved progress
@@ -216,10 +221,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _player.stream.error.listen((error) {
           print("MediaKit Playback Error: $error");
           
-          // Ignore non-fatal codec/decoder initialization errors as libmpv 
-          // will natively fall back to a working decoder and play smoothly.
           final errStr = error.toString().toLowerCase();
-          if (errStr.contains("codec") || errStr.contains("decoder")) {
+          
+          // Ignore transient network, protocol, demuxer, and decoder warnings.
+          // Libmpv and FFmpeg automatically retry and reconnect seamlessly under the hood.
+          final isTransient = errStr.contains("tcp") ||
+              errStr.contains("ffurl") ||
+              errStr.contains("http") ||
+              errStr.contains("tls") ||
+              errStr.contains("timeout") ||
+              errStr.contains("timed out") ||
+              errStr.contains("reset") ||
+              errStr.contains("pipe") ||
+              errStr.contains("demuxer") ||
+              errStr.contains("lavf") ||
+              errStr.contains("hls") ||
+              errStr.contains("eof") ||
+              errStr.contains("codec") ||
+              errStr.contains("decoder") ||
+              errStr.contains("mediacodec") ||
+              errStr.contains("0xffffff");
+
+          // Never interrupt active or initialized playback with non-fatal / transient errors
+          if (isTransient || _player.state.playing || _isInitialized) {
             return;
           }
           
@@ -312,8 +336,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _showErrorDialog(String msg) {
+    if (!mounted || _isErrorDialogShowing) return;
+    _isErrorDialogShowing = true;
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
         title: Text('Playback Error', style: GoogleFonts.outfit(color: Colors.white)),
@@ -321,6 +348,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         actions: [
           TextButton(
             onPressed: () {
+              _isErrorDialogShowing = false;
               Navigator.pop(context); // Close dialog
               Navigator.pop(context); // Close player
             },
@@ -328,7 +356,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
           )
         ],
       ),
-    );
+    ).then((_) {
+      _isErrorDialogShowing = false;
+    });
   }
 
   void _showResumeToast(int ms) {
