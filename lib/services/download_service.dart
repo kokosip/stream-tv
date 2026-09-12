@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'moviebox_api_service.dart';
 
 enum DownloadStatus {
   downloading,
@@ -18,17 +19,18 @@ class DownloadItem {
   final String id;
   final String title;
   final String coverUrl;
-  final String streamUrl;
+  String streamUrl;
   final String filePath;
   final String quality;
   final String provider;
   final int season;
   final int episode;
-  final int totalBytes;
+  int totalBytes;
   int downloadedBytes;
   DownloadStatus status;
   String? errorMessage;
   final DateTime createdAt;
+
 
   DownloadItem({
     required this.id,
@@ -278,58 +280,111 @@ class DownloadService {
 
     try {
       final file = File(item.filePath);
-      final request = http.Request('GET', Uri.parse(item.streamUrl));
-      
-      // Standard streaming user agent
-      request.headers['User-Agent'] =
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+      int startByte = 0;
+      if (item.downloadedBytes > 0 && await file.exists()) {
+        startByte = await file.length();
+        item.downloadedBytes = startByte;
+      } else {
+        item.downloadedBytes = 0;
+      }
 
-      final response = await client.send(request);
+      var request = http.Request('GET', Uri.parse(item.streamUrl));
+      // Use media player User-Agent (ExoPlayer) which MovieBox CDN accepts (browser UAs return 428 Forbidden)
+      request.headers['User-Agent'] = 'ExoPlayer/2.18.1 (Linux; Android 11)';
 
-      if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (startByte > 0) {
+        request.headers['Range'] = 'bytes=$startByte-';
+      }
+
+      var response = await client.send(request);
+
+      // If CDN link expired or rejected (403, 410, 428), attempt auto-refresh from MovieBox API
+      if ((response.statusCode == 403 || response.statusCode == 410 || response.statusCode == 428) &&
+          item.provider.toLowerCase() == 'moviebox') {
+        try {
+          final sId = item.id.contains('_') ? item.id.split('_').first : item.id;
+          final resNum = int.tryParse(item.quality.replaceAll(RegExp(r'[^\d]'), '')) ?? 720;
+          final freshData = await MovieBoxApiService().getResources(
+            subjectId: sId,
+            se: item.season,
+            ep: item.episode,
+            resolution: resNum,
+          );
+          final list = freshData['list'] as List<dynamic>? ?? [];
+          String? freshUrl;
+          for (final r in list) {
+            final link = r['resourceLink'] ?? r['resource_link'];
+            if (link != null && link.toString().isNotEmpty) {
+              freshUrl = link.toString();
+              break;
+            }
+          }
+
+          if (freshUrl != null && freshUrl.isNotEmpty) {
+            item.streamUrl = freshUrl;
+            _updateItemInList(item);
+            await _saveToPrefs();
+
+            request = http.Request('GET', Uri.parse(item.streamUrl));
+            request.headers['User-Agent'] = 'ExoPlayer/2.18.1 (Linux; Android 11)';
+            if (startByte > 0) {
+              request.headers['Range'] = 'bytes=$startByte-';
+            }
+            response = await client.send(request);
+          }
+        } catch (_) {}
+      }
+
+      if (response.statusCode != 200 && response.statusCode != 206) {
         throw Exception("Server returned HTTP ${response.statusCode}");
       }
 
-      final contentLength = response.contentLength ?? 0;
-      item.downloadedBytes = 0;
-      final updatedItem = DownloadItem(
-        id: item.id,
-        title: item.title,
-        coverUrl: item.coverUrl,
-        streamUrl: item.streamUrl,
-        filePath: item.filePath,
-        quality: item.quality,
-        provider: item.provider,
-        season: item.season,
-        episode: item.episode,
-        totalBytes: contentLength > 0 ? contentLength : item.totalBytes,
-        downloadedBytes: 0,
-        status: DownloadStatus.downloading,
-      );
+      // Calculate totalBytes accurately from Content-Range or Content-Length
+      int totalBytes = item.totalBytes;
+      if (response.headers.containsKey('content-range')) {
+        final cr = response.headers['content-range']!;
+        final parts = cr.split('/');
+        if (parts.length > 1) {
+          totalBytes = int.tryParse(parts.last) ?? totalBytes;
+        }
+      } else if (response.contentLength != null && response.contentLength! > 0) {
+        if (response.statusCode == 206) {
+          totalBytes = startByte + response.contentLength!;
+        } else {
+          totalBytes = response.contentLength!;
+        }
+      }
 
-      // Replace in list
-      _updateItemInList(updatedItem);
+      final isPartial = response.statusCode == 206 && startByte > 0;
+      if (!isPartial) {
+        item.downloadedBytes = 0;
+      }
 
-      final sink = file.openWrite(mode: FileMode.write);
+      item.totalBytes = totalBytes > 0 ? totalBytes : item.totalBytes;
+      item.status = DownloadStatus.downloading;
+      item.errorMessage = null;
+      _updateItemInList(item);
+
+      final sink = file.openWrite(mode: isPartial ? FileMode.append : FileMode.write);
       _activeSinks[item.id] = sink;
 
       var lastNotifyTime = DateTime.now();
       _lastSpeedTime[item.id] = DateTime.now();
-      _lastSpeedBytes[item.id] = 0;
+      _lastSpeedBytes[item.id] = item.downloadedBytes;
 
       final subscription = response.stream.listen(
         (chunk) {
           sink.add(chunk);
-          updatedItem.downloadedBytes += chunk.length;
+          item.downloadedBytes += chunk.length;
 
           final now = DateTime.now();
           // Calculate speed every 1 second
           final speedDiff = now.difference(_lastSpeedTime[item.id] ?? now).inMilliseconds;
           if (speedDiff >= 1000) {
-            final bytesDiff = updatedItem.downloadedBytes - (_lastSpeedBytes[item.id] ?? 0);
+            final bytesDiff = item.downloadedBytes - (_lastSpeedBytes[item.id] ?? 0);
             _downloadSpeeds[item.id] = (bytesDiff / (speedDiff / 1000.0));
             _lastSpeedTime[item.id] = now;
-            _lastSpeedBytes[item.id] = updatedItem.downloadedBytes;
+            _lastSpeedBytes[item.id] = item.downloadedBytes;
           }
 
           // Throttle ValueNotifier updates to every 400ms for smooth UI without lagging
@@ -343,19 +398,20 @@ class DownloadService {
           await sink.close();
           _cleanupHandles(item.id);
 
-          updatedItem.status = DownloadStatus.completed;
+          item.status = DownloadStatus.completed;
           _downloadSpeeds.remove(item.id);
-          _updateItemInList(updatedItem);
+          _updateItemInList(item);
           await _saveToPrefs();
         },
         onError: (err) async {
+          await sink.flush();
           await sink.close();
           _cleanupHandles(item.id);
 
-          updatedItem.status = DownloadStatus.failed;
-          updatedItem.errorMessage = err.toString();
+          item.status = DownloadStatus.failed;
+          item.errorMessage = err.toString();
           _downloadSpeeds.remove(item.id);
-          _updateItemInList(updatedItem);
+          _updateItemInList(item);
           await _saveToPrefs();
         },
         cancelOnError: true,
@@ -435,6 +491,7 @@ class DownloadService {
     final item = getItem(id);
     if (item == null) return;
     item.status = DownloadStatus.downloading;
+    item.errorMessage = null;
     _updateItemInList(item);
     _executeDownload(item);
   }

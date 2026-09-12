@@ -628,8 +628,14 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    item.errorMessage ?? "Gagal mengunduh file.",
-                    maxLines: 1,
+                    item.errorMessage != null
+                        ? (item.errorMessage!.contains('428')
+                            ? "Akses CDN diperbarui. Tekan Coba Lagi."
+                            : (item.errorMessage!.contains('403') || item.errorMessage!.contains('410')
+                                ? "Tautan kedaluwarsa. Tekan Coba Lagi untuk memperbarui."
+                                : item.errorMessage!))
+                        : "Gagal mengunduh file.",
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.outfit(color: Colors.redAccent, fontSize: 11),
                   ),
