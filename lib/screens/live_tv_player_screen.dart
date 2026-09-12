@@ -54,8 +54,13 @@ class _LiveTvPlayerScreenState extends State<LiveTvPlayerScreen> {
 
     _currentIndex = widget.initialIndex.clamp(0, widget.channels.length - 1);
 
-    _player = Player();
+    _player = Player(
+      configuration: const PlayerConfiguration(
+        bufferSize: 32 * 1024 * 1024,
+      ),
+    );
     _videoController = VideoController(_player);
+    _initPlayerProps();
 
     _player.stream.error.listen((error) {
       if (mounted) {
@@ -85,6 +90,26 @@ class _LiveTvPlayerScreenState extends State<LiveTvPlayerScreen> {
 
     _playCurrentChannel();
     _startHideControlsTimer();
+  }
+
+  void _initPlayerProps() async {
+    try {
+      if (_player.platform is NativePlayer) {
+        final platform = _player.platform as NativePlayer;
+        await platform.setProperty('hwdec', 'auto-safe');
+        await platform.setProperty('hwdec-codecs', 'all');
+        await platform.setProperty('framedrop', 'vo');
+        await platform.setProperty('vd-lavc-fast', 'yes');
+        await platform.setProperty('vd-lavc-skiploopfilter', 'all');
+        await platform.setProperty('vd-lavc-threads', '4');
+        await platform.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
+        await platform.setProperty('demuxer-max-bytes', '67108864');
+        await platform.setProperty('demuxer-max-back-bytes', '16777216');
+        await platform.setProperty('demuxer-readahead-secs', '30');
+      }
+    } catch (e) {
+      debugPrint("Live TV player configuration error: $e");
+    }
   }
 
   void _playCurrentChannel() async {

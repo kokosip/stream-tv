@@ -227,10 +227,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void initState() {
     super.initState();
     
-    // Initialize MediaKit Player and Controller with 16MB buffer size for TV RAM optimization
+    // Initialize MediaKit Player and Controller with 32MB buffer size for TV streaming stability
     _player = Player(
       configuration: const PlayerConfiguration(
-        bufferSize: 16 * 1024 * 1024,
+        bufferSize: 32 * 1024 * 1024,
       ),
     );
     _controller = VideoController(_player);
@@ -301,16 +301,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _initializePlayer() async {
     try {
-      // Enable hardware decoding and performance tweaks on Android
+      // Enable hardware decoding and performance tweaks on Android TV
       if (_player.platform is NativePlayer) {
         final platform = _player.platform as NativePlayer;
-        await platform.setProperty('hwdec', 'mediacodec');
+        // 'auto-safe' tries safe mediacodec/mediacodec-copy methods compatible with TV texture rendering
+        await platform.setProperty('hwdec', 'auto-safe');
+        await platform.setProperty('hwdec-codecs', 'all');
+        // Drop late frames at VO level instead of accumulating lag or stutter
+        await platform.setProperty('framedrop', 'vo');
+        // Fast decode and skip loop filter for non-reference frames to preserve CPU/GPU
         await platform.setProperty('vd-lavc-fast', 'yes');
         await platform.setProperty('vd-lavc-skiploopfilter', 'all');
+        // Utilize 4 threads if software decoding fallback occurs on quad-core TV chipsets
+        await platform.setProperty('vd-lavc-threads', '4');
         // Auto-reconnect on network drops for HLS / HTTP streams to prevent ffurl_read timeouts
         await platform.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
-        await platform.setProperty('demuxer-max-bytes', '33554432');
+        // Demuxer cache optimizations: 64MB buffer and 30s readahead to absorb Wi-Fi jitter on TV
+        await platform.setProperty('demuxer-max-bytes', '67108864');
         await platform.setProperty('demuxer-max-back-bytes', '16777216');
+        await platform.setProperty('demuxer-readahead-secs', '30');
       }
 
       // Check for saved progress
