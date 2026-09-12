@@ -771,12 +771,16 @@ class _DetailScreenState extends State<DetailScreen> {
     });
     _checkProgress();
 
-    // If streams are already loaded for this target episode or movie, play directly
+    // If streams are already loaded for this target episode or movie, play directly or show quality dialog
     if (_streams.isNotEmpty) {
       final firstStream = _streams.first;
       final stSe = int.tryParse(firstStream['se']?.toString() ?? '') ?? 0;
       final stEp = int.tryParse(firstStream['ep']?.toString() ?? '') ?? 0;
       if (!isTv || (stSe == seasonNum && stEp == episodeNum)) {
+        if (_is4kHub) {
+          _show4kQualitySelectionDialog(_streams);
+          return;
+        }
         _playStream(firstStream);
         return;
       }
@@ -795,8 +799,8 @@ class _DetailScreenState extends State<DetailScreen> {
               Expanded(
                 child: Text(
                   AppLanguageService.tr(
-                    en: "Resolving 4KHDHub CDN mirror...",
-                    id: "Menghubungkan ke mirror 4KHDHub...",
+                    en: "Loading 4KHDHub releases...",
+                    id: "Memuat daftar rilis 4KHDHub...",
                   ),
                   style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
                 ),
@@ -818,7 +822,12 @@ class _DetailScreenState extends State<DetailScreen> {
         if (releases.isEmpty) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Tidak ada rilis tersedia untuk episode ini.")),
+              SnackBar(
+                content: Text(AppLanguageService.tr(
+                  en: "No releases available for this episode.",
+                  id: "Tidak ada rilis tersedia untuk episode ini.",
+                )),
+              ),
             );
           }
           return;
@@ -828,7 +837,7 @@ class _DetailScreenState extends State<DetailScreen> {
           setState(() {
             _streams = releases;
           });
-          _playStream(releases.first);
+          _show4kQualitySelectionDialog(releases);
         }
       } catch (e) {
         if (mounted) {
@@ -935,6 +944,331 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
+  void _open4kQualitySelector() async {
+    if (_streams.isNotEmpty) {
+      _show4kQualitySelectionDialog(_streams);
+      return;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        content: Row(
+          children: [
+            const SpinKitRing(color: Colors.cyanAccent, size: 36.0),
+            const SizedBox(width: 20),
+            Expanded(
+              child: Text(
+                AppLanguageService.tr(
+                  en: "Loading 4KHDHub releases...",
+                  id: "Memuat daftar rilis 4KHDHub...",
+                ),
+                style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final releases = await _fourkApi.getReleases(
+        widget.subjectId,
+        rawHtml: _details?['rawHtml'],
+        season: _isTvShow ? _selectedSeasonNumber : 0,
+        episode: _isTvShow ? _selectedEpisodeNumber : 0,
+      );
+      if (mounted) Navigator.pop(context);
+
+      if (releases.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(AppLanguageService.tr(
+                en: "No releases found for this title.",
+                id: "Tidak ada rilis ditemukan untuk judul ini.",
+              )),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _streams = releases;
+        });
+        _show4kQualitySelectionDialog(releases);
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Gagal memuat rilis 4KHDHub: $e")),
+        );
+      }
+    }
+  }
+
+  Future<void> _show4kQualitySelectionDialog(List<dynamic> releases) async {
+    if (!mounted || releases.isEmpty) return;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        final screenWidth = MediaQuery.of(dialogContext).size.width;
+        final isTv = screenWidth > 800;
+
+        return Dialog(
+          backgroundColor: const Color(0xFF141414),
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: isTv ? screenWidth * 0.22 : 16,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: Colors.cyanAccent.withValues(alpha: 0.3), width: 1.2),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 560, maxWidth: 640),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Dialog Header
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.cyan.shade900.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.4)),
+                        ),
+                        child: const Icon(Icons.hd_rounded, color: Colors.cyanAccent, size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              AppLanguageService.tr(
+                                en: "Select Video Quality & Release",
+                                id: "Pilih Kualitas & Rilis Video",
+                              ),
+                              style: GoogleFonts.outfit(
+                                color: Colors.white,
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              AppLanguageService.tr(
+                                en: "Choose resolution according to your internet speed & device",
+                                id: "Pilih resolusi & ukuran sesuai kecepatan internet Anda",
+                              ),
+                              style: GoogleFonts.outfit(
+                                color: Colors.grey.shade400,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded, color: Colors.grey, size: 20),
+                        onPressed: () => Navigator.pop(dialogContext),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  const Divider(color: Color(0xFF282828), height: 1),
+                  const SizedBox(height: 12),
+
+                  // Releases List
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: releases.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final rel = releases[index];
+                        final quality = rel['quality']?.toString() ?? "HD";
+                        final res = rel['resolution'] as int? ?? 1080;
+                        final size = rel['size']?.toString() ?? "";
+                        final codec = rel['codecName']?.toString() ?? "";
+                        final filename = rel['filename']?.toString() ?? "";
+
+                        final bool is4k = res >= 2160;
+                        final bool is1080 = res == 1080;
+
+                        final Color badgeColor = is4k
+                            ? Colors.cyanAccent
+                            : is1080
+                                ? Colors.amberAccent
+                                : Colors.greenAccent;
+                        final Color badgeBg = is4k
+                            ? Colors.cyan.shade900.withValues(alpha: 0.3)
+                            : is1080
+                                ? Colors.amber.shade900.withValues(alpha: 0.3)
+                                : Colors.green.shade900.withValues(alpha: 0.3);
+
+                        // Recommended label for reasonable sizes (e.g. 1080p or lightweight 4K)
+                        final bool isRecommended = is1080 || (is4k && size.contains("GB") && (double.tryParse(size.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0) < 10);
+
+                        return TvFocusableCard(
+                          onTap: () {
+                            Navigator.pop(dialogContext);
+                            _playStream(rel);
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          scaleFactor: 1.02,
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1C1C1C),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isRecommended
+                                    ? Colors.cyanAccent.withValues(alpha: 0.4)
+                                    : const Color(0xFF2C2C2C),
+                                width: isRecommended ? 1.4 : 1.0,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                // Quality Indicator
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: badgeBg,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: badgeColor.withValues(alpha: 0.5)),
+                                  ),
+                                  child: Text(
+                                    is4k ? "4K UHD" : is1080 ? "1080p" : "720p",
+                                    style: GoogleFonts.outfit(
+                                      color: badgeColor,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Text(
+                                            quality,
+                                            style: GoogleFonts.outfit(
+                                              color: Colors.white,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          if (isRecommended) ...[
+                                            const SizedBox(width: 8),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.teal.shade900.withValues(alpha: 0.7),
+                                                borderRadius: BorderRadius.circular(4),
+                                                border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.5), width: 0.8),
+                                              ),
+                                              child: Text(
+                                                AppLanguageService.tr(en: "Recommended", id: "Direkomendasikan"),
+                                                style: GoogleFonts.outfit(
+                                                  color: Colors.tealAccent,
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          if (size.isNotEmpty) ...[
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF282828),
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const Icon(Icons.sd_storage_outlined, size: 11, color: Colors.grey),
+                                                  const SizedBox(width: 3),
+                                                  Text(
+                                                    size,
+                                                    style: GoogleFonts.outfit(
+                                                      color: Colors.grey.shade300,
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                          ],
+                                          if (codec.isNotEmpty) ...[
+                                            Text(
+                                              codec,
+                                              style: GoogleFonts.outfit(
+                                                color: Colors.grey.shade400,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                      if (filename.isNotEmpty) ...[
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          filename,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.outfit(
+                                            color: Colors.grey.shade600,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Icon(Icons.play_circle_fill_rounded, color: Colors.cyanAccent, size: 28),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _playStream(Map<String, dynamic> stream) async {
     if (_is4kHub) {
       showDialog(
@@ -979,8 +1313,31 @@ class _DetailScreenState extends State<DetailScreen> {
                 en: "Mirror is dead or expired. Please try another quality/release.",
                 id: "Mirror tidak aktif / kadaluarsa. Silakan pilih rilis/kualitas lain.",
               )),
+              duration: const Duration(seconds: 4),
+              action: SnackBarAction(
+                label: AppLanguageService.tr(en: "Choose Quality", id: "Pilih Kualitas"),
+                textColor: Colors.cyanAccent,
+                onPressed: () {
+                  if (_streams.isNotEmpty) {
+                    _show4kQualitySelectionDialog(_streams);
+                  } else {
+                    _open4kQualitySelector();
+                  }
+                },
+              ),
             ),
           );
+
+          // Re-open quality selector dialog so user can immediately pick an alternate release
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (mounted) {
+              if (_streams.isNotEmpty) {
+                _show4kQualitySelectionDialog(_streams);
+              } else {
+                _open4kQualitySelector();
+              }
+            }
+          });
         }
         return;
       }
@@ -1302,44 +1659,80 @@ class _DetailScreenState extends State<DetailScreen> {
                         ),
                       ),
                       const SizedBox(height: 24),
-                      // Main Hero Play Button
-                      TvFocusableCard(
-                        onTap: () {
-                          _playEpisode(_selectedSeasonNumber, _selectedEpisodeNumber);
-                        },
-                        borderRadius: BorderRadius.circular(14),
-                        scaleFactor: 1.05,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFFE50914), Color(0xFFB81D24)],
-                            ),
+                      // Main Hero Play Button Row
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TvFocusableCard(
+                            onTap: () {
+                              _playEpisode(_selectedSeasonNumber, _selectedEpisodeNumber);
+                            },
                             borderRadius: BorderRadius.circular(14),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.redAccent.withOpacity(0.4),
-                                blurRadius: 16,
-                                offset: const Offset(0, 4),
+                            scaleFactor: 1.05,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFFE50914), Color(0xFFB81D24)],
+                                ),
+                                borderRadius: BorderRadius.circular(14),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.redAccent.withValues(alpha: 0.4),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
                               ),
-                            ],
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 32),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    playBtnText,
+                                    style: GoogleFonts.outfit(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 32),
-                              const SizedBox(width: 12),
-                              Text(
-                                playBtnText,
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
+                          if (_is4kHub) ...[
+                            const SizedBox(width: 16),
+                            TvFocusableCard(
+                              onTap: () => _open4kQualitySelector(),
+                              borderRadius: BorderRadius.circular(14),
+                              scaleFactor: 1.05,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1A1A1A),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5), width: 1.5),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.tune_rounded, color: Colors.cyanAccent, size: 26),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      AppLanguageService.tr(en: "Select Quality", id: "Pilih Kualitas"),
+                                      style: GoogleFonts.outfit(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
+                            ),
+                          ],
+                        ],
                       ),
                     ],
                   ),
@@ -1405,40 +1798,75 @@ class _DetailScreenState extends State<DetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                // Play Button
-                SizedBox(
-                  width: double.infinity,
-                  child: TvFocusableCard(
-                    onTap: () {
-                      _playEpisode(_selectedSeasonNumber, _selectedEpisodeNumber);
-                    },
-                    borderRadius: BorderRadius.circular(12),
-                    scaleFactor: 1.03,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFE50914), Color(0xFFB81D24)],
-                        ),
+                // Play Button & Quality Button Row
+                Row(
+                  children: [
+                    Expanded(
+                      flex: _is4kHub ? 7 : 1,
+                      child: TvFocusableCard(
+                        onTap: () {
+                          _playEpisode(_selectedSeasonNumber, _selectedEpisodeNumber);
+                        },
                         borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28),
-                          const SizedBox(width: 8),
-                          Text(
-                            playBtnText,
-                            style: GoogleFonts.outfit(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                        scaleFactor: 1.03,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFE50914), Color(0xFFB81D24)],
                             ),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                        ],
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28),
+                              const SizedBox(width: 8),
+                              Text(
+                                playBtnText,
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    if (_is4kHub) ...[
+                      const SizedBox(width: 10),
+                      TvFocusableCard(
+                        onTap: () => _open4kQualitySelector(),
+                        borderRadius: BorderRadius.circular(12),
+                        scaleFactor: 1.05,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1A1A1A),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5), width: 1.2),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.tune_rounded, color: Colors.cyanAccent, size: 22),
+                              const SizedBox(width: 6),
+                              Text(
+                                AppLanguageService.tr(en: "Quality", id: "Kualitas"),
+                                style: GoogleFonts.outfit(
+                                  color: Colors.cyanAccent,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
