@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 class TvFocusableCard extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final double scaleFactor;
   final BorderRadius borderRadius;
   final FocusNode? focusNode;
@@ -12,6 +13,7 @@ class TvFocusableCard extends StatefulWidget {
     super.key,
     required this.child,
     required this.onTap,
+    this.onLongPress,
     this.scaleFactor = 1.06,
     this.borderRadius = const BorderRadius.all(Radius.circular(12)),
     this.focusNode,
@@ -39,6 +41,7 @@ class _TvFocusableCardState extends State<TvFocusableCard> {
         });
       },
       onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
       borderRadius: widget.borderRadius,
       focusColor: Colors.transparent,
       hoverColor: Colors.transparent,

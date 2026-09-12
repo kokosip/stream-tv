@@ -5,6 +5,7 @@ import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/moviebox_api_service.dart';
 import '../services/fourkhdhub_service.dart';
 import '../services/app_language_service.dart';
+import '../services/search_history_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import 'detail_screen.dart';
 
@@ -24,12 +25,149 @@ class _SearchScreenState extends State<SearchScreen> {
 
   String _selectedProvider = 'all'; // 'all', 'moviebox', '4khdhub'
   List<dynamic> _results = [];
+  List<String> _searchHistory = [];
   bool _isLoading = false;
   String _errorMessage = "";
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSearchHistory();
+  }
+
+  Future<void> _loadSearchHistory() async {
+    final list = await SearchHistoryService.getSearchHistory();
+    if (mounted) {
+      setState(() {
+        _searchHistory = list;
+      });
+    }
+  }
+
+  Future<void> _deleteSearchHistoryItem(String query) async {
+    await SearchHistoryService.removeSearchQuery(query);
+    await _loadSearchHistory();
+  }
+
+  Future<void> _showDeleteSearchItemDialog(String query) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1C),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 22),
+            const SizedBox(width: 10),
+            Text(
+              AppLanguageService.tr(en: "Delete Search?", id: "Hapus Pencarian?"),
+              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
+        ),
+        content: Text(
+          AppLanguageService.tr(
+            en: "Remove \"$query\" from search history?",
+            id: "Hapus \"$query\" dari riwayat pencarian?",
+          ),
+          style: GoogleFonts.outfit(color: Colors.grey.shade300, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              AppLanguageService.tr(en: "Cancel", id: "Batal"),
+              style: GoogleFonts.outfit(color: Colors.grey.shade400),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent.shade700,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              AppLanguageService.tr(en: "Delete", id: "Hapus"),
+              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _deleteSearchHistoryItem(query);
+    }
+  }
+
+  Future<void> _showClearAllSearchHistoryDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1C),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.delete_sweep_rounded, color: Colors.redAccent, size: 24),
+            const SizedBox(width: 10),
+            Text(
+              AppLanguageService.tr(en: "Clear Search History?", id: "Hapus Riwayat Pencarian?"),
+              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+          ],
+        ),
+        content: Text(
+          AppLanguageService.tr(
+            en: "Are you sure you want to delete all search history?",
+            id: "Apakah Anda yakin ingin menghapus semua riwayat pencarian?",
+          ),
+          style: GoogleFonts.outfit(color: Colors.grey.shade300, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              AppLanguageService.tr(en: "Cancel", id: "Batal"),
+              style: GoogleFonts.outfit(color: Colors.grey.shade400),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent.shade700,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              AppLanguageService.tr(en: "Clear All", id: "Hapus Semua"),
+              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await SearchHistoryService.clearAllSearchHistory();
+      await _loadSearchHistory();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLanguageService.tr(en: "Search history cleared", id: "Riwayat pencarian telah dibersihkan"),
+              style: GoogleFonts.outfit(),
+            ),
+            backgroundColor: const Color(0xFF222222),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
 
   void _performSearch() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) return;
+
+    SearchHistoryService.addSearchQuery(query);
+    _loadSearchHistory();
 
     setState(() {
       _isLoading = true;
@@ -97,6 +235,91 @@ class _SearchScreenState extends State<SearchScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  Widget _buildSearchHistorySection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.history_rounded, color: Colors.redAccent, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              AppLanguageService.tr(en: "Recent Searches", id: "Riwayat Pencarian"),
+              style: GoogleFonts.outfit(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+            const Spacer(),
+            TvFocusableCard(
+              onTap: _showClearAllSearchHistoryDialog,
+              borderRadius: BorderRadius.circular(6),
+              scaleFactor: 1.05,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.delete_outline_rounded, color: Colors.grey.shade400, size: 14),
+                    const SizedBox(width: 4),
+                    Text(
+                      AppLanguageService.tr(en: "Clear All", id: "Hapus Semua"),
+                      style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: _searchHistory.map((query) => _buildSearchHistoryChip(query)).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchHistoryChip(String query) {
+    return TvFocusableCard(
+      onTap: () {
+        _searchController.text = query;
+        _performSearch();
+      },
+      onLongPress: () => _showDeleteSearchItemDialog(query),
+      borderRadius: BorderRadius.circular(20),
+      scaleFactor: 1.05,
+      child: Container(
+        padding: const EdgeInsets.only(left: 12, top: 6, bottom: 6, right: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFF333333)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.history, size: 14, color: Colors.grey),
+            const SizedBox(width: 6),
+            Text(
+              query,
+              style: GoogleFonts.outfit(color: Colors.grey.shade300, fontSize: 13),
+            ),
+            const SizedBox(width: 6),
+            InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _deleteSearchHistoryItem(query),
+              child: Padding(
+                padding: const EdgeInsets.all(2.0),
+                child: Icon(Icons.close_rounded, size: 15, color: Colors.grey.shade400),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildProviderChip(String providerKey, String label, bool isTv) {
@@ -202,12 +425,28 @@ class _SearchScreenState extends State<SearchScreen> {
                         hintText: AppLanguageService.tr(en: "Search here...", id: "Cari di sini..."),
                         hintStyle: GoogleFonts.outfit(color: Colors.grey.shade500, fontSize: 14),
                         prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 20),
+                        suffixIcon: _searchController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, color: Colors.grey, size: 18),
+                                onPressed: () {
+                                  setState(() {
+                                    _searchController.clear();
+                                    _results = [];
+                                    _errorMessage = "";
+                                  });
+                                  _loadSearchHistory();
+                                },
+                              )
+                            : null,
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 12,
                         ),
                       ),
+                      onChanged: (_) {
+                        setState(() {});
+                      },
                       onSubmitted: (_) => _performSearch(),
                     ),
                   ),
@@ -270,7 +509,22 @@ class _SearchScreenState extends State<SearchScreen> {
                               ),
                             ),
                           )
-                        : GridView.builder(
+                        : _results.isEmpty
+                            ? Align(
+                                alignment: Alignment.topLeft,
+                                child: _searchHistory.isNotEmpty
+                                    ? _buildSearchHistorySection()
+                                    : Center(
+                                        child: Text(
+                                          AppLanguageService.tr(
+                                            en: "Type keywords above to search movies or TV shows",
+                                            id: "Ketik kata kunci di atas untuk mencari film atau serial TV",
+                                          ),
+                                          style: GoogleFonts.outfit(color: Colors.grey.shade500, fontSize: 15),
+                                        ),
+                                      ),
+                              )
+                            : GridView.builder(
                             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                               crossAxisCount: isTv ? 6 : 3,
                               childAspectRatio: 0.7,

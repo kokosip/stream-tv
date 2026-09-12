@@ -8,6 +8,7 @@ import '../services/moviebox_api_service.dart';
 import '../services/fourkhdhub_service.dart';
 import '../services/favorites_service.dart';
 import '../services/playback_progress_service.dart';
+import '../services/search_history_service.dart';
 import '../services/app_language_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import '../widgets/tv_pin_pad_dialog.dart';
@@ -52,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<Map<String, dynamic>> _favorites = [];
   List<Map<String, dynamic>> _recentPlays = [];
+  List<String> _searchHistory = [];
   List<dynamic> _homeItems = [];
   List<dynamic> _bannerItems = [];
 
@@ -99,6 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     _loadAllHomeData();
+    _loadSearchHistory();
     _loadNsfwFilterPreference();
     _checkPasscodeSetup();
     _checkAutoUpdateSilently();
@@ -308,6 +311,268 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _loadSearchHistory() async {
+    final history = await SearchHistoryService.getSearchHistory();
+    if (mounted) {
+      setState(() {
+        _searchHistory = history;
+      });
+    }
+  }
+
+  Future<void> _deleteSearchHistoryItem(String query) async {
+    await SearchHistoryService.removeSearchQuery(query);
+    await _loadSearchHistory();
+  }
+
+  Future<void> _showDeleteSearchItemDialog(String query) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1C),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 22),
+            const SizedBox(width: 10),
+            Text(
+              AppLanguageService.tr(en: "Delete Search?", id: "Hapus Pencarian?"),
+              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
+        ),
+        content: Text(
+          AppLanguageService.tr(
+            en: "Remove \"$query\" from search history?",
+            id: "Hapus \"$query\" dari riwayat pencarian?",
+          ),
+          style: GoogleFonts.outfit(color: Colors.grey.shade300, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              AppLanguageService.tr(en: "Cancel", id: "Batal"),
+              style: GoogleFonts.outfit(color: Colors.grey.shade400),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent.shade700,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              AppLanguageService.tr(en: "Delete", id: "Hapus"),
+              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _deleteSearchHistoryItem(query);
+    }
+  }
+
+  Future<void> _showClearAllSearchHistoryDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1C),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.delete_sweep_rounded, color: Colors.redAccent, size: 24),
+            const SizedBox(width: 10),
+            Text(
+              AppLanguageService.tr(en: "Clear Search History?", id: "Hapus Riwayat Pencarian?"),
+              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+          ],
+        ),
+        content: Text(
+          AppLanguageService.tr(
+            en: "Are you sure you want to delete all search history?",
+            id: "Apakah Anda yakin ingin menghapus semua riwayat pencarian?",
+          ),
+          style: GoogleFonts.outfit(color: Colors.grey.shade300, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              AppLanguageService.tr(en: "Cancel", id: "Batal"),
+              style: GoogleFonts.outfit(color: Colors.grey.shade400),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent.shade700,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              AppLanguageService.tr(en: "Clear All", id: "Hapus Semua"),
+              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await SearchHistoryService.clearAllSearchHistory();
+      await _loadSearchHistory();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLanguageService.tr(en: "Search history cleared", id: "Riwayat pencarian telah dibersihkan"),
+              style: GoogleFonts.outfit(),
+            ),
+            backgroundColor: const Color(0xFF222222),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteWatchHistoryItem(String subjectId, String title) async {
+    await PlaybackProgressService.removeRecentPlay(subjectId);
+    await _loadFavoritesAndProgress();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLanguageService.tr(
+              en: "\"$title\" removed from watch history",
+              id: "\"$title\" dihapus dari riwayat tontonan",
+            ),
+            style: GoogleFonts.outfit(),
+          ),
+          backgroundColor: const Color(0xFF222222),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmDeleteWatchHistoryItem(Map<String, dynamic> item) async {
+    final title = item['title'] ?? "Untitled";
+    final subjectId = item['subjectId']?.toString() ?? "";
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1C),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 24),
+            const SizedBox(width: 10),
+            Text(
+              AppLanguageService.tr(en: "Remove from History?", id: "Hapus dari Riwayat?"),
+              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+          ],
+        ),
+        content: Text(
+          AppLanguageService.tr(
+            en: "Remove \"$title\" from your watch history?",
+            id: "Hapus \"$title\" dari riwayat tontonan Anda?",
+          ),
+          style: GoogleFonts.outfit(color: Colors.grey.shade300, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              AppLanguageService.tr(en: "Cancel", id: "Batal"),
+              style: GoogleFonts.outfit(color: Colors.grey.shade400),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent.shade700,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              AppLanguageService.tr(en: "Remove", id: "Hapus"),
+              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _deleteWatchHistoryItem(subjectId, title);
+    }
+  }
+
+  Future<void> _showClearAllWatchHistoryDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1C),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.delete_sweep_rounded, color: Colors.redAccent, size: 24),
+            const SizedBox(width: 10),
+            Text(
+              AppLanguageService.tr(en: "Clear Watch History?", id: "Hapus Riwayat Tontonan?"),
+              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+          ],
+        ),
+        content: Text(
+          AppLanguageService.tr(
+            en: "Are you sure you want to delete all watch history and playback progress?",
+            id: "Apakah Anda yakin ingin menghapus seluruh riwayat tontonan dan progres pemutaran?",
+          ),
+          style: GoogleFonts.outfit(color: Colors.grey.shade300, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              AppLanguageService.tr(en: "Cancel", id: "Batal"),
+              style: GoogleFonts.outfit(color: Colors.grey.shade400),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent.shade700,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              AppLanguageService.tr(en: "Delete All", id: "Hapus Semua"),
+              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await PlaybackProgressService.clearAllRecentPlays();
+      await _loadFavoritesAndProgress();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLanguageService.tr(en: "Watch history cleared", id: "Riwayat tontonan telah dibersihkan"),
+              style: GoogleFonts.outfit(),
+            ),
+            backgroundColor: const Color(0xFF222222),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   void _applySearchFilter() {
     if (_nsfwFilter) {
       _searchResults = _rawSearchResults.where((item) {
@@ -330,6 +595,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onSearch() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) return;
+
+    SearchHistoryService.addSearchQuery(query);
+    _loadSearchHistory();
 
     setState(() {
       _selectedLanguage = "Semua";
@@ -1276,6 +1544,99 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildSearchHistorySection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2.0, bottom: 8.0),
+          child: Row(
+            children: [
+              const Icon(Icons.history_rounded, color: Colors.redAccent, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                AppLanguageService.tr(en: "Recent Searches", id: "Riwayat Pencarian"),
+                style: GoogleFonts.outfit(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+              ),
+              const Spacer(),
+              TvFocusableCard(
+                onTap: _showClearAllSearchHistoryDialog,
+                borderRadius: BorderRadius.circular(6),
+                scaleFactor: 1.05,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.delete_outline_rounded, color: Colors.grey.shade400, size: 14),
+                      const SizedBox(width: 4),
+                      Text(
+                        AppLanguageService.tr(en: "Clear All", id: "Hapus Semua"),
+                        style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            children: _searchHistory.map((query) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: _buildSearchHistoryChip(query),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSearchHistoryChip(String query) {
+    return TvFocusableCard(
+      onTap: () {
+        _searchController.text = query;
+        _onSearch();
+      },
+      onLongPress: () => _showDeleteSearchItemDialog(query),
+      borderRadius: BorderRadius.circular(20),
+      scaleFactor: 1.05,
+      child: Container(
+        padding: const EdgeInsets.only(left: 12, top: 6, bottom: 6, right: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFF333333)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.history, size: 14, color: Colors.grey),
+            const SizedBox(width: 6),
+            Text(
+              query,
+              style: GoogleFonts.outfit(color: Colors.grey.shade300, fontSize: 13),
+            ),
+            const SizedBox(width: 6),
+            InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _deleteSearchHistoryItem(query),
+              child: Padding(
+                padding: const EdgeInsets.all(2.0),
+                child: Icon(Icons.close_rounded, size: 15, color: Colors.grey.shade400),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSearchRecommendationsSection(bool isTv) {
     final List<dynamic> popularItems = [];
     for (final section in _homeItems) {
@@ -1295,6 +1656,10 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (_searchHistory.isNotEmpty) ...[
+          _buildSearchHistorySection(),
+          const SizedBox(height: 10),
+        ],
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8.0),
           child: Row(
@@ -1593,9 +1958,38 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Padding(
           padding: const EdgeInsets.only(bottom: 12.0),
-          child: Text(
-            AppLanguageService.tr(en: "Continue Watching / History", id: "Lanjutkan Nonton & Riwayat"),
-            style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+          child: Row(
+            children: [
+              Text(
+                AppLanguageService.tr(en: "Continue Watching / History", id: "Lanjutkan Nonton & Riwayat"),
+                style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const Spacer(),
+              TvFocusableCard(
+                onTap: _showClearAllWatchHistoryDialog,
+                borderRadius: BorderRadius.circular(8),
+                scaleFactor: 1.05,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.delete_sweep_rounded, color: Colors.redAccent, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        AppLanguageService.tr(en: "Clear All", id: "Hapus Semua"),
+                        style: GoogleFonts.outfit(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         Expanded(
@@ -1626,114 +2020,136 @@ class _HomeScreenState extends State<HomeScreen> {
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12.0),
-                child: TvFocusableCard(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => DetailScreen(
-                          subjectId: subjectId,
-                          provider: provider,
-                          initialSeason: isShow ? season : null,
-                          initialEpisode: isShow ? episode : null,
-                        ),
-                      ),
-                    ).then((_) {
-                      _loadFavoritesAndProgress();
-                    });
-                  },
-                  borderRadius: BorderRadius.circular(12),
-                  scaleFactor: 1.02,
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF161616),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF262626)),
-                    ),
-                    child: Row(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: CachedNetworkImage(
-                            imageUrl: coverUrl,
-                            memCacheWidth: 160,
-                            memCacheHeight: 240,
-                            width: 60,
-                            height: 85,
-                            fit: BoxFit.cover,
-                            errorWidget: (context, url, error) => Container(
-                              color: const Color(0xFF262626),
-                              width: 60,
-                              height: 85,
-                              child: const Icon(Icons.movie, size: 24, color: Colors.grey),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TvFocusableCard(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => DetailScreen(
+                                subjectId: subjectId,
+                                provider: provider,
+                                initialSeason: isShow ? season : null,
+                                initialEpisode: isShow ? episode : null,
+                              ),
                             ),
+                          ).then((_) {
+                            _loadFavoritesAndProgress();
+                          });
+                        },
+                        onLongPress: () => _confirmDeleteWatchHistoryItem(item),
+                        borderRadius: BorderRadius.circular(12),
+                        scaleFactor: 1.02,
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF161616),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFF262626)),
                           ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          child: Row(
                             children: [
-                              Row(
-                                children: [
-                                  if (provider == '4khdhub') ...[
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                                      margin: const EdgeInsets.only(right: 6),
-                                      decoration: BoxDecoration(
-                                        color: Colors.cyan.shade900.withOpacity(0.85),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: Colors.cyanAccent.withOpacity(0.4), width: 0.8),
-                                      ),
-                                      child: Text(
-                                        "4K UHD",
-                                        style: GoogleFonts.outfit(color: Colors.cyanAccent, fontSize: 9, fontWeight: FontWeight.bold),
-                                      ),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: CachedNetworkImage(
+                                  imageUrl: coverUrl,
+                                  memCacheWidth: 160,
+                                  memCacheHeight: 240,
+                                  width: 60,
+                                  height: 85,
+                                  fit: BoxFit.cover,
+                                  errorWidget: (context, url, error) => Container(
+                                    color: const Color(0xFF262626),
+                                    width: 60,
+                                    height: 85,
+                                    child: const Icon(Icons.movie, size: 24, color: Colors.grey),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        if (provider == '4khdhub') ...[
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                            margin: const EdgeInsets.only(right: 6),
+                                            decoration: BoxDecoration(
+                                              color: Colors.cyan.shade900.withOpacity(0.85),
+                                              borderRadius: BorderRadius.circular(4),
+                                              border: Border.all(color: Colors.cyanAccent.withOpacity(0.4), width: 0.8),
+                                            ),
+                                            child: Text(
+                                              "4K UHD",
+                                              style: GoogleFonts.outfit(color: Colors.cyanAccent, fontSize: 9, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                        ],
+                                        Expanded(
+                                          child: Text(
+                                            title,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.outfit(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                  Expanded(
-                                    child: Text(
-                                      title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      subtitle,
                                       style: GoogleFonts.outfit(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
+                                        color: Colors.cyan.shade400,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                subtitle,
-                                style: GoogleFonts.outfit(
-                                  color: Colors.cyan.shade400,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
+                                    const SizedBox(height: 10),
+                                    if (progress > 0)
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(3),
+                                        child: LinearProgressIndicator(
+                                          value: progress,
+                                          minHeight: 4,
+                                          backgroundColor: const Color(0xFF262626),
+                                          valueColor: const AlwaysStoppedAnimation<Color>(Colors.redAccent),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(height: 10),
-                              if (progress > 0)
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(3),
-                                  child: LinearProgressIndicator(
-                                    value: progress,
-                                    minHeight: 4,
-                                    backgroundColor: const Color(0xFF262626),
-                                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.redAccent),
-                                  ),
-                                ),
+                              const SizedBox(width: 12),
+                              const Icon(Icons.play_circle_fill_rounded, color: Colors.redAccent, size: 36),
                             ],
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        const Icon(Icons.play_circle_fill_rounded, color: Colors.redAccent, size: 36),
-                      ],
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    TvFocusableCard(
+                      onTap: () => _confirmDeleteWatchHistoryItem(item),
+                      borderRadius: BorderRadius.circular(12),
+                      scaleFactor: 1.06,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 38),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF161616),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFF262626)),
+                        ),
+                        child: const Icon(Icons.delete_outline_rounded, color: Colors.grey, size: 22),
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
@@ -1986,11 +2402,14 @@ class _HomeScreenState extends State<HomeScreen> {
               });
 
               if (index == 1) {
+                _loadSearchHistory();
                 Future.delayed(const Duration(milliseconds: 100), () {
                   if (mounted) {
                     _searchFocusNode.requestFocus();
                   }
                 });
+              } else if (index == 4 || index == 3 || index == 0) {
+                _loadFavoritesAndProgress();
               }
             },
             borderRadius: BorderRadius.circular(16),

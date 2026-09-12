@@ -120,7 +120,7 @@ class PlaybackProgressService {
     }
   }
 
-  // Clear progress
+  // Clear progress for a specific episode
   static Future<void> clearProgress(String subjectId, int season, int episode) async {
     final prefs = await SharedPreferences.getInstance();
     final key = _getKey(subjectId, season, episode);
@@ -132,6 +132,35 @@ class PlaybackProgressService {
       recentList.removeWhere((item) => item['subjectId'] == subjectId);
       await prefs.setString(_recentPlaysKey, jsonEncode(recentList));
     } catch (_) {}
+  }
+
+  // Remove a specific item from recent plays/history entirely
+  static Future<void> removeRecentPlay(String subjectId) async {
+    final prefs = await SharedPreferences.getInstance();
+    try {
+      final recentList = await getRecentPlays();
+      recentList.removeWhere((item) => item['subjectId']?.toString() == subjectId);
+      await prefs.setString(_recentPlaysKey, jsonEncode(recentList));
+
+      // Remove related position progress keys
+      final prefix = 'playback_progress_$subjectId';
+      final keys = prefs.getKeys().where((k) => k == prefix || k.startsWith('${prefix}_')).toList();
+      for (final k in keys) {
+        await prefs.remove(k);
+      }
+    } catch (_) {}
+  }
+
+  // Clear all watch history / recent plays
+  static Future<void> clearAllRecentPlays() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_recentPlaysKey);
+
+    // Remove all playback progress keys
+    final keys = prefs.getKeys().where((k) => k.startsWith('playback_progress_')).toList();
+    for (final k in keys) {
+      await prefs.remove(k);
+    }
   }
 }
 
