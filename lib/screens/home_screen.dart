@@ -16,6 +16,8 @@ import '../widgets/tv_focusable_card.dart';
 import '../widgets/tv_pin_pad_dialog.dart';
 import 'detail_screen.dart';
 import 'live_tv_screen.dart';
+import 'downloads_screen.dart';
+import '../services/download_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/update_service.dart';
 import '../widgets/update_dialog.dart';
@@ -45,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final FocusNode _navLiveTvFocusNode;
   late final FocusNode _navFavFocusNode;
   late final FocusNode _navHistoryFocusNode;
+  late final FocusNode _navDownloadsFocusNode;
   late final FocusNode _navSettingsFocusNode;
 
   List<dynamic> _searchResults = [];
@@ -81,7 +84,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _navLiveTvFocusNode = FocusNode();
     _navFavFocusNode = FocusNode();
     _navHistoryFocusNode = FocusNode();
+    _navDownloadsFocusNode = FocusNode();
     _navSettingsFocusNode = FocusNode();
+    DownloadService.instance.init();
 
     _searchFocusNode = FocusNode(
       onKeyEvent: (node, event) {
@@ -1453,6 +1458,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _navLiveTvFocusNode.dispose();
     _navFavFocusNode.dispose();
     _navHistoryFocusNode.dispose();
+    _navDownloadsFocusNode.dispose();
     _navSettingsFocusNode.dispose();
     super.dispose();
   }
@@ -1507,6 +1513,8 @@ class _HomeScreenState extends State<HomeScreen> {
       case 4:
         return _buildHistoryTabView(isTv);
       case 5:
+        return DownloadsScreen(isTv: isTv);
+      case 6:
         return _buildSettingsTabView(isTv);
       case 0:
       default:
@@ -2402,156 +2410,170 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildBottomNavBar(bool isTv) {
-    final navItems = [
-      {
-        'index': 0,
-        'icon': Icons.home_rounded,
-        'label': AppLanguageService.tr(en: 'Home', id: 'Beranda'),
-        'focusNode': _navHomeFocusNode,
-      },
-      {
-        'index': 1,
-        'icon': Icons.search_rounded,
-        'label': AppLanguageService.tr(en: 'Search', id: 'Cari'),
-        'focusNode': _navSearchFocusNode,
-      },
-      {
-        'index': 2,
-        'icon': Icons.live_tv_rounded,
-        'label': AppLanguageService.tr(en: 'Live TV', id: 'Live TV'),
-        'focusNode': _navLiveTvFocusNode,
-      },
-      {
-        'index': 3,
-        'icon': Icons.favorite_rounded,
-        'label': AppLanguageService.tr(en: 'Favorites', id: 'Favorit'),
-        'badge': _favorites.length,
-        'focusNode': _navFavFocusNode,
-      },
-      {
-        'index': 4,
-        'icon': Icons.history_rounded,
-        'label': AppLanguageService.tr(en: 'History', id: 'Riwayat'),
-        'badge': _recentPlays.length,
-        'focusNode': _navHistoryFocusNode,
-      },
-      {
-        'index': 5,
-        'icon': Icons.settings_rounded,
-        'label': AppLanguageService.tr(en: 'Settings', id: 'Pengaturan'),
-        'focusNode': _navSettingsFocusNode,
-      },
-    ];
+    return ValueListenableBuilder<List<DownloadItem>>(
+      valueListenable: DownloadService.instance.downloadsNotifier,
+      builder: (context, downloadItems, _) {
+        final downloadBadge = downloadItems.where((i) => i.status == DownloadStatus.downloading || i.status == DownloadStatus.completed).length;
 
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(top: 8, bottom: 4),
-      padding: EdgeInsets.symmetric(horizontal: isTv ? 16 : 8, vertical: isTv ? 6 : 4),
-      decoration: BoxDecoration(
-        color: const Color(0xFF141414),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFF262626), width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
+        final navItems = [
+          {
+            'index': 0,
+            'icon': Icons.home_rounded,
+            'label': AppLanguageService.tr(en: 'Home', id: 'Beranda'),
+            'focusNode': _navHomeFocusNode,
+          },
+          {
+            'index': 1,
+            'icon': Icons.search_rounded,
+            'label': AppLanguageService.tr(en: 'Search', id: 'Cari'),
+            'focusNode': _navSearchFocusNode,
+          },
+          {
+            'index': 2,
+            'icon': Icons.live_tv_rounded,
+            'label': AppLanguageService.tr(en: 'Live TV', id: 'Live TV'),
+            'focusNode': _navLiveTvFocusNode,
+          },
+          {
+            'index': 3,
+            'icon': Icons.favorite_rounded,
+            'label': AppLanguageService.tr(en: 'Favorites', id: 'Favorit'),
+            'badge': _favorites.length,
+            'focusNode': _navFavFocusNode,
+          },
+          {
+            'index': 4,
+            'icon': Icons.history_rounded,
+            'label': AppLanguageService.tr(en: 'History', id: 'Riwayat'),
+            'badge': _recentPlays.length,
+            'focusNode': _navHistoryFocusNode,
+          },
+          {
+            'index': 5,
+            'icon': Icons.download_rounded,
+            'label': AppLanguageService.tr(en: 'Downloads', id: 'Unduhan'),
+            'badge': downloadBadge,
+            'focusNode': _navDownloadsFocusNode,
+          },
+          {
+            'index': 6,
+            'icon': Icons.settings_rounded,
+            'label': AppLanguageService.tr(en: 'Settings', id: 'Pengaturan'),
+            'focusNode': _navSettingsFocusNode,
+          },
+        ];
+
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(top: 8, bottom: 4),
+          padding: EdgeInsets.symmetric(horizontal: isTv ? 16 : 8, vertical: isTv ? 6 : 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFF141414),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFF262626), width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.5),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: navItems.map((item) {
-          final int index = item['index'] as int;
-          final bool isSelected = _currentTabIndex == index;
-          final IconData icon = item['icon'] as IconData;
-          final String label = item['label'] as String;
-          final int badge = item['badge'] as int? ?? 0;
-          final FocusNode fNode = item['focusNode'] as FocusNode;
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: navItems.map((item) {
+              final int index = item['index'] as int;
+              final bool isSelected = _currentTabIndex == index;
+              final IconData icon = item['icon'] as IconData;
+              final String label = item['label'] as String;
+              final int badge = item['badge'] as int? ?? 0;
+              final FocusNode fNode = item['focusNode'] as FocusNode;
 
-          return TvFocusableCard(
-            focusNode: fNode,
-            onTap: () {
-              setState(() {
-                _currentTabIndex = index;
-                if (index == 0) {
-                  _isFiltering = false;
-                  _hasSearched = false;
-                  _searchController.clear();
-                }
-              });
+              return TvFocusableCard(
+                focusNode: fNode,
+                onTap: () {
+                  setState(() {
+                    _currentTabIndex = index;
+                    if (index == 0) {
+                      _isFiltering = false;
+                      _hasSearched = false;
+                      _searchController.clear();
+                    }
+                  });
 
-              if (index == 1) {
-                _loadSearchHistory();
-                Future.delayed(const Duration(milliseconds: 100), () {
-                  if (mounted) {
-                    _searchFocusNode.requestFocus();
+                  if (index == 1) {
+                    _loadSearchHistory();
+                    Future.delayed(const Duration(milliseconds: 100), () {
+                      if (mounted) {
+                        _searchFocusNode.requestFocus();
+                      }
+                    });
+                  } else if (index == 4 || index == 3 || index == 0) {
+                    _loadFavoritesAndProgress();
                   }
-                });
-              } else if (index == 4 || index == 3 || index == 0) {
-                _loadFavoritesAndProgress();
-              }
-            },
-            borderRadius: BorderRadius.circular(16),
-            scaleFactor: 1.05,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: EdgeInsets.symmetric(
-                horizontal: isSelected ? (isTv ? 18 : 12) : (isTv ? 12 : 8),
-                vertical: isTv ? 8 : 6,
-              ),
-              decoration: BoxDecoration(
-                color: isSelected ? Colors.redAccent.shade700 : Colors.transparent,
+                },
                 borderRadius: BorderRadius.circular(16),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Stack(
-                    clipBehavior: Clip.none,
+                scaleFactor: 1.05,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isSelected ? (isTv ? 18 : 12) : (isTv ? 12 : 8),
+                    vertical: isTv ? 8 : 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isSelected ? Colors.redAccent.shade700 : Colors.transparent,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        icon,
-                        color: isSelected ? Colors.white : Colors.grey.shade400,
-                        size: isTv ? 22 : 20,
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Icon(
+                            icon,
+                            color: isSelected ? Colors.white : Colors.grey.shade400,
+                            size: isTv ? 22 : 20,
+                          ),
+                          if (badge > 0 && !isSelected)
+                            Positioned(
+                              top: -4,
+                              right: -4,
+                              child: Container(
+                                padding: const EdgeInsets.all(3),
+                                decoration: const BoxDecoration(
+                                  color: Colors.redAccent,
+                                  shape: BoxShape.circle,
+                                ),
+                                constraints: const BoxConstraints(minWidth: 12, minHeight: 12),
+                                child: Text(
+                                  '$badge',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
-                      if (badge > 0 && !isSelected)
-                        Positioned(
-                          top: -4,
-                          right: -4,
-                          child: Container(
-                            padding: const EdgeInsets.all(3),
-                            decoration: const BoxDecoration(
-                              color: Colors.redAccent,
-                              shape: BoxShape.circle,
-                            ),
-                            constraints: const BoxConstraints(minWidth: 12, minHeight: 12),
-                            child: Text(
-                              '$badge',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
-                            ),
+                      if (isSelected) ...[
+                        const SizedBox(width: 6),
+                        Text(
+                          label,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: isTv ? 13 : 12,
                           ),
                         ),
+                      ],
                     ],
                   ),
-                  if (isSelected) ...[
-                    const SizedBox(width: 6),
-                    Text(
-                      label,
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: isTv ? 13 : 12,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          );
-        }).toList(),
-      ),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
     );
   }
 

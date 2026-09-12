@@ -9,6 +9,7 @@ import '../services/app_language_service.dart';
 import '../services/playback_progress_service.dart';
 import '../services/tvmaze_service.dart';
 import '../widgets/tv_focusable_card.dart';
+import '../services/download_service.dart';
 import 'player_screen.dart';
 
 class DetailScreen extends StatefulWidget {
@@ -35,6 +36,7 @@ class _DetailScreenState extends State<DetailScreen> {
   final MovieBoxApiService _api = MovieBoxApiService();
   final FourKHdHubService _fourkApi = FourKHdHubService();
   final TmdbService _tmdbApi = TmdbService();
+  final DownloadService _downloadService = DownloadService.instance;
   
   late String _activeProvider;
   bool get _is4kHub => _activeProvider.toLowerCase() == '4khdhub';
@@ -1898,6 +1900,789 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
+  String _getDownloadId({int? season, int? episode}) {
+    final sId = _isTmdb ? _selectedSubjectId : widget.subjectId;
+    final se = season ?? (_isTvShow ? _selectedSeasonNumber : 0);
+    final ep = episode ?? (_isTvShow ? _selectedEpisodeNumber : 0);
+    if (se > 0 || ep > 0) {
+      return "${sId}_s${se}_e$ep";
+    }
+    return sId;
+  }
+
+  void _handleDownloadAction({int? season, int? episode}) {
+    final dId = _getDownloadId(season: season, episode: episode);
+    final item = _downloadService.getItem(dId);
+
+    if (item != null && item.status == DownloadStatus.completed) {
+      // Offline play
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PlayerScreen(
+            streamUrl: item.filePath,
+            title: item.title,
+            subjectId: widget.subjectId,
+            provider: widget.provider,
+            season: item.season,
+            episode: item.episode,
+            coverUrl: item.coverUrl,
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (item != null && item.status == DownloadStatus.downloading) {
+      showDialog(
+        context: context,
+        builder: (dialogCtx) => AlertDialog(
+          backgroundColor: const Color(0xFF1C1C1C),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.downloading_rounded, color: Colors.cyanAccent, size: 24),
+              const SizedBox(width: 10),
+              Text(
+                AppLanguageService.tr(en: "Download in Progress", id: "Sedang Mengunduh"),
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "${item.title} (${item.quality})",
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 10),
+              LinearProgressIndicator(
+                value: item.progress > 0 ? item.progress : null,
+                minHeight: 6,
+                backgroundColor: const Color(0xFF333333),
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.redAccent),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "${(item.progress * 100).toStringAsFixed(1)}% • ${DownloadService.formatBytes(item.downloadedBytes)} / ${item.totalBytes > 0 ? DownloadService.formatBytes(item.totalBytes) : '...'}",
+                style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 12),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogCtx);
+                _downloadService.pauseDownload(item.id);
+              },
+              child: Text(
+                AppLanguageService.tr(en: "Pause", id: "Jeda"),
+                style: GoogleFonts.outfit(color: Colors.amberAccent),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogCtx);
+                _downloadService.cancelDownload(item.id);
+              },
+              child: Text(
+                AppLanguageService.tr(en: "Cancel Download", id: "Batalkan Unduhan"),
+                style: GoogleFonts.outfit(color: Colors.redAccent),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent.shade700,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: Text(
+                AppLanguageService.tr(en: "Close", id: "Tutup"),
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    if (item != null && item.status == DownloadStatus.paused) {
+      _downloadService.resumeDownload(item.id);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLanguageService.tr(en: "Resuming download...", id: "Melanjutkan unduhan..."),
+            style: GoogleFonts.outfit(),
+          ),
+          backgroundColor: const Color(0xFF222222),
+        ),
+      );
+      return;
+    }
+
+    _openDownloadQualityDialog(season: season, episode: episode);
+  }
+
+  Future<void> _openDownloadQualityDialog({int? season, int? episode}) async {
+    final isTv = _isTvShow;
+    final se = season ?? (isTv ? _selectedSeasonNumber : 0);
+    final ep = episode ?? (isTv ? _selectedEpisodeNumber : 0);
+    final dId = _getDownloadId(season: se, episode: ep);
+
+    final movieTitle = _details?['title'] ?? _details?['subjectTitle'] ?? "Movie";
+    final itemTitle = isTv ? "$movieTitle - S${se}E$ep" : movieTitle;
+    final coverUrl = _details?['cover']?['url'] ?? _details?['coverUrl'] ?? "";
+
+    if (_is4kHub) {
+      List<dynamic> releases = [];
+      if (_streams.isNotEmpty && (!isTv || (_selectedSeasonNumber == se && _selectedEpisodeNumber == ep))) {
+        releases = _streams;
+      } else {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            content: Row(
+              children: [
+                const SpinKitRing(color: Colors.cyanAccent, size: 36.0),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Text(
+                    AppLanguageService.tr(
+                      en: "Fetching download links...",
+                      id: "Mengambil daftar link unduhan...",
+                    ),
+                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+
+        try {
+          final targetId = _isTmdb ? _selectedSubjectId : widget.subjectId;
+          releases = await _fourkApi.getReleases(
+            targetId,
+            rawHtml: _details?['rawHtml'],
+            season: se,
+            episode: ep,
+          );
+        } catch (_) {}
+
+        if (mounted) Navigator.pop(context);
+      }
+
+      if (releases.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                AppLanguageService.tr(
+                  en: "No download links available for this title.",
+                  id: "Tidak ada link unduhan tersedia untuk judul ini.",
+                ),
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (dialogContext) {
+          return Dialog(
+            backgroundColor: const Color(0xFF141414),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(color: Colors.cyanAccent.withValues(alpha: 0.3), width: 1.2),
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 520, maxWidth: 600),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.cyan.shade900.withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.4)),
+                          ),
+                          child: const Icon(Icons.download_rounded, color: Colors.cyanAccent, size: 24),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                AppLanguageService.tr(en: "Download Offline Video", id: "Unduh Video Offline"),
+                                style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                itemTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.grey),
+                          onPressed: () => Navigator.pop(dialogContext),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: releases.length,
+                        itemBuilder: (ctx, i) {
+                          final rel = releases[i];
+                          final quality = rel['quality'] ?? "HD";
+                          final size = rel['size'] ?? "";
+                          final filename = rel['filename'] ?? "";
+
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10.0),
+                            child: TvFocusableCard(
+                              onTap: () async {
+                                Navigator.pop(dialogContext);
+
+                                showDialog(
+                                  context: context,
+                                  barrierDismissible: false,
+                                  builder: (_) => AlertDialog(
+                                    backgroundColor: const Color(0xFF1E1E1E),
+                                    content: Row(
+                                      children: [
+                                        const SpinKitRing(color: Colors.cyanAccent, size: 36.0),
+                                        const SizedBox(width: 20),
+                                        Expanded(
+                                          child: Text(
+                                            AppLanguageService.tr(
+                                              en: "Connecting to 4KHDHub download mirror...",
+                                              id: "Menghubungkan ke mirror download 4KHDHub...",
+                                            ),
+                                            style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+
+                                String? resolvedUrl;
+                                try {
+                                  resolvedUrl = await _fourkApi.resolveReleaseStream(rel);
+                                } catch (_) {}
+
+                                if (mounted) Navigator.pop(context);
+
+                                if (resolvedUrl != null && resolvedUrl.isNotEmpty) {
+                                  await _downloadService.startDownload(
+                                    id: dId,
+                                    title: itemTitle,
+                                    coverUrl: coverUrl,
+                                    streamUrl: resolvedUrl,
+                                    quality: quality,
+                                    provider: '4khdhub',
+                                    season: se,
+                                    episode: ep,
+                                  );
+
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          AppLanguageService.tr(
+                                            en: "Download started! Track progress in Downloads tab.",
+                                            id: "Unduhan dimulai! Pantau progres di tab Unduhan.",
+                                          ),
+                                          style: GoogleFonts.outfit(),
+                                        ),
+                                        backgroundColor: const Color(0xFF1E1E1E),
+                                        duration: const Duration(seconds: 3),
+                                      ),
+                                    );
+                                  }
+                                } else {
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          AppLanguageService.tr(
+                                            en: "Download link expired or unavailable. Try another quality.",
+                                            id: "Link unduhan tidak tersedia / kadaluarsa. Coba kualitas lain.",
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              scaleFactor: 1.02,
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1E1E1E),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFF333333)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.cyan.shade900.withValues(alpha: 0.6),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        quality,
+                                        style: GoogleFonts.outfit(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 13),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            filename.isNotEmpty ? filename : itemTitle,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.outfit(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                                          ),
+                                          if (size.isNotEmpty) ...[
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              "Ukuran: $size",
+                                              style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 11),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    const Icon(Icons.download_rounded, color: Colors.cyanAccent, size: 24),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+      return;
+    }
+
+    // MovieBox: Fetch streams for target resolutions
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: SpinKitRing(color: Colors.redAccent, size: 48.0),
+      ),
+    );
+
+    List<dynamic> targetStreams = [];
+    try {
+      final List<int> targetResolutions = [1080, 720, 480, 360];
+      final List<dynamic> combinedList = [];
+
+      for (int i = 0; i < targetResolutions.length; i += 2) {
+        final batch = targetResolutions.sublist(
+          i,
+          i + 2 > targetResolutions.length ? targetResolutions.length : i + 2,
+        );
+
+        final batchResults = await Future.wait(batch.map((res) {
+          return _api.getResources(
+            subjectId: _selectedSubjectId,
+            se: se,
+            ep: ep,
+            resolution: res,
+          ).catchError((e) => <String, dynamic>{});
+        }));
+
+        for (final resData in batchResults) {
+          final List<dynamic> fileList = resData['list'] ?? [];
+          combinedList.addAll(fileList);
+        }
+      }
+
+      List<dynamic> filteredList = combinedList;
+      if (isTv) {
+        filteredList = combinedList.where((item) {
+          final itemSe = int.tryParse(item['se']?.toString() ?? '') ?? 0;
+          final itemEp = int.tryParse(item['ep']?.toString() ?? '') ?? 0;
+          return itemSe == se && itemEp == ep;
+        }).toList();
+      }
+
+      final Map<String, dynamic> uniqueStreams = {};
+      for (final item in filteredList) {
+        final id = item['resourceId']?.toString() ?? item['resource_id']?.toString() ?? '';
+        if (id.isNotEmpty) {
+          uniqueStreams[id] = item;
+        } else {
+          uniqueStreams[uniqueStreams.length.toString()] = item;
+        }
+      }
+      targetStreams = uniqueStreams.values.toList();
+    } catch (_) {}
+
+    if (mounted) Navigator.pop(context);
+
+    if (targetStreams.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLanguageService.tr(
+                en: "No download streams found for this selection.",
+                id: "Tidak ada stream unduhan ditemukan untuk pilihan ini.",
+              ),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    final Map<int, dynamic> bestPerRes = {};
+    for (final st in targetStreams) {
+      final res = int.tryParse(st['resolution']?.toString() ?? '') ?? 0;
+      if (res > 0) {
+        final existing = bestPerRes[res];
+        if (existing == null) {
+          bestPerRes[res] = st;
+        } else {
+          final codecA = (st['codecName'] ?? st['codec_name'] ?? "").toString().toLowerCase();
+          final isHevcA = codecA.contains('hevc') || codecA.contains('h265');
+          if (!isHevcA) {
+            bestPerRes[res] = st;
+          }
+        }
+      }
+    }
+
+    final sortedResolutions = bestPerRes.keys.toList()..sort((a, b) => b.compareTo(a));
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return Dialog(
+          backgroundColor: const Color(0xFF141414),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.3), width: 1.2),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 480, maxWidth: 540),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade900.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
+                        ),
+                        child: const Icon(Icons.download_rounded, color: Colors.redAccent, size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              AppLanguageService.tr(en: "Download Movie / Episode", id: "Pilih Resolusi Unduhan"),
+                              style: GoogleFonts.outfit(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              itemTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.grey),
+                        onPressed: () => Navigator.pop(dialogCtx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  ...sortedResolutions.map((res) {
+                    final streamData = bestPerRes[res];
+                    final rawSize = int.tryParse(streamData['size']?.toString() ?? '0') ?? 0;
+                    final sizeFormatted = rawSize > 0 ? DownloadService.formatBytes(rawSize) : "";
+                    final isRecommended = res == 720;
+                    final label = res >= 1080 ? "Full HD" : (res == 720 ? "HD" : "SD");
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10.0),
+                      child: TvFocusableCard(
+                        onTap: () async {
+                          Navigator.pop(dialogCtx);
+                          final streamUrl = streamData['resourceLink'] ?? streamData['resource_link'] ?? "";
+                          if (streamUrl.isEmpty) return;
+
+                          await _downloadService.startDownload(
+                            id: dId,
+                            title: itemTitle,
+                            coverUrl: coverUrl,
+                            streamUrl: streamUrl,
+                            quality: "${res}p",
+                            provider: 'moviebox',
+                            season: se,
+                            episode: ep,
+                          );
+
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  AppLanguageService.tr(
+                                    en: "Download started (${res}p)! Track progress in Downloads tab.",
+                                    id: "Unduhan dimulai (${res}p)! Cek progres di tab Unduhan.",
+                                  ),
+                                  style: GoogleFonts.outfit(),
+                                ),
+                                backgroundColor: const Color(0xFF1E1E1E),
+                                duration: const Duration(seconds: 3),
+                              ),
+                            );
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        scaleFactor: 1.02,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E1E1E),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isRecommended ? Colors.tealAccent.withValues(alpha: 0.6) : const Color(0xFF333333),
+                              width: isRecommended ? 1.5 : 1.0,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: res >= 1080
+                                      ? Colors.blue.shade900.withValues(alpha: 0.6)
+                                      : (res == 720
+                                          ? Colors.teal.shade900.withValues(alpha: 0.6)
+                                          : Colors.grey.shade800),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  "${res}p",
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Text(
+                                          "${res}p $label",
+                                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                                        ),
+                                        if (isRecommended) ...[
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.teal.shade900.withValues(alpha: 0.7),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              AppLanguageService.tr(en: "Best for TV", id: "Hemat Memori TV"),
+                                              style: GoogleFonts.outfit(color: Colors.tealAccent, fontSize: 9, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    if (sizeFormatted.isNotEmpty) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        "Ukuran file: ~$sizeFormatted",
+                                        style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 11),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.download_rounded, color: Colors.redAccent, size: 24),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHeroDownloadButton(bool isTv) {
+    return ValueListenableBuilder<List<DownloadItem>>(
+      valueListenable: _downloadService.downloadsNotifier,
+      builder: (context, downloadItems, _) {
+        final dId = _getDownloadId();
+        final item = _downloadService.getItem(dId);
+
+        final isCompleted = item?.status == DownloadStatus.completed;
+        final isDownloading = item?.status == DownloadStatus.downloading;
+
+        String btnLabel = AppLanguageService.tr(en: "Download", id: "Unduh");
+        IconData btnIcon = Icons.download_rounded;
+        Color btnBorderColor = Colors.white24;
+        Color btnIconColor = Colors.white;
+
+        if (isCompleted) {
+          btnLabel = AppLanguageService.tr(en: "Watch Offline", id: "Putar Offline");
+          btnIcon = Icons.offline_pin_rounded;
+          btnBorderColor = Colors.tealAccent;
+          btnIconColor = Colors.tealAccent;
+        } else if (isDownloading) {
+          final pct = (item!.progress * 100).toInt();
+          btnLabel = "$pct% Unduh";
+          btnIcon = Icons.hourglass_top_rounded;
+          btnBorderColor = Colors.amberAccent;
+          btnIconColor = Colors.amberAccent;
+        }
+
+        return TvFocusableCard(
+          onTap: () => _handleDownloadAction(),
+          borderRadius: BorderRadius.circular(14),
+          scaleFactor: 1.05,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            decoration: BoxDecoration(
+              color: isCompleted ? Colors.teal.shade900.withValues(alpha: 0.6) : const Color(0xFF1A1A1A),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: btnBorderColor, width: 1.5),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isDownloading)
+                  const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: SpinKitRing(color: Colors.amberAccent, size: 18),
+                  )
+                else
+                  Icon(btnIcon, color: btnIconColor, size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  btnLabel,
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEpisodeDownloadButton(int epNum, bool isTv) {
+    return ValueListenableBuilder<List<DownloadItem>>(
+      valueListenable: _downloadService.downloadsNotifier,
+      builder: (context, downloadItems, _) {
+        final dId = _getDownloadId(episode: epNum);
+        final item = _downloadService.getItem(dId);
+
+        final isCompleted = item?.status == DownloadStatus.completed;
+        final isDownloading = item?.status == DownloadStatus.downloading;
+
+        return TvFocusableCard(
+          onTap: () => _handleDownloadAction(episode: epNum),
+          borderRadius: BorderRadius.circular(8),
+          scaleFactor: 1.1,
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: isCompleted
+                  ? Colors.teal.shade900.withValues(alpha: 0.5)
+                  : const Color(0xFF222222),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isCompleted ? Colors.tealAccent : const Color(0xFF333333),
+              ),
+            ),
+            child: isDownloading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: SpinKitRing(color: Colors.amberAccent, size: 16),
+                  )
+                : Icon(
+                    isCompleted ? Icons.check_circle_rounded : Icons.download_rounded,
+                    color: isCompleted ? Colors.tealAccent : Colors.white70,
+                    size: 18,
+                  ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildBadge(String label, Color color, {required bool isTv}) {
     return Container(
       padding: EdgeInsets.symmetric(
@@ -2191,6 +2976,8 @@ class _DetailScreenState extends State<DetailScreen> {
                               ),
                             ),
                           ],
+                          const SizedBox(width: 16),
+                          _buildHeroDownloadButton(isTv),
                         ],
                       ),
                     ],
@@ -2414,6 +3201,8 @@ class _DetailScreenState extends State<DetailScreen> {
                         ),
                       ),
                     ],
+                    const SizedBox(width: 10),
+                    _buildHeroDownloadButton(isTv),
                   ],
                 ),
               ],
@@ -2557,7 +3346,7 @@ class _DetailScreenState extends State<DetailScreen> {
               padding: const EdgeInsets.only(bottom: 12.0),
               child: TvFocusableCard(
                 onTap: () {
-                  _playEpisode(_selectedSeasonNumber, epNum as int);
+                  _playEpisode(_selectedSeasonNumber, epNum);
                 },
                 borderRadius: BorderRadius.circular(12),
                 scaleFactor: 1.02,
@@ -2719,6 +3508,9 @@ class _DetailScreenState extends State<DetailScreen> {
                           ],
                         ),
                       ),
+                      const SizedBox(width: 12),
+                      _buildEpisodeDownloadButton(epNum as int, isTv),
+                      const SizedBox(width: 10),
                       // Play icon indicator
                       Icon(
                         Icons.play_circle_fill,
