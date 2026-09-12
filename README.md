@@ -1,4 +1,4 @@
-# StreamTV (MovieBox & 4KHDHub TV Client)
+# StreamTV (TMDB, MovieBox & 4KHDHub TV Client)
 
 A premium, cinema-grade Flutter streaming application designed specifically for **Android TV** and **Android** devices. Built for an effortless 10-foot viewing experience with full D-Pad remote control support.
 
@@ -13,14 +13,26 @@ A premium, cinema-grade Flutter streaming application designed specifically for 
   - Dynamic HubCloud CDN mirror resolver with smart fallback and preflight byte-range probing to guarantee working stream links.
 - **Multi-Provider Search**: Search MovieBox and 4KHDHub simultaneously with provider filter chips and clear visual badges (`[4KHDHub]` and `[MovieBox]`).
 
-### 2. 📺 TVMaze API Metadata Catalog
+### 2. ⭐ Real-Time TMDB Catalog & Auto-Bridge Engine
+- **The Movie Database (TMDB) Integration**: Features a live, up-to-the-minute global catalog powered by official TMDB API endpoints:
+  - **Now Playing in Theaters (`🔥 Sedang Tayang di Bioskop`)**: Direct access to newly released cinema box-office movies.
+  - **Daily Trending Movies (`⭐ Film Populer Hari Ini`)**: Top trending movies worldwide updated in real-time.
+  - **Weekly Trending TV Shows (`📺 Serial TV Populer`)**: The hottest worldwide television and streaming series (e.g. *Silo*, *Reacher*, *Lanterns*).
+  - **Ultra-HD Hero Spotlight Banner**: High-resolution 1080p wide backdrops, official community ratings, and synopses.
+- **Intelligent Auto-Bridge to Playback**:
+  - Automatically bridges TMDB metadata with available streaming servers (**4KHDHub** for 4K UHD/1080p REMUX and **MovieBox** for multi-language audio & subtitles).
+  - Interactive source selector (`[💎 4KHDHub (4K / 1080p)]` and `[🎬 MovieBox (Multi-Audio)]`) lets viewers choose their preferred release on the fly.
+  - Informative cinema alert dialog if a movie is newly released in theaters and hasn't arrived on streaming servers yet.
+  - 15-minute in-memory cache TTL for instant remote navigation without API rate-limit bottlenecks.
+
+### 3. 📺 TVMaze API Metadata Catalog
 - **Rich TV Series Metadata**: Integrated with the open **[TVMaze API](https://www.tvmaze.com/)** to enrich TV series cataloging.
 - **16:9 Episode Still Thumbnails**: Each episode card showcases the official scene still shot instead of a generic show poster.
 - **Official Episode Names & Synopses**: Displays genuine episode titles (e.g., *"Glorious Purpose"*, *"Winter is Coming"*) and full plot summaries cleanly stripped of HTML formatting.
 - **Gold Star Episode Ratings**: Highlights community ratings directly on the episode cards.
 - **In-Memory Caching & Title Normalizer**: Automatically handles show name variations and caches responses to keep navigation blazing fast.
 
-### 3. 📡 Live TV / IPTV (M3U Player)
+### 4. 📡 Live TV / IPTV (M3U Player)
 - **Official Indonesian TV Presets (Out-of-the-Box)**: Preloaded with public legal FTA broadcast channels from Indonesia (TVRI, Kompas TV, Metro TV, CNN Indonesia, CNBC Indonesia, BeritaSatu, TVRI Sport, Rodja TV, RRI Net) with offline fallback.
 - **Smart Category Normalizer**: Automatically parses and splits multi-tag genre strings (e.g. delimiters like `;` and `,`) into clean, organized Indonesian categories (*Berita*, *Nasional*, *Hiburan*, *Edukasi*, *Anak-anak*, *Budaya & Gaya Hidup*, *Olahraga*, *Religi*).
 - **Real-Time Channel Search**: Instant search bar to filter channels quickly by station name or genre.
@@ -31,28 +43,28 @@ A premium, cinema-grade Flutter streaming application designed specifically for 
   - **Favorites & Categories**: Tag favorite stations for fast access with one click or remote button press.
 - **Multi-Playlist Management**: Add, switch, or remove multiple custom M3U/M3U8 playlist URLs easily.
 
-### 4. 🍿 Detail-First, Cinematic User Journey
+### 5. 🍿 Detail-First, Cinematic User Journey
 - **Informative Detail Pages**: No disruptive auto-play. Explore high-res posters, release years, genres, ratings, and plot overviews first.
 - **One-Click Hero Play & Resume**: Instant play button automatically selects the **Original Audio** and **Best Available Quality**, with smart resume support if you've watched before.
 - **Clean Interface**: No cluttered manual resolution lists on the detail screen—everything is handled effortlessly inside the player.
 
-### 5. 🎛️ Full In-Player Controls
+### 6. 🎛️ Full In-Player Controls
 - **On-the-Fly Quality Switcher (`Icons.high_quality`)**: Switch between 4K UHD, 1080p, 720p, and mirrors directly during playback without losing your timestamps (*seamless seek*).
 - **Audio Dub Track Switcher (`Icons.audiotrack`)**: Switch between multiple audio language tracks on-the-fly.
 - **TV Series Episode Drawer (`Icons.video_library`)**: Browse and jump to any season or episode in a sleek Netflix-style drawer while the video continues playing.
 - **Netflix-Style Smart Next Episode**: Compact, transparent glassmorphism countdown popup near the credit roll with remote-focused play and dismiss buttons.
 
-### 6. 🔊 Audio Dubs & Clean Subtitles
+### 7. 🔊 Audio Dubs & Clean Subtitles
 - **Multi-Language Audio Dubs**: Supports alternate language tracks when available.
 - **Garbage Subtitle Filter**: Automatically filters out spam, bot-generated, and corrupted subtitle files.
 - **Cross-Dub Subtitle Sharing**: Subtitles are intelligently shared across dub variants so you never miss translations.
 
-### 7. 🔄 In-App GitHub OTA Auto-Update
+### 8. 🔄 In-App GitHub OTA Auto-Update
 - **Automatic & Manual Release Check**: Silently checks for newer releases from GitHub (`kokosip/stream-tv/releases/latest`) on app startup, with manual checking option under the **Settings / Pengaturan** tab.
 - **TV & Mobile Update Dialog**: Shows new version tag, release notes, and download size with remote D-Pad navigation.
 - **Live Progress & Auto-Install**: Streams APK download with live progress bar and MB counters, automatically launching the Android system package installer on completion.
 
-### 8. 📺 Android TV & Remote Optimization
+### 9. 📺 Android TV & Remote Optimization
 - **D-Pad First**: Engineered from the ground up for TV remotes with responsive focus scaling, glowing borders, and intuitive navigation.
 - **TV PIN Pad Dialog**: Remote-friendly on-screen numeric pad for protected settings and parental controls.
 - **Continue Watching & Favorites**: Multi-provider watchlist with playback progress badges and 4K UHD indicators on the home screen.
@@ -63,7 +75,8 @@ A premium, cinema-grade Flutter streaming application designed specifically for 
 
 - **Framework**: [Flutter](https://flutter.dev/) (Android & Android TV)
 - **Playback Engine**: [media_kit](https://github.com/media-kit/media-kit) (High-performance Libmpv hardware-accelerated video & live HLS/M3U8 engine)
-- **Media Catalog**: [TVMaze API](https://www.tvmaze.com/) (Open TV Metadata & Episode Stills)
+- **Live Catalog & Metadata**: [The Movie Database (TMDB) API](https://www.themoviedb.org/) (Real-time cinema & global trending catalog)
+- **TV Metadata & Episode Stills**: [TVMaze API](https://www.tvmaze.com/) (Open TV metadata, episode names & still photography)
 - **Streaming Sources**: MovieBox API, 4KHDHub Scraper, & M3U/IPTV Streams
 - **Typography & Aesthetics**: Google Fonts (`Outfit`), Custom Glassmorphism, Dark Mode Cinema Theme
 
@@ -96,6 +109,7 @@ A premium, cinema-grade Flutter streaming application designed specifically for 
 
 ## 👏 Credits & Attributions
 
+- **[The Movie Database (TMDB)](https://www.themoviedb.org/)**: Live cinema box-office now-playing releases, daily/weekly trending movies & TV shows, and high-definition backdrop/poster imagery.
 - **[TVMaze](https://www.tvmaze.com/)**: Free TV shows, episode still photography, and series metadata via their public REST API.
 - **[MovieBox TUI](https://github.com/mesamirh/MovieBox-Tui)**: Inspiration and foundational research on MovieBox API signatures and endpoints.
 - **4KHDHub**: High-resolution movie and series releases.
@@ -112,3 +126,4 @@ A premium, cinema-grade Flutter streaming application designed specifically for 
 > - **We do not host, store, stream, or upload any media or copyright-protected files.**
 > - All media links and metadata are retrieved in real-time from third-party publicly available APIs and web scrapers.
 > - The developers assume no liability for the content retrieved through third-party services.
+

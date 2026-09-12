@@ -6,6 +6,8 @@ import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/moviebox_api_service.dart';
 import '../services/fourkhdhub_service.dart';
+import '../services/fourkhdhub_api_service.dart';
+import '../services/tmdb_service.dart';
 import '../services/favorites_service.dart';
 import '../services/playback_progress_service.dart';
 import '../services/search_history_service.dart';
@@ -28,6 +30,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final MovieBoxApiService _api = MovieBoxApiService();
   final FourKHdHubService _fourkApi = FourKHdHubService();
+  final FourKHdHubApiService _fourkHomeApi = FourKHdHubApiService();
+  final TmdbService _tmdb = TmdbService();
   String _selectedSearchProvider = "all";
   final TextEditingController _searchController = TextEditingController();
   late final FocusNode _searchFocusNode;
@@ -225,62 +229,138 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      // 1. Fetch homepage (tabId 0) and Indonesian movies concurrently with fallbacks
+      // 1. Fetch TMDB, 4KHDHub homepage, Indonesian movies, and MovieBox homepage concurrently
       final responses = await Future.wait([
-        _api.getHomepage(page: 1, tabId: 0).catchError((e) {
-          print("Homepage fetch error: $e");
-          return <String, dynamic>{};
+        _tmdb.getNowPlayingMovies().catchError((e) {
+          print("TMDB Now Playing error: $e");
+          return <Map<String, dynamic>>[];
+        }),
+        _tmdb.getTrendingMovies().catchError((e) {
+          print("TMDB Trending Movies error: $e");
+          return <Map<String, dynamic>>[];
+        }),
+        _tmdb.getTrendingTv().catchError((e) {
+          print("TMDB Trending TV error: $e");
+          return <Map<String, dynamic>>[];
         }),
         _api.search(query: "Indonesia", subjectType: 1, page: 1, perPage: 20).catchError((e) {
           print("Indonesian search error: $e");
           return <String, dynamic>{};
         }),
+        _fourkHomeApi.getHomepage(page: 1).catchError((e) {
+          print("4KHDHub homepage error: $e");
+          return <String, dynamic>{};
+        }),
+        _api.getHomepage(page: 1, tabId: 0).catchError((e) {
+          print("MovieBox homepage fetch error: $e");
+          return <String, dynamic>{};
+        }),
       ]);
 
-      final resHome = responses[0];
-      final resSearch = responses[1];
+      final List<Map<String, dynamic>> nowPlaying = responses[0] as List<Map<String, dynamic>>;
+      final List<Map<String, dynamic>> trendingMovies = responses[1] as List<Map<String, dynamic>>;
+      final List<Map<String, dynamic>> trendingTv = responses[2] as List<Map<String, dynamic>>;
+      final Map<String, dynamic> resSearch = responses[3] as Map<String, dynamic>;
+      final Map<String, dynamic> res4k = responses[4] as Map<String, dynamic>;
+      final Map<String, dynamic> resHome = responses[5] as Map<String, dynamic>;
 
-      final List<dynamic> rawHomeItems = resHome['items'] ?? [];
       final List<dynamic> searchItems = resSearch['items'] ?? [];
+      final List<dynamic> fourkSections = res4k['items'] ?? [];
+      final List<dynamic> rawHomeItems = resHome['items'] ?? [];
 
-      if (rawHomeItems.isEmpty && searchItems.isEmpty) {
+      if (nowPlaying.isEmpty && trendingMovies.isEmpty && rawHomeItems.isEmpty && searchItems.isEmpty) {
         setState(() {
           _errorMessage = "Gagal memuat katalog. Periksa koneksi internet Anda.";
         });
       } else {
-        // 2. Extract banners from Home
+        // 2. Setup Spotlight Banners (prefer TMDB Trending with HD backdrops, fallback to MovieBox)
         List<dynamic> banners = [];
-        final bannerSection = rawHomeItems.firstWhere(
-          (item) => item['type'] == 'BANNER',
-          orElse: () => null,
-        );
-        if (bannerSection != null && bannerSection['banner'] != null) {
-          banners = bannerSection['banner']['banners'] ?? [];
-        }
-
-        // Filter only subjects rows from Home (dynamic category rows)
-        final subjectsSections = rawHomeItems.where((item) => item['type'] == 'SUBJECTS_MOVIE').toList();
-
-        // Construct custom "Film Indonesia" category row
-        if (searchItems.isNotEmpty) {
-          final customIndoSection = {
-            "title": "Film Indonesia",
-            "subjects": searchItems,
-          };
-          if (subjectsSections.isNotEmpty) {
-            subjectsSections.insert(1, customIndoSection);
-          } else {
-            subjectsSections.add(customIndoSection);
+        if (trendingMovies.isNotEmpty) {
+          banners = trendingMovies.take(5).map((item) {
+            final backdrop = item['backdrop']?['url'] ?? item['cover']?['url'] ?? "";
+            return {
+              "content": item['title'],
+              "title": item['title'],
+              "subjectId": item['subjectId'],
+              "provider": "tmdb",
+              "image": {"url": backdrop},
+              "subject": {
+                "title": item['title'],
+                "imdbRate": item['imdbRate'],
+                "imdbRatingValue": item['imdbRate'],
+                "releaseDate": item['releaseDate'],
+                "description": item['description'],
+              },
+              "rawTmdb": item,
+            };
+          }).toList();
+        } else {
+          final bannerSection = rawHomeItems.firstWhere(
+            (item) => item['type'] == 'BANNER',
+            orElse: () => null,
+          );
+          if (bannerSection != null && bannerSection['banner'] != null) {
+            banners = bannerSection['banner']['banners'] ?? [];
           }
         }
 
+        // 3. Assemble dynamic category rows
+        final List<dynamic> assembledSections = [];
+
+        // Row 1: Now Playing in Cinemas (TMDB)
+        if (nowPlaying.isNotEmpty) {
+          assembledSections.add({
+            "title": "🔥 Sedang Tayang di Bioskop (Now Playing)",
+            "subjects": nowPlaying,
+          });
+        }
+
+        // Row 2: Trending Movies Today (TMDB)
+        if (trendingMovies.isNotEmpty) {
+          assembledSections.add({
+            "title": "⭐ Film Populer Hari Ini (TMDB)",
+            "subjects": trendingMovies,
+          });
+        }
+
+        // Row 3: Trending TV Series (TMDB)
+        if (trendingTv.isNotEmpty) {
+          assembledSections.add({
+            "title": "📺 Serial TV Populer (TMDB)",
+            "subjects": trendingTv,
+          });
+        }
+
+        // Row 4: 4KHDHub Ultra-HD Releases
+        for (final sec in fourkSections) {
+          if (sec is Map<String, dynamic> && (sec['subjects'] as List? ?? []).isNotEmpty) {
+            final secTitle = (sec['title'] ?? '4KHDHub Latest').toString();
+            assembledSections.add({
+              "title": "💎 $secTitle",
+              "subjects": sec['subjects'],
+            });
+          }
+        }
+
+        // Row 5: Indonesian Movies
+        if (searchItems.isNotEmpty) {
+          assembledSections.add({
+            "title": "🇮🇩 Film Indonesia",
+            "subjects": searchItems,
+          });
+        }
+
+        // Row 6+: Classic MovieBox Category Rows
+        final subjectsSections = rawHomeItems.where((item) => item['type'] == 'SUBJECTS_MOVIE').toList();
+        assembledSections.addAll(subjectsSections);
+
         setState(() {
-          _homeItems = subjectsSections;
+          _homeItems = assembledSections;
           _bannerItems = banners;
         });
       }
     } catch (e) {
-      print("MovieBox Home Catalog Error: $e");
+      print("Home Catalog Error: $e");
       setState(() {
         _errorMessage = e is RateLimitException
             ? "Server membatasi request (Rate Limited). Silakan coba beberapa saat lagi."
@@ -289,7 +369,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 : "Gagal memuat katalog. Silakan periksa jaringan.";
       });
     } finally {
-      // 3. Load favorites and recent progress
+      // 4. Load favorites and recent progress
       await _loadFavoritesAndProgress();
 
       if (mounted) {
@@ -2878,10 +2958,15 @@ class _HomeScreenState extends State<HomeScreen> {
       child: TvFocusableCard(
         onTap: () {
           if (subjectId.isNotEmpty && subjectId != "0") {
+            final prov = banner['provider'] ?? 'moviebox';
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => DetailScreen(subjectId: subjectId),
+                builder: (context) => DetailScreen(
+                  subjectId: subjectId,
+                  provider: prov,
+                  tmdbData: prov == 'tmdb' ? (banner['rawTmdb'] ?? banner) : null,
+                ),
               ),
             ).then((_) {
               _loadFavoritesAndProgress();
@@ -3033,6 +3118,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           provider: provider,
                           initialSeason: isShow ? season : null,
                           initialEpisode: isShow ? episode : null,
+                          tmdbData: provider == 'tmdb' ? (item['tmdbData'] ?? item) : null,
                         ),
                       ),
                     ).then((_) {
@@ -3165,6 +3251,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         builder: (context) => DetailScreen(
                           subjectId: subjectId,
                           provider: provider,
+                          tmdbData: provider == 'tmdb' ? (item['tmdbData'] ?? item) : null,
                         ),
                       ),
                     ).then((_) {
@@ -3309,10 +3396,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.only(right: 14.0),
                 child: TvFocusableCard(
                   onTap: () {
+                    final prov = subject['provider'] ?? 'moviebox';
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => DetailScreen(subjectId: subjectId),
+                        builder: (context) => DetailScreen(
+                          subjectId: subjectId,
+                          provider: prov,
+                          tmdbData: prov == 'tmdb' ? (subject['rawTmdb'] ?? subject) : null,
+                        ),
                       ),
                     ).then((_) {
                       _loadFavoritesAndProgress();

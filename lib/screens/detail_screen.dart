@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/moviebox_api_service.dart';
 import '../services/fourkhdhub_service.dart';
+import '../services/tmdb_service.dart';
 import '../services/favorites_service.dart';
 import '../services/app_language_service.dart';
 import '../services/playback_progress_service.dart';
@@ -15,6 +16,7 @@ class DetailScreen extends StatefulWidget {
   final String provider;
   final int? initialSeason;
   final int? initialEpisode;
+  final Map<String, dynamic>? tmdbData;
 
   const DetailScreen({
     super.key,
@@ -22,6 +24,7 @@ class DetailScreen extends StatefulWidget {
     this.provider = 'moviebox',
     this.initialSeason,
     this.initialEpisode,
+    this.tmdbData,
   });
 
   @override
@@ -31,8 +34,15 @@ class DetailScreen extends StatefulWidget {
 class _DetailScreenState extends State<DetailScreen> {
   final MovieBoxApiService _api = MovieBoxApiService();
   final FourKHdHubService _fourkApi = FourKHdHubService();
+  final TmdbService _tmdbApi = TmdbService();
   
-  bool get _is4kHub => widget.provider.toLowerCase() == '4khdhub';
+  late String _activeProvider;
+  bool get _is4kHub => _activeProvider.toLowerCase() == '4khdhub';
+  bool get _isTmdb => widget.provider.toLowerCase() == 'tmdb';
+
+  bool _isResolvingSources = false;
+  List<Map<String, dynamic>> _resolvedSources = [];
+  bool _noStreamingSourcesFound = false;
   
   Map<String, dynamic>? _details;
   List<dynamic> _dubs = [];
@@ -59,6 +69,7 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   void initState() {
     super.initState();
+    _activeProvider = widget.provider;
     _selectedSubjectId = widget.subjectId;
     _loadDetails();
     _checkFavorite();
@@ -106,6 +117,9 @@ class _DetailScreenState extends State<DetailScreen> {
       final favData = Map<String, dynamic>.from(_details!);
       favData['provider'] = widget.provider;
       favData['subjectId'] = widget.subjectId;
+      if (_isTmdb) {
+        favData['tmdbData'] = _details;
+      }
       await FavoritesService.addFavorite(favData);
     }
     _checkFavorite();
@@ -134,7 +148,14 @@ class _DetailScreenState extends State<DetailScreen> {
     setState(() {
       _isLoadingDetails = true;
       _errorMessage = "";
+      _isResolvingSources = false;
+      _noStreamingSourcesFound = false;
     });
+
+    if (_isTmdb) {
+      _loadTmdbDetails();
+      return;
+    }
 
     if (_is4kHub) {
       try {
@@ -306,6 +327,340 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
+  void _loadTmdbDetails() async {
+    try {
+      Map<String, dynamic>? initialMap = widget.tmdbData != null
+          ? Map<String, dynamic>.from(widget.tmdbData!)
+          : null;
+
+      final rawIdStr = widget.subjectId.replaceFirst('tmdb_', '');
+      final int tmdbId = int.tryParse(rawIdStr) ?? 0;
+
+      final isTvInitial = initialMap?['subjectType'] == 2 ||
+          initialMap?['media_type'] == 'tv' ||
+          widget.initialSeason != null;
+
+      if (tmdbId > 0 && (initialMap == null || (initialMap['description'] ?? '').isEmpty)) {
+        final tmdbFull = isTvInitial
+            ? await _tmdbApi.getTvDetails(tmdbId)
+            : await _tmdbApi.getMovieDetails(tmdbId);
+        if (tmdbFull != null) {
+          initialMap = _tmdbApi.normalizeItem(tmdbFull, mediaType: isTvInitial ? 'tv' : 'movie');
+        }
+      }
+
+      if (initialMap == null) {
+        if (mounted) {
+          setState(() {
+            _errorMessage = "Gagal memuat detail TMDB";
+            _isLoadingDetails = false;
+          });
+        }
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _details = initialMap;
+          _isLoadingDetails = false;
+        });
+      }
+
+      await _resolveStreamingSources();
+    } catch (e) {
+      print("TMDB Details Error: $e");
+      if (mounted) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail TMDB: $e";
+          _isLoadingDetails = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _resolveStreamingSources() async {
+    if (!mounted) return;
+    setState(() {
+      _isResolvingSources = true;
+      _noStreamingSourcesFound = false;
+    });
+
+    final title = (_details?['title'] ?? _details?['name'] ?? _details?['subjectTitle'] ?? '').toString().trim();
+    if (title.isEmpty) {
+      setState(() {
+        _isResolvingSources = false;
+        _noStreamingSourcesFound = true;
+      });
+      return;
+    }
+
+    final isTv = _isTvShow;
+
+    try {
+      final searchResults = await Future.wait([
+        _api.search(query: title, subjectType: isTv ? 2 : 1, page: 1, perPage: 5).catchError((_) => <String, dynamic>{}),
+        _fourkApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
+      ]);
+
+      final mbRes = searchResults[0] as Map<String, dynamic>;
+      final fkRes = searchResults[1] as List<Map<String, dynamic>>;
+
+      final List<Map<String, dynamic>> foundSources = [];
+
+      // 1. Check MovieBox (Primary Priority)
+      final mbItems = (mbRes['items'] as List?) ?? [];
+      if (mbItems.isNotEmpty) {
+        final bestMb = mbItems.first;
+        final subId = (bestMb['subjectId'] ?? bestMb['id']).toString();
+        foundSources.add({
+          'provider': 'moviebox',
+          'label': 'MovieBox (Multi-Audio)',
+          'badge': 'Multi-Audio',
+          'subjectId': subId,
+          'item': bestMb,
+        });
+      }
+
+      // 2. Check 4KHDHub (High-Resolution Alternate Option)
+      if (fkRes.isNotEmpty) {
+        final bestFk = fkRes.first;
+        foundSources.add({
+          'provider': '4khdhub',
+          'label': '4KHDHub (4K / 1080p)',
+          'badge': '4K UHD',
+          'subjectId': bestFk['subjectId'],
+          'item': bestFk,
+        });
+      }
+
+      if (!mounted) return;
+
+      if (foundSources.isEmpty) {
+        setState(() {
+          _isResolvingSources = false;
+          _noStreamingSourcesFound = true;
+        });
+        return;
+      }
+
+      setState(() {
+        _resolvedSources = foundSources;
+        _isResolvingSources = false;
+        _noStreamingSourcesFound = false;
+      });
+
+      // Prioritize MovieBox if available, otherwise 4KHDHub
+      final defaultSource = foundSources.firstWhere(
+        (s) => s['provider'] == 'moviebox',
+        orElse: () => foundSources.first,
+      );
+      await _activateResolvedSource(defaultSource);
+    } catch (e) {
+      print("Resolve sources error: $e");
+      if (mounted) {
+        setState(() {
+          _isResolvingSources = false;
+          _noStreamingSourcesFound = true;
+        });
+      }
+    }
+  }
+
+  Future<void> _activateResolvedSource(Map<String, dynamic> source) async {
+    final prov = source['provider'] as String;
+    final sId = source['subjectId'] as String;
+
+    setState(() {
+      _activeProvider = prov;
+      _selectedSubjectId = sId;
+      _streams = [];
+    });
+
+    if (prov == '4khdhub') {
+      await _load4kHubProvider(sId);
+    } else {
+      await _loadMovieBoxProvider(sId);
+    }
+  }
+
+  Future<void> _load4kHubProvider(String sId) async {
+    try {
+      final detailsRes = await _fourkApi.getDetails(sId);
+      final isTvShow = detailsRes['subjectType'] == 2;
+      List<dynamic> seasonsList = detailsRes['seasons'] ?? [];
+      int initialEpisodesCount = 0;
+      int targetSeason = widget.initialSeason ?? 1;
+      int targetEpisode = widget.initialEpisode ?? 1;
+
+      if (widget.initialSeason == null || widget.initialEpisode == null) {
+        final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+        if (recentPlay != null) {
+          final recSeason = recentPlay['season'] as int? ?? 1;
+          final recEpisode = recentPlay['episode'] as int? ?? 1;
+          if (recSeason > 0) targetSeason = recSeason;
+          if (recEpisode > 0) targetEpisode = recEpisode;
+        }
+      }
+
+      if (isTvShow && seasonsList.isNotEmpty) {
+        final matchingSeason = seasonsList.firstWhere(
+          (s) => (s['se'] ?? 1) == targetSeason,
+          orElse: () => seasonsList.first,
+        );
+        _selectedSeasonNumber = matchingSeason['se'] ?? 1;
+        initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
+        _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
+      }
+
+      if (mounted) {
+        setState(() {
+          _details = {
+            ...?_details,
+            'rawHtml': detailsRes['rawHtml'],
+            'audios': detailsRes['audios'],
+          };
+          _dubs = [];
+          _selectedAudioName = detailsRes['audios'] ?? "Original Audio";
+          _seasons = seasonsList;
+          _episodesCount = initialEpisodesCount;
+        });
+      }
+
+      _loadStreams();
+    } catch (e) {
+      print("Failed loading 4kHub resolved provider: $e");
+    }
+  }
+
+  Future<void> _loadMovieBoxProvider(String sId) async {
+    try {
+      final detailsRes = await _api.getDetails(subjectId: sId);
+      final type = detailsRes['subjectType'] ?? detailsRes['subject_type'];
+      final isTvShow = type == 2 || type?.toString() == '2' || type?.toString().toLowerCase() == 'tv';
+
+      List<dynamic> rawDubs = detailsRes['dubs'] ?? 
+          (detailsRes['subject'] is Map ? detailsRes['subject']['dubs'] : null) ?? [];
+
+      List<dynamic> dubsList = [];
+      for (final d in rawDubs) {
+        if (d is Map) {
+          dubsList.add(Map<String, dynamic>.from(d));
+        }
+      }
+
+      String selectedAudioName = "Original Audio";
+      String selectedSubId = sId;
+
+      if (dubsList.isEmpty) {
+        dubsList = [
+          {"lanName": "Original Audio", "subjectId": sId, "original": true}
+        ];
+      } else {
+        bool hasOriginal = dubsList.any((d) => 
+            d['original'] == true || 
+            (d['lanName'] ?? '').toString().toLowerCase().contains('original'));
+            
+        if (!hasOriginal) {
+          dubsList = [
+            {"lanName": "Original Audio", "subjectId": sId, "original": true},
+            ...dubsList
+          ];
+        }
+        final defaultDub = dubsList.firstWhere(
+          (d) => d['original'] == true || (d['lanName'] ?? '').toString().toLowerCase().contains('original'),
+          orElse: () => dubsList.first,
+        );
+        selectedAudioName = (defaultDub['lanName'] ?? defaultDub['language'] ?? 'Original Audio').toString();
+        selectedSubId = (defaultDub['subjectId'] ?? sId).toString();
+      }
+
+      List<dynamic> seasonsList = [];
+      int initialEpisodesCount = 0;
+      int targetSeason = widget.initialSeason ?? 1;
+      int targetEpisode = widget.initialEpisode ?? 1;
+
+      if (isTvShow) {
+        try {
+          final seasonInfoRes = await _api.getSeasonInfo(subjectId: sId);
+          seasonsList = seasonInfoRes['seasons'] ?? [];
+          
+          if (widget.initialSeason == null || widget.initialEpisode == null) {
+            final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+            if (recentPlay != null) {
+              final recSeason = recentPlay['season'] as int? ?? 1;
+              final recEpisode = recentPlay['episode'] as int? ?? 1;
+              if (recSeason > 0) targetSeason = recSeason;
+              if (recEpisode > 0) targetEpisode = recEpisode;
+            }
+          }
+
+          if (seasonsList.isNotEmpty) {
+            final matchingSeason = seasonsList.firstWhere(
+              (s) => (s['se'] ?? 1) == targetSeason,
+              orElse: () => seasonsList.first,
+            );
+            _selectedSeasonNumber = matchingSeason['se'] ?? 1;
+            initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
+            _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
+          }
+        } catch (_) {}
+      }
+
+      if (mounted) {
+        setState(() {
+          _details = {
+            ...?_details,
+            'dubs': dubsList,
+          };
+          _dubs = dubsList;
+          _selectedAudioName = selectedAudioName;
+          _selectedSubjectId = selectedSubId;
+          _seasons = seasonsList;
+          _episodesCount = initialEpisodesCount;
+        });
+      }
+
+      _loadStreams();
+    } catch (e) {
+      print("Failed loading MovieBox resolved provider: $e");
+    }
+  }
+
+  void _showUnavailableDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.movie_filter_rounded, color: Colors.amberAccent, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                AppLanguageService.tr(en: "Streaming Unavailable", id: "Belum Tersedia di Streaming"),
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          AppLanguageService.tr(
+            en: "This title is currently exclusive to cinema theaters and has not been uploaded to streaming servers yet. Please check back soon!",
+            id: "Film ini masih tayang eksklusif di bioskop dan belum tersedia di server streaming (MovieBox / 4KHDHub). Silakan periksa kembali setelah rilis digital tersedia!",
+          ),
+          style: GoogleFonts.outfit(color: Colors.grey.shade300, fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(AppLanguageService.tr(en: "Understood", id: "Mengerti"), style: GoogleFonts.outfit(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _fetchTvMazeEpisodes(String title) async {
     if (title.trim().isEmpty) return;
     try {
@@ -325,8 +680,9 @@ class _DetailScreenState extends State<DetailScreen> {
 
     if (_is4kHub) {
       try {
+        final targetId = _isTmdb ? _selectedSubjectId : widget.subjectId;
         final releases = await _fourkApi.getReleases(
-          widget.subjectId,
+          targetId,
           rawHtml: _details?['rawHtml'],
           season: _isTvShow ? _selectedSeasonNumber : 0,
           episode: _isTvShow ? _selectedEpisodeNumber : 0,
@@ -571,8 +927,9 @@ class _DetailScreenState extends State<DetailScreen> {
   Future<PlayerNextEpisodeData?> _handleSelectEpisodeInPlayer(int season, int episode) async {
     if (_is4kHub) {
       try {
+        final targetId = _isTmdb ? _selectedSubjectId : widget.subjectId;
         final releases = await _fourkApi.getReleases(
-          widget.subjectId,
+          targetId,
           rawHtml: _details?['rawHtml'],
           season: season,
           episode: episode,
@@ -761,6 +1118,11 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   void _playEpisode(int seasonNum, int episodeNum) async {
+    if (_noStreamingSourcesFound) {
+      _showUnavailableDialog();
+      return;
+    }
+
     final isTv = _isTvShow;
     final targetSeason = isTv ? seasonNum : 0;
     final targetEpisode = isTv ? episodeNum : 0;
@@ -811,8 +1173,9 @@ class _DetailScreenState extends State<DetailScreen> {
       );
 
       try {
+        final targetId = _isTmdb ? _selectedSubjectId : widget.subjectId;
         final releases = await _fourkApi.getReleases(
-          widget.subjectId,
+          targetId,
           rawHtml: _details?['rawHtml'],
           season: targetSeason,
           episode: targetEpisode,
@@ -974,8 +1337,9 @@ class _DetailScreenState extends State<DetailScreen> {
     );
 
     try {
+      final targetId = _isTmdb ? _selectedSubjectId : widget.subjectId;
       final releases = await _fourkApi.getReleases(
-        widget.subjectId,
+        targetId,
         rawHtml: _details?['rawHtml'],
         season: _isTvShow ? _selectedSeasonNumber : 0,
         episode: _isTvShow ? _selectedEpisodeNumber : 0,
@@ -1565,25 +1929,30 @@ class _DetailScreenState extends State<DetailScreen> {
     final isWatched = _savedProgressMs > 5000;
     final resumeText = _formatDurationMs(_savedProgressMs);
 
-    final playBtnText = _isTvShow
-        ? (isWatched
-            ? AppLanguageService.tr(
-                en: "Resume S$_selectedSeasonNumber:E$_selectedEpisodeNumber ($resumeText)",
-                id: "Lanjutkan S$_selectedSeasonNumber:E$_selectedEpisodeNumber ($resumeText)",
-              )
-            : AppLanguageService.tr(
-                en: "Play S$_selectedSeasonNumber:E$_selectedEpisodeNumber",
-                id: "Putar S$_selectedSeasonNumber:E$_selectedEpisodeNumber",
-              ))
-        : (isWatched
-            ? AppLanguageService.tr(
-                en: "Resume Movie ($resumeText)",
-                id: "Lanjutkan Menonton ($resumeText)",
-              )
-            : AppLanguageService.tr(
-                en: "Play Movie",
-                id: "Putar Film",
-              ));
+    final playBtnText = _noStreamingSourcesFound
+        ? AppLanguageService.tr(
+            en: "In Theaters · Streaming Unavailable",
+            id: "Tayang di Bioskop · Belum Tersedia",
+          )
+        : (_isTvShow
+            ? (isWatched
+                ? AppLanguageService.tr(
+                    en: "Resume S$_selectedSeasonNumber:E$_selectedEpisodeNumber ($resumeText)",
+                    id: "Lanjutkan S$_selectedSeasonNumber:E$_selectedEpisodeNumber ($resumeText)",
+                  )
+                : AppLanguageService.tr(
+                    en: "Play S$_selectedSeasonNumber:E$_selectedEpisodeNumber",
+                    id: "Putar S$_selectedSeasonNumber:E$_selectedEpisodeNumber",
+                  ))
+            : (isWatched
+                ? AppLanguageService.tr(
+                    en: "Resume Movie ($resumeText)",
+                    id: "Lanjutkan Menonton ($resumeText)",
+                  )
+                : AppLanguageService.tr(
+                    en: "Play Movie",
+                    id: "Putar Film",
+                  )));
 
     return Container(
       padding: EdgeInsets.symmetric(horizontal: isTv ? 32 : 20, vertical: 20),
@@ -1631,7 +2000,9 @@ class _DetailScreenState extends State<DetailScreen> {
                         runSpacing: 8,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          if (_is4kHub)
+                          if (_isTmdb)
+                            _buildBadge("TMDB · Trending", Colors.amberAccent, isTv: isTv)
+                          else if (_is4kHub)
                             _buildBadge("4KHDHub · 4K UHD", Colors.cyanAccent, isTv: isTv),
                           if (_is4kHub && _details?['imdbRating'] != null && _details!['imdbRating'].isNotEmpty)
                             _buildBadge("★ ${_details!['imdbRating']}", Colors.amber, isTv: isTv)
@@ -1658,13 +2029,91 @@ class _DetailScreenState extends State<DetailScreen> {
                           height: 1.45,
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
+                      // TMDB Resolving Indicator
+                      if (_isTmdb && _isResolvingSources) ...[
+                        Row(
+                          children: [
+                            const SpinKitRing(color: Colors.redAccent, size: 16),
+                            const SizedBox(width: 10),
+                            Text(
+                              AppLanguageService.tr(
+                                en: "Searching streaming sources (MovieBox & 4KHDHub)...",
+                                id: "Mencari sumber streaming (MovieBox & 4KHDHub)...",
+                              ),
+                              style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                      // TMDB Resolved Sources Chips
+                      if (_isTmdb && _resolvedSources.isNotEmpty) ...[
+                        Row(
+                          children: _resolvedSources.map((source) {
+                            final prov = source['provider'] as String;
+                            final isSelected = _activeProvider == prov;
+                            final label = source['label'] as String;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 12.0),
+                              child: TvFocusableCard(
+                                onTap: () => _activateResolvedSource(source),
+                                borderRadius: BorderRadius.circular(16),
+                                scaleFactor: 1.05,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? (prov == '4khdhub'
+                                            ? Colors.cyanAccent.withValues(alpha: 0.2)
+                                            : Colors.redAccent.withValues(alpha: 0.2))
+                                        : const Color(0xFF1E1E1E),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? (prov == '4khdhub' ? Colors.cyanAccent : Colors.redAccent)
+                                          : Colors.white24,
+                                      width: isSelected ? 1.8 : 1.0,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        prov == '4khdhub' ? Icons.hd_outlined : Icons.movie_outlined,
+                                        color: isSelected
+                                            ? (prov == '4khdhub' ? Colors.cyanAccent : Colors.redAccent)
+                                            : Colors.white70,
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        label,
+                                        style: GoogleFonts.outfit(
+                                          color: isSelected ? Colors.white : Colors.white70,
+                                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                       // Main Hero Play Button Row
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           TvFocusableCard(
                             onTap: () {
+                              if (_noStreamingSourcesFound) {
+                                _showUnavailableDialog();
+                                return;
+                              }
                               _playEpisode(_selectedSeasonNumber, _selectedEpisodeNumber);
                             },
                             borderRadius: BorderRadius.circular(14),
@@ -1672,22 +2121,32 @@ class _DetailScreenState extends State<DetailScreen> {
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                               decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [Color(0xFFE50914), Color(0xFFB81D24)],
-                                ),
+                                gradient: _noStreamingSourcesFound
+                                    ? const LinearGradient(
+                                        colors: [Color(0xFF333333), Color(0xFF222222)],
+                                      )
+                                    : const LinearGradient(
+                                        colors: [Color(0xFFE50914), Color(0xFFB81D24)],
+                                      ),
                                 borderRadius: BorderRadius.circular(14),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.redAccent.withValues(alpha: 0.4),
-                                    blurRadius: 16,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
+                                boxShadow: _noStreamingSourcesFound
+                                    ? null
+                                    : [
+                                        BoxShadow(
+                                          color: Colors.redAccent.withValues(alpha: 0.4),
+                                          blurRadius: 16,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 32),
+                                  Icon(
+                                    _noStreamingSourcesFound ? Icons.schedule_rounded : Icons.play_arrow_rounded,
+                                    color: Colors.white,
+                                    size: 32,
+                                  ),
                                   const SizedBox(width: 12),
                                   Text(
                                     playBtnText,
@@ -1773,7 +2232,9 @@ class _DetailScreenState extends State<DetailScreen> {
                   runSpacing: 8,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    if (_is4kHub)
+                    if (_isTmdb)
+                      _buildBadge("TMDB · Trending", Colors.amberAccent, isTv: isTv)
+                    else if (_is4kHub)
                       _buildBadge("4KHDHub · 4K UHD", Colors.cyanAccent, isTv: isTv),
                     if (_is4kHub && _details?['imdbRating'] != null && _details!['imdbRating'].isNotEmpty)
                       _buildBadge("★ ${_details!['imdbRating']}", Colors.amber, isTv: isTv)
@@ -1797,7 +2258,82 @@ class _DetailScreenState extends State<DetailScreen> {
                     height: 1.4,
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
+                // TMDB Resolving Indicator (Mobile)
+                if (_isTmdb && _isResolvingSources) ...[
+                  Row(
+                    children: [
+                      const SpinKitRing(color: Colors.redAccent, size: 14),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          AppLanguageService.tr(
+                            en: "Searching sources (MovieBox & 4KHDHub)...",
+                            id: "Mencari sumber streaming...",
+                          ),
+                          style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                // TMDB Resolved Sources Chips (Mobile)
+                if (_isTmdb && _resolvedSources.isNotEmpty) ...[
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _resolvedSources.map((source) {
+                      final prov = source['provider'] as String;
+                      final isSelected = _activeProvider == prov;
+                      final label = source['label'] as String;
+                      return TvFocusableCard(
+                        onTap: () => _activateResolvedSource(source),
+                        borderRadius: BorderRadius.circular(14),
+                        scaleFactor: 1.03,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? (prov == '4khdhub'
+                                    ? Colors.cyanAccent.withValues(alpha: 0.2)
+                                    : Colors.redAccent.withValues(alpha: 0.2))
+                                : const Color(0xFF1E1E1E),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isSelected
+                                  ? (prov == '4khdhub' ? Colors.cyanAccent : Colors.redAccent)
+                                  : Colors.white24,
+                              width: isSelected ? 1.5 : 1.0,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                prov == '4khdhub' ? Icons.hd_outlined : Icons.movie_outlined,
+                                color: isSelected
+                                    ? (prov == '4khdhub' ? Colors.cyanAccent : Colors.redAccent)
+                                    : Colors.white70,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                label,
+                                style: GoogleFonts.outfit(
+                                  color: isSelected ? Colors.white : Colors.white70,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 // Play Button & Quality Button Row
                 Row(
                   children: [
@@ -1805,6 +2341,10 @@ class _DetailScreenState extends State<DetailScreen> {
                       flex: _is4kHub ? 7 : 1,
                       child: TvFocusableCard(
                         onTap: () {
+                          if (_noStreamingSourcesFound) {
+                            _showUnavailableDialog();
+                            return;
+                          }
                           _playEpisode(_selectedSeasonNumber, _selectedEpisodeNumber);
                         },
                         borderRadius: BorderRadius.circular(12),
@@ -1812,15 +2352,23 @@ class _DetailScreenState extends State<DetailScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFFE50914), Color(0xFFB81D24)],
-                            ),
+                            gradient: _noStreamingSourcesFound
+                                ? const LinearGradient(
+                                    colors: [Color(0xFF333333), Color(0xFF222222)],
+                                  )
+                                : const LinearGradient(
+                                    colors: [Color(0xFFE50914), Color(0xFFB81D24)],
+                                  ),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28),
+                              Icon(
+                                _noStreamingSourcesFound ? Icons.schedule_rounded : Icons.play_arrow_rounded,
+                                color: Colors.white,
+                                size: 28,
+                              ),
                               const SizedBox(width: 8),
                               Text(
                                 playBtnText,
