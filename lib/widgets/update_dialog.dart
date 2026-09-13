@@ -31,6 +31,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
 
   final FocusNode _updateFocusNode = FocusNode();
   final FocusNode _cancelFocusNode = FocusNode();
+  final FocusNode _browserFocusNode = FocusNode();
 
   @override
   void initState() {
@@ -44,6 +45,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
   void dispose() {
     _updateFocusNode.dispose();
     _cancelFocusNode.dispose();
+    _browserFocusNode.dispose();
     super.dispose();
   }
 
@@ -307,85 +309,122 @@ class _UpdateDialogState extends State<UpdateDialog> {
                 const SizedBox(height: 20),
 
                 // Action Buttons
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    if (!_isDownloading && !_isCompleted) ...[
-                      TvFocusableCard(
-                        focusNode: _cancelFocusNode,
-                        onTap: () => Navigator.pop(context),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF222222),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFF333333)),
-                          ),
-                          child: Text(
-                            "Nanti",
-                            style: GoogleFonts.outfit(
-                              color: Colors.grey.shade300,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      if (!_isDownloading && !_isCompleted) ...[
+                        TvFocusableCard(
+                          focusNode: _cancelFocusNode,
+                          onTap: () => Navigator.pop(context),
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF222222),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFF333333)),
+                            ),
+                            child: Text(
+                              "Nanti",
+                              style: GoogleFonts.outfit(
+                                color: Colors.grey.shade300,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      TvFocusableCard(
-                        focusNode: _updateFocusNode,
-                        onTap: _startDownload,
-                        borderRadius: BorderRadius.circular(10),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: Colors.redAccent.shade700,
+                        if (_errorMessage != null)
+                          TvFocusableCard(
+                            focusNode: _browserFocusNode,
+                            onTap: () => UpdateService.instance.openInBrowser(widget.release.apkDownloadUrl),
                             borderRadius: BorderRadius.circular(10),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.redAccent.withValues(alpha: 0.3),
-                                blurRadius: 10,
-                                offset: const Offset(0, 2),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E293B),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFF3B82F6)),
                               ),
-                            ],
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.open_in_browser_rounded, color: Colors.blueAccent, size: 16),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    "Unduh di Browser",
+                                    style: GoogleFonts.outfit(
+                                      color: Colors.blueAccent,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.download_rounded, color: Colors.white, size: 16),
-                              const SizedBox(width: 6),
-                              Text(
-                                "Update Sekarang",
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
+                        TvFocusableCard(
+                          focusNode: _updateFocusNode,
+                          onTap: _startDownload,
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent.shade700,
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.redAccent.withValues(alpha: 0.3),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 2),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _errorMessage != null ? Icons.refresh_rounded : Icons.download_rounded,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _errorMessage != null ? "Coba Lagi" : "Update Sekarang",
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ] else if (_isCompleted) ...[
-                      TvFocusableCard(
-                        focusNode: _updateFocusNode,
-                        onTap: () => Navigator.pop(context),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF262626),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            "Tutup",
-                            style: GoogleFonts.outfit(color: Colors.white, fontSize: 13),
+                      ] else if (_isCompleted) ...[
+                        TvFocusableCard(
+                          focusNode: _updateFocusNode,
+                          onTap: () => Navigator.pop(context),
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF262626),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              "Tutup",
+                              style: GoogleFonts.outfit(color: Colors.white, fontSize: 13),
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ],
             ),

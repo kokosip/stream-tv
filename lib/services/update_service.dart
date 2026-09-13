@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class AppReleaseInfo {
   final String version;
@@ -128,54 +129,139 @@ class UpdateService {
     }
   }
 
+  /// Opens an external URL in the system browser or default handler.
+  Future<bool> openInBrowser(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      return await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Downloads the release APK and automatically launches the Android package installer.
+  /// Supports HTTP Range resumption and auto-retries for unstable network connections.
   Future<void> downloadAndInstall({
     required AppReleaseInfo release,
     required void Function(int receivedBytes, int totalBytes) onProgress,
     required void Function(String error) onError,
     required void Function() onCompleted,
   }) async {
-    http.Client? client;
-    IOSink? sink;
+    final tempDir = await getTemporaryDirectory();
+    final apkPath = '${tempDir.path}/MovieBox_${release.version}.apk';
+    final partPath = '$apkPath.part';
+    final partFile = File(partPath);
+    final apkFile = File(apkPath);
+
+    int totalBytes = release.apkSizeBytes;
+    int downloadedBytes = 0;
+
+    if (await partFile.exists()) {
+      downloadedBytes = await partFile.length();
+    }
+
+    const int maxRetries = 5;
+    int retryCount = 0;
+    bool completed = false;
+
+    while (!completed && retryCount < maxRetries) {
+      http.Client? client;
+      IOSink? sink;
+      try {
+        client = http.Client();
+        final request = http.Request('GET', Uri.parse(release.apkDownloadUrl));
+        request.headers['User-Agent'] = 'MovieBox-StreamTV-App';
+
+        if (downloadedBytes > 0) {
+          request.headers['Range'] = 'bytes=$downloadedBytes-';
+        }
+
+        final response = await client.send(request);
+
+        // Check status code: 200 (full), 206 (partial content)
+        if (response.statusCode != 200 && response.statusCode != 206) {
+          if (response.statusCode == 416) {
+            // Requested range not satisfiable - file may be fully downloaded or invalid
+            if (await partFile.exists()) {
+              await partFile.delete();
+            }
+            downloadedBytes = 0;
+            retryCount++;
+            continue;
+          }
+          onError("Gagal mengunduh file update (HTTP ${response.statusCode})");
+          return;
+        }
+
+        final isPartial = response.statusCode == 206;
+        if (!isPartial && downloadedBytes > 0) {
+          // Server did not accept Range request, reset download from beginning
+          downloadedBytes = 0;
+          if (await partFile.exists()) {
+            await partFile.delete();
+          }
+        }
+
+        // Determine totalBytes accurately from headers
+        if (response.headers.containsKey('content-range')) {
+          final match = RegExp(r'/(\d+)').firstMatch(response.headers['content-range'] ?? '');
+          if (match != null) {
+            totalBytes = int.tryParse(match.group(1)!) ?? totalBytes;
+          }
+        } else if (response.contentLength != null && response.contentLength! > 0) {
+          totalBytes = isPartial ? (downloadedBytes + response.contentLength!) : response.contentLength!;
+        }
+
+        sink = partFile.openWrite(mode: isPartial ? FileMode.append : FileMode.write);
+
+        await for (final chunk in response.stream) {
+          sink.add(chunk);
+          downloadedBytes += chunk.length;
+          onProgress(downloadedBytes, totalBytes);
+        }
+
+        await sink.flush();
+        await sink.close();
+        sink = null;
+
+        // Verify if we actually reached the total expected size
+        if (totalBytes > 0 && downloadedBytes < totalBytes) {
+          throw Exception("Koneksi terputus sebelum unduhan selesai ($downloadedBytes / $totalBytes bytes)");
+        }
+
+        completed = true;
+      } catch (e) {
+        retryCount++;
+        if (await partFile.exists()) {
+          downloadedBytes = await partFile.length();
+        }
+        if (retryCount >= maxRetries) {
+          onError("Terjadi kesalahan saat mengunduh: $e");
+          return;
+        }
+        // Exponential backoff before retry (2s, 4s, 6s...)
+        await Future.delayed(Duration(seconds: retryCount * 2));
+      } finally {
+        try {
+          await sink?.close();
+        } catch (_) {}
+        client?.close();
+      }
+    }
+
+    if (!completed) return;
+
     try {
-      client = http.Client();
-      final request = http.Request('GET', Uri.parse(release.apkDownloadUrl));
-      request.headers['User-Agent'] = 'MovieBox-StreamTV-App';
-
-      final response = await client.send(request);
-
-      if (response.statusCode != 200) {
-        onError("Gagal mengunduh file update (HTTP ${response.statusCode})");
-        return;
+      if (await apkFile.exists()) {
+        await apkFile.delete();
       }
-
-      final totalBytes = response.contentLength ?? release.apkSizeBytes;
-      final tempDir = await getTemporaryDirectory();
-      final filePath = '${tempDir.path}/MovieBox_${release.version}.apk';
-      final file = File(filePath);
-
-      if (await file.exists()) {
-        await file.delete();
-      }
-
-      sink = file.openWrite();
-      int receivedBytes = 0;
-
-      await for (final chunk in response.stream) {
-        sink.add(chunk);
-        receivedBytes += chunk.length;
-        onProgress(receivedBytes, totalBytes);
-      }
-
-      await sink.flush();
-      await sink.close();
-      sink = null;
+      await partFile.rename(apkPath);
 
       onCompleted();
 
       // Trigger Android native package installer
       final result = await OpenFilex.open(
-        filePath,
+        apkPath,
         type: "application/vnd.android.package-archive",
       );
 
@@ -183,10 +269,7 @@ class UpdateService {
         onError("Pemasangan APK: ${result.message}");
       }
     } catch (e) {
-      onError("Terjadi kesalahan saat mengunduh: $e");
-    } finally {
-      client?.close();
-      await sink?.close();
+      onError("Gagal membuka file instalasi: $e");
     }
   }
 }
