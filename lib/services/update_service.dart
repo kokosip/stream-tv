@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'app_language_service.dart';
 
 class AppReleaseInfo {
   final String version;
@@ -189,7 +190,12 @@ class UpdateService {
             retryCount++;
             continue;
           }
-          onError("Gagal mengunduh file update (HTTP ${response.statusCode})");
+          onError(
+            AppLanguageService.tr(
+              en: "Failed to download update file (HTTP ${response.statusCode})",
+              id: "Gagal mengunduh file update (HTTP ${response.statusCode})",
+            ),
+          );
           return;
         }
 
@@ -226,7 +232,12 @@ class UpdateService {
 
         // Verify if we actually reached the total expected size
         if (totalBytes > 0 && downloadedBytes < totalBytes) {
-          throw Exception("Koneksi terputus sebelum unduhan selesai ($downloadedBytes / $totalBytes bytes)");
+          throw Exception(
+            AppLanguageService.tr(
+              en: "Connection dropped before download completed ($downloadedBytes / $totalBytes bytes)",
+              id: "Koneksi terputus sebelum unduhan selesai ($downloadedBytes / $totalBytes bytes)",
+            ),
+          );
         }
 
         completed = true;
@@ -236,7 +247,12 @@ class UpdateService {
           downloadedBytes = await partFile.length();
         }
         if (retryCount >= maxRetries) {
-          onError("Terjadi kesalahan saat mengunduh: $e");
+          onError(
+            AppLanguageService.tr(
+              en: "An error occurred while downloading: $e",
+              id: "Terjadi kesalahan saat mengunduh: $e",
+            ),
+          );
           return;
         }
         // Exponential backoff before retry (2s, 4s, 6s...)
@@ -266,10 +282,20 @@ class UpdateService {
       );
 
       if (result.type != ResultType.done) {
-        onError("Pemasangan APK: ${result.message}");
+        onError(
+          AppLanguageService.tr(
+            en: "APK Installation: ${result.message}",
+            id: "Pemasangan APK: ${result.message}",
+          ),
+        );
       }
     } catch (e) {
-      onError("Gagal membuka file instalasi: $e");
+      onError(
+        AppLanguageService.tr(
+          en: "Failed to open installation file: $e",
+          id: "Gagal membuka file instalasi: $e",
+        ),
+      );
     }
   }
 }
