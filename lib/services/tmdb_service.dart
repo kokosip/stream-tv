@@ -1,5 +1,26 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+
+class StreamingPlatformInfo {
+  final String id;
+  final String name;
+  final int providerId;
+  final int? networkId;
+  final Color primaryColor;
+  final String iconEmoji;
+  final String badgeText;
+
+  const StreamingPlatformInfo({
+    required this.id,
+    required this.name,
+    required this.providerId,
+    this.networkId,
+    required this.primaryColor,
+    required this.iconEmoji,
+    required this.badgeText,
+  });
+}
 
 class TmdbService {
   static final TmdbService _instance = TmdbService._internal();
@@ -96,16 +117,132 @@ class TmdbService {
     }
   }
 
-  /// Get Popular Movies
-  Future<List<Map<String, dynamic>>> getPopularMovies({int page = 1}) async {
+  /// Supported OTT / Streaming Platforms
+  static const List<StreamingPlatformInfo> supportedPlatforms = [
+    StreamingPlatformInfo(
+      id: 'netflix',
+      name: 'Netflix',
+      providerId: 8,
+      networkId: 213,
+      primaryColor: Color(0xFFE50914),
+      iconEmoji: '🍿',
+      badgeText: 'NETFLIX',
+    ),
+    StreamingPlatformInfo(
+      id: 'disney',
+      name: 'Disney+',
+      providerId: 122,
+      networkId: 2739,
+      primaryColor: Color(0xFF113CCF),
+      iconEmoji: '✨',
+      badgeText: 'DISNEY+',
+    ),
+    StreamingPlatformInfo(
+      id: 'prime',
+      name: 'Prime Video',
+      providerId: 119,
+      networkId: 1024,
+      primaryColor: Color(0xFF00A8E1),
+      iconEmoji: '🎬',
+      badgeText: 'PRIME',
+    ),
+    StreamingPlatformInfo(
+      id: 'apple',
+      name: 'Apple TV+',
+      providerId: 350,
+      networkId: 2552,
+      primaryColor: Color(0xFF555555),
+      iconEmoji: '🍏',
+      badgeText: 'APPLE TV+',
+    ),
+    StreamingPlatformInfo(
+      id: 'hbo',
+      name: 'HBO Max',
+      providerId: 1899,
+      networkId: 49,
+      primaryColor: Color(0xFF702082),
+      iconEmoji: '👑',
+      badgeText: 'MAX',
+    ),
+    StreamingPlatformInfo(
+      id: 'viu',
+      name: 'Viu',
+      providerId: 158,
+      primaryColor: Color(0xFFFFB800),
+      iconEmoji: '🌸',
+      badgeText: 'VIU',
+    ),
+  ];
+
+  /// Discover movies on a specific streaming platform
+  Future<List<Map<String, dynamic>>> getMoviesByProvider({
+    required int providerId,
+    int page = 1,
+    String region = "ID",
+  }) async {
     try {
-      final res = await _get("/movie/popular", params: {
+      final res = await _get("/discover/movie", params: {
+        "with_watch_providers": providerId.toString(),
+        "watch_region": region,
+        "sort_by": "popularity.desc",
         "page": page.toString(),
       });
       final results = (res['results'] as List? ?? []);
       return results.map((item) => normalizeItem(item as Map<String, dynamic>, mediaType: 'movie')).toList();
     } catch (e) {
       return [];
+    }
+  }
+
+  /// Discover TV Shows on a specific streaming platform
+  Future<List<Map<String, dynamic>>> getTvByProvider({
+    required int providerId,
+    int? networkId,
+    int page = 1,
+    String region = "ID",
+  }) async {
+    try {
+      final params = <String, String>{
+        "sort_by": "popularity.desc",
+        "page": page.toString(),
+      };
+      if (networkId != null) {
+        params["with_networks"] = networkId.toString();
+      } else {
+        params["with_watch_providers"] = providerId.toString();
+        params["watch_region"] = region;
+      }
+      final res = await _get("/discover/tv", params: params);
+      final results = (res['results'] as List? ?? []);
+      return results.map((item) => normalizeItem(item as Map<String, dynamic>, mediaType: 'tv')).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// Discover all (Movies + TV) on a platform
+  Future<List<Map<String, dynamic>>> getByPlatform({
+    required StreamingPlatformInfo platform,
+    String type = 'all', // 'all', 'movie', 'tv'
+    int page = 1,
+  }) async {
+    if (type == 'movie') {
+      return getMoviesByProvider(providerId: platform.providerId, page: page);
+    } else if (type == 'tv') {
+      return getTvByProvider(providerId: platform.providerId, networkId: platform.networkId, page: page);
+    } else {
+      final moviesFuture = getMoviesByProvider(providerId: platform.providerId, page: page);
+      final tvFuture = getTvByProvider(providerId: platform.providerId, networkId: platform.networkId, page: page);
+      final results = await Future.wait([moviesFuture, tvFuture]);
+      final List<Map<String, dynamic>> combined = [];
+      final movies = results[0];
+      final tv = results[1];
+      final maxLen = movies.length > tv.length ? movies.length : tv.length;
+      for (int i = 0; i < maxLen; i++) {
+        if (i < movies.length) combined.add(movies[i]);
+        if (i < tv.length) combined.add(tv[i]);
+      }
+      return combined;
     }
   }
 

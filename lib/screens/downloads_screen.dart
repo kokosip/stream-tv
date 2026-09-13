@@ -31,6 +31,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   void _playOffline(DownloadItem item) {
     if (!File(item.filePath).existsSync()) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -40,7 +41,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
             ),
             style: GoogleFonts.outfit(),
           ),
-          backgroundColor: Colors.redAccent,
+          backgroundColor: Colors.redAccent.shade700,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
@@ -111,6 +113,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     if (confirmed == true && mounted) {
       await _downloadService.deleteDownload(item.id);
       if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -121,6 +124,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
               style: GoogleFonts.outfit(),
             ),
             backgroundColor: const Color(0xFF222222),
+            behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 2),
           ),
         );
@@ -351,12 +355,16 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                         ),
                       ],
                       const SizedBox(width: 8),
-                      Text(
-                        isPaused ? "Dijeda" : DownloadService.formatSpeed(speed),
-                        style: GoogleFonts.outfit(
-                          color: isPaused ? Colors.amberAccent : Colors.greenAccent,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+                      Expanded(
+                        child: Text(
+                          isPaused ? "Dijeda" : DownloadService.formatSpeed(speed),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.outfit(
+                            color: isPaused ? Colors.amberAccent : Colors.greenAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],
@@ -381,10 +389,15 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        "${DownloadService.formatBytes(item.downloadedBytes)} / ${item.totalBytes > 0 ? DownloadService.formatBytes(item.totalBytes) : '...'}",
-                        style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 11),
+                      Flexible(
+                        child: Text(
+                          "${DownloadService.formatBytes(item.downloadedBytes)} / ${item.totalBytes > 0 ? DownloadService.formatBytes(item.totalBytes) : '...'}",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 11),
+                        ),
                       ),
+                      const SizedBox(width: 6),
                       Text(
                         "${(item.progress * 100).toStringAsFixed(1)}%",
                         style: GoogleFonts.outfit(
@@ -511,18 +524,22 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                           ),
                         ),
                         if (item.isTvShow) ...[
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
                           Text(
                             "S${item.season}:E${item.episode}",
-                            style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 12, fontWeight: FontWeight.w600),
+                            style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 11, fontWeight: FontWeight.w600),
                           ),
                         ],
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 8),
                         const Icon(Icons.sd_storage_outlined, size: 12, color: Colors.grey),
                         const SizedBox(width: 3),
-                        Text(
-                          DownloadService.formatBytes(item.totalBytes > 0 ? item.totalBytes : item.downloadedBytes),
-                          style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 11, fontWeight: FontWeight.w500),
+                        Flexible(
+                          child: Text(
+                            DownloadService.formatBytes(item.totalBytes > 0 ? item.totalBytes : item.downloadedBytes),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 11, fontWeight: FontWeight.w500),
+                          ),
                         ),
                       ],
                     ),
@@ -531,23 +548,27 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                       children: [
                         const Icon(Icons.offline_pin_rounded, color: Colors.greenAccent, size: 14),
                         const SizedBox(width: 5),
-                        Text(
-                          AppLanguageService.tr(en: "Ready for Offline Playback", id: "Tersimpan untuk Ditonton Offline"),
-                          style: GoogleFonts.outfit(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.w600),
+                        Expanded(
+                          child: Text(
+                            AppLanguageService.tr(en: "Ready for Offline", id: "Siap Ditonton Offline"),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.outfit(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.w600),
+                          ),
                         ),
                       ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
 
               // Play & Delete Buttons
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
                         colors: [Color(0xFFE50914), Color(0xFFB81D24)],
@@ -557,26 +578,26 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+                        const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 18),
                         const SizedBox(width: 4),
                         Text(
                           AppLanguageService.tr(en: "Play", id: "Putar"),
-                          style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   TvFocusableCard(
                     onTap: () => _confirmDelete(item),
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
-                      padding: const EdgeInsets.all(10),
+                      padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: const Color(0xFF222222),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                      child: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 18),
                     ),
                   ),
                 ],

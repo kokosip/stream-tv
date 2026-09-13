@@ -36,6 +36,13 @@ class MovieBoxTvApp extends StatelessWidget {
               primary: Colors.redAccent.shade700,
               surface: const Color(0xFF1E1E1E),
             ),
+            snackBarTheme: SnackBarThemeData(
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: const Color(0xFF1E1E1E),
+              contentTextStyle: GoogleFonts.outfit(color: Colors.white, fontSize: 13),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 8,
+            ),
             textTheme: GoogleFonts.outfitTextTheme(ThemeData.dark().textTheme),
           ),
           home: const HomeScreen(),

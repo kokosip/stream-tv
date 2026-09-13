@@ -2207,6 +2207,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                   );
 
                                   if (mounted) {
+                                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                         content: Text(
@@ -2217,7 +2218,8 @@ class _DetailScreenState extends State<DetailScreen> {
                                           style: GoogleFonts.outfit(),
                                         ),
                                         backgroundColor: const Color(0xFF1E1E1E),
-                                        duration: const Duration(seconds: 3),
+                                        behavior: SnackBarBehavior.floating,
+                                        duration: const Duration(seconds: 2),
                                       ),
                                     );
                                   }
@@ -2446,125 +2448,135 @@ class _DetailScreenState extends State<DetailScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  ...sortedResolutions.map((res) {
-                    final streamData = bestPerRes[res];
-                    final rawSize = int.tryParse(streamData['size']?.toString() ?? '0') ?? 0;
-                    final sizeFormatted = rawSize > 0 ? DownloadService.formatBytes(rawSize) : "";
-                    final isRecommended = res == 720;
-                    final label = res >= 1080 ? "Full HD" : (res == 720 ? "HD" : "SD");
+                  Flexible(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: sortedResolutions.map((res) {
+                          final streamData = bestPerRes[res];
+                          final rawSize = int.tryParse(streamData['size']?.toString() ?? '0') ?? 0;
+                          final sizeFormatted = rawSize > 0 ? DownloadService.formatBytes(rawSize) : "";
+                          final isRecommended = res == 720;
+                          final label = res >= 1080 ? "Full HD" : (res == 720 ? "HD" : "SD");
 
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10.0),
-                      child: TvFocusableCard(
-                        onTap: () async {
-                          Navigator.pop(dialogCtx);
-                          final streamUrl = streamData['resourceLink'] ?? streamData['resource_link'] ?? "";
-                          if (streamUrl.isEmpty) return;
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10.0),
+                            child: TvFocusableCard(
+                              onTap: () async {
+                                Navigator.pop(dialogCtx);
+                                final streamUrl = streamData['resourceLink'] ?? streamData['resource_link'] ?? "";
+                                if (streamUrl.isEmpty) return;
 
-                          await _downloadService.startDownload(
-                            id: dId,
-                            title: itemTitle,
-                            coverUrl: coverUrl,
-                            streamUrl: streamUrl,
-                            quality: "${res}p",
-                            provider: 'moviebox',
-                            season: se,
-                            episode: ep,
-                          );
+                                await _downloadService.startDownload(
+                                  id: dId,
+                                  title: itemTitle,
+                                  coverUrl: coverUrl,
+                                  streamUrl: streamUrl,
+                                  quality: "${res}p",
+                                  provider: 'moviebox',
+                                  season: se,
+                                  episode: ep,
+                                );
 
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  AppLanguageService.tr(
-                                    en: "Download started (${res}p)! Track progress in Downloads tab.",
-                                    id: "Unduhan dimulai (${res}p)! Cek progres di tab Unduhan.",
-                                  ),
-                                  style: GoogleFonts.outfit(),
-                                ),
-                                backgroundColor: const Color(0xFF1E1E1E),
-                                duration: const Duration(seconds: 3),
-                              ),
-                            );
-                          }
-                        },
-                        borderRadius: BorderRadius.circular(12),
-                        scaleFactor: 1.02,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1E1E1E),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isRecommended ? Colors.tealAccent.withValues(alpha: 0.6) : const Color(0xFF333333),
-                              width: isRecommended ? 1.5 : 1.0,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: res >= 1080
-                                      ? Colors.blue.shade900.withValues(alpha: 0.6)
-                                      : (res == 720
-                                          ? Colors.teal.shade900.withValues(alpha: 0.6)
-                                          : Colors.grey.shade800),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  "${res}p",
-                                  style: GoogleFonts.outfit(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Text(
-                                          "${res}p $label",
-                                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        AppLanguageService.tr(
+                                          en: "Download started (${res}p)! Track progress in Downloads tab.",
+                                          id: "Unduhan dimulai (${res}p)! Cek progres di tab Unduhan.",
                                         ),
-                                        if (isRecommended) ...[
-                                          const SizedBox(width: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: Colors.teal.shade900.withValues(alpha: 0.7),
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              AppLanguageService.tr(en: "Best for TV", id: "Hemat Memori TV"),
-                                              style: GoogleFonts.outfit(color: Colors.tealAccent, fontSize: 9, fontWeight: FontWeight.bold),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                    if (sizeFormatted.isNotEmpty) ...[
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        "Ukuran file: ~$sizeFormatted",
-                                        style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 11),
+                                        style: GoogleFonts.outfit(),
                                       ),
-                                    ],
+                                      backgroundColor: const Color(0xFF1E1E1E),
+                                      behavior: SnackBarBehavior.floating,
+                                      duration: const Duration(seconds: 2),
+                                    ),
+                                  );
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              scaleFactor: 1.02,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1E1E1E),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: isRecommended ? Colors.tealAccent.withValues(alpha: 0.6) : const Color(0xFF333333),
+                                    width: isRecommended ? 1.5 : 1.0,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: res >= 1080
+                                            ? Colors.blue.shade900.withValues(alpha: 0.6)
+                                            : (res == 720
+                                                ? Colors.teal.shade900.withValues(alpha: 0.6)
+                                                : Colors.grey.shade800),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        "${res}p",
+                                        style: GoogleFonts.outfit(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Text(
+                                                "${res}p $label",
+                                                style: GoogleFonts.outfit(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                                              ),
+                                              if (isRecommended) ...[
+                                                const SizedBox(width: 8),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.teal.shade900.withValues(alpha: 0.7),
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    AppLanguageService.tr(en: "Best for TV", id: "Hemat Memori TV"),
+                                                    style: GoogleFonts.outfit(color: Colors.tealAccent, fontSize: 9, fontWeight: FontWeight.bold),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                          if (sizeFormatted.isNotEmpty) ...[
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              "Ukuran file: ~$sizeFormatted",
+                                              style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 11),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    const Icon(Icons.download_rounded, color: Colors.redAccent, size: 24),
                                   ],
                                 ),
                               ),
-                              const Icon(Icons.download_rounded, color: Colors.redAccent, size: 24),
-                            ],
-                          ),
-                        ),
+                            ),
+                          );
+                        }).toList(),
                       ),
-                    );
-                  }),
+                    ),
+                  ),
                 ],
               ),
             ),

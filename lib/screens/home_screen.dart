@@ -17,6 +17,7 @@ import '../widgets/tv_pin_pad_dialog.dart';
 import 'detail_screen.dart';
 import 'live_tv_screen.dart';
 import 'downloads_screen.dart';
+import 'provider_catalog_screen.dart';
 import '../services/download_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/update_service.dart';
@@ -260,6 +261,12 @@ class _HomeScreenState extends State<HomeScreen> {
           print("MovieBox homepage fetch error: $e");
           return <String, dynamic>{};
         }),
+        _tmdb.getMoviesByProvider(providerId: 8).catchError((e) {
+          return <Map<String, dynamic>>[];
+        }),
+        _tmdb.getMoviesByProvider(providerId: 122).catchError((e) {
+          return <Map<String, dynamic>>[];
+        }),
       ]);
 
       final List<Map<String, dynamic>> nowPlaying = responses[0] as List<Map<String, dynamic>>;
@@ -268,6 +275,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final Map<String, dynamic> resSearch = responses[3] as Map<String, dynamic>;
       final Map<String, dynamic> res4k = responses[4] as Map<String, dynamic>;
       final Map<String, dynamic> resHome = responses[5] as Map<String, dynamic>;
+      final List<Map<String, dynamic>> netflixMovies = responses.length > 6 ? (responses[6] as List<Map<String, dynamic>>) : [];
+      final List<Map<String, dynamic>> disneyMovies = responses.length > 7 ? (responses[7] as List<Map<String, dynamic>>) : [];
 
       final List<dynamic> searchItems = resSearch['items'] ?? [];
       final List<dynamic> fourkSections = res4k['items'] ?? [];
@@ -315,7 +324,9 @@ class _HomeScreenState extends State<HomeScreen> {
         // Row 1: Now Playing in Cinemas (TMDB)
         if (nowPlaying.isNotEmpty) {
           assembledSections.add({
-            "title": "🔥 Sedang Tayang di Bioskop (Now Playing)",
+            "titleEn": "🔥 In Theatres (Now Playing)",
+            "titleId": "🔥 Sedang Tayang di Bioskop",
+            "title": AppLanguageService.tr(en: "🔥 In Theatres (Now Playing)", id: "🔥 Sedang Tayang di Bioskop"),
             "subjects": nowPlaying,
           });
         }
@@ -323,7 +334,9 @@ class _HomeScreenState extends State<HomeScreen> {
         // Row 2: Trending Movies Today (TMDB)
         if (trendingMovies.isNotEmpty) {
           assembledSections.add({
-            "title": "⭐ Film Populer Hari Ini (TMDB)",
+            "titleEn": "⭐ Trending Movies Today",
+            "titleId": "⭐ Film Populer Hari Ini",
+            "title": AppLanguageService.tr(en: "⭐ Trending Movies Today", id: "⭐ Film Populer Hari Ini"),
             "subjects": trendingMovies,
           });
         }
@@ -331,7 +344,9 @@ class _HomeScreenState extends State<HomeScreen> {
         // Row 3: Trending TV Series (TMDB)
         if (trendingTv.isNotEmpty) {
           assembledSections.add({
-            "title": "📺 Serial TV Populer (TMDB)",
+            "titleEn": "📺 Popular TV Shows",
+            "titleId": "📺 Serial TV Populer",
+            "title": AppLanguageService.tr(en: "📺 Popular TV Shows", id: "📺 Serial TV Populer"),
             "subjects": trendingTv,
           });
         }
@@ -347,15 +362,37 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }
 
-        // Row 5: Indonesian Movies
+        // Row 5: Netflix Top Picks
+        if (netflixMovies.isNotEmpty) {
+          assembledSections.add({
+            "titleEn": "🍿 Netflix Top Picks",
+            "titleId": "🍿 Pilihan Populer Netflix",
+            "title": AppLanguageService.tr(en: "🍿 Netflix Top Picks", id: "🍿 Pilihan Populer Netflix"),
+            "subjects": netflixMovies,
+          });
+        }
+
+        // Row 6: Disney+ Highlights
+        if (disneyMovies.isNotEmpty) {
+          assembledSections.add({
+            "titleEn": "✨ Disney+ Highlights",
+            "titleId": "✨ Pilihan Populer Disney+",
+            "title": AppLanguageService.tr(en: "✨ Disney+ Highlights", id: "✨ Pilihan Populer Disney+"),
+            "subjects": disneyMovies,
+          });
+        }
+
+        // Row 7: Indonesian Movies
         if (searchItems.isNotEmpty) {
           assembledSections.add({
-            "title": "🇮🇩 Film Indonesia",
+            "titleEn": "🇮🇩 Indonesian Movies",
+            "titleId": "🇮🇩 Film Indonesia",
+            "title": AppLanguageService.tr(en: "🇮🇩 Indonesian Movies", id: "🇮🇩 Film Indonesia"),
             "subjects": searchItems,
           });
         }
 
-        // Row 6+: Classic MovieBox Category Rows
+        // Row 8+: Classic MovieBox Category Rows
         final subjectsSections = rawHomeItems.where((item) => item['type'] == 'SUBJECTS_MOVIE').toList();
         assembledSections.addAll(subjectsSections);
 
@@ -368,10 +405,19 @@ class _HomeScreenState extends State<HomeScreen> {
       print("Home Catalog Error: $e");
       setState(() {
         _errorMessage = e is RateLimitException
-            ? "Server membatasi request (Rate Limited). Silakan coba beberapa saat lagi."
+            ? AppLanguageService.tr(
+                en: "Server rate limited. Please try again in a few moments.",
+                id: "Server membatasi request (Rate Limited). Silakan coba beberapa saat lagi.",
+              )
             : e is NetworkConnectionException
-                ? "Koneksi jaringan gagal. Periksa koneksi internet Anda."
-                : "Gagal memuat katalog. Silakan periksa jaringan.";
+                ? AppLanguageService.tr(
+                    en: "Network connection failed. Please check your internet connection.",
+                    id: "Koneksi jaringan gagal. Periksa koneksi internet Anda.",
+                  )
+                : AppLanguageService.tr(
+                    en: "Failed to load catalog. Please check your network.",
+                    id: "Gagal memuat katalog. Silakan periksa jaringan.",
+                  );
       });
     } finally {
       // 4. Load favorites and recent progress
@@ -1402,6 +1448,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (selected != null && selected != currentLang) {
       await AppLanguageService.setLanguage(selected);
       setState(() {});
+      _loadAllHomeData();
     }
   }
 
@@ -1465,40 +1512,55 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final isTv = size.width > 800 && size.height > 500;
-    final isShortScreen = size.height < 480;
+    return ValueListenableBuilder<String>(
+      valueListenable: AppLanguageService.currentLanguage,
+      builder: (context, currentLanguageCode, _) {
+        final size = MediaQuery.of(context).size;
+        final isTv = size.width > 800 && size.height > 500;
+        final isShortScreen = size.height < 480;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
-      body: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: isTv ? 24.0 : (isShortScreen ? 12.0 : 16.0), 
-            vertical: isShortScreen ? 4.0 : 8.0,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 1. Header (Logo & Remote action icons)
-              if (!isShortScreen) ...[
-                _buildHeader(isTv),
-                const SizedBox(height: 8),
-              ],
-
-              // 2. Active tab content body
-              Expanded(
-                child: ClipRect(
-                  child: _buildActiveTabBody(isTv),
-                ),
+        return Scaffold(
+          backgroundColor: const Color(0xFF0A0A0A),
+          body: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: isTv ? 24.0 : (isShortScreen ? 12.0 : 16.0),
+                right: isTv ? 24.0 : (isShortScreen ? 12.0 : 16.0),
+                top: isShortScreen ? 4.0 : 8.0,
+                bottom: 0,
               ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 1. Header (Logo & Remote action icons)
+                  if (!isShortScreen) ...[
+                    _buildHeader(isTv),
+                    const SizedBox(height: 8),
+                  ],
 
-              // 3. Premium TV & Mobile Bottom Navigation Bar
-              _buildBottomNavBar(isTv),
-            ],
+                  // 2. Active tab content body
+                  Expanded(
+                    child: ClipRect(
+                      child: _buildActiveTabBody(isTv),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
+          bottomNavigationBar: SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: isTv ? 24.0 : (isShortScreen ? 12.0 : 16.0),
+                vertical: isShortScreen ? 2.0 : 4.0,
+              ),
+              child: _buildBottomNavBar(isTv),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -2465,7 +2527,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         return Container(
           width: double.infinity,
-          margin: const EdgeInsets.only(top: 8, bottom: 4),
+          margin: EdgeInsets.zero,
           padding: EdgeInsets.symmetric(horizontal: isTv ? 16 : 8, vertical: isTv ? 6 : 4),
           decoration: BoxDecoration(
             color: const Color(0xFF141414),
@@ -2936,23 +2998,35 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             // 1. Featured Spotlight Banner (at top)
             _buildSpotlightBanner(isTv),
+            const SizedBox(height: 20),
+
+            // 2. Streaming Platforms Shortcut Bar
+            _buildStreamingPlatformsRow(isTv),
             const SizedBox(height: 24),
 
-            // 2. Lanjutkan Nonton Section
+            // 3. Lanjutkan Nonton Section
             if (_recentPlays.isNotEmpty) ...[
               _buildContinueWatchingSection(isTv),
               const SizedBox(height: 24),
             ],
 
-            // 3. Favorites Section
+            // 4. Favorites Section
             if (_favorites.isNotEmpty) ...[
               _buildFavoritesSection(isTv),
               const SizedBox(height: 24),
             ],
 
-            // 4. Dynamic Category Rows
+            // 5. Dynamic Category Rows
             ..._homeItems.map((section) {
-              final title = section['title'] ?? "Trending";
+              final String title;
+              if (section is Map && section['titleEn'] != null && section['titleId'] != null) {
+                title = AppLanguageService.tr(
+                  en: section['titleEn'].toString(),
+                  id: section['titleId'].toString(),
+                );
+              } else {
+                title = section['title'] ?? "Trending";
+              }
               final List<dynamic> subjects = section['subjects'] ?? [];
               return _buildCategoryRow(title, subjects, isTv);
             }),
@@ -3081,6 +3155,140 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildStreamingPlatformsRow(bool isTv) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+          child: Row(
+            children: [
+              const Icon(Icons.tv_rounded, color: Colors.cyanAccent, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                AppLanguageService.tr(
+                  en: "Streaming Platforms",
+                  id: "Platform Streaming",
+                ),
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                AppLanguageService.tr(
+                  en: "Explore All →",
+                  id: "Jelajahi →",
+                ),
+                style: GoogleFonts.outfit(
+                  color: Colors.grey.shade400,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: isTv ? 90 : 76,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: TmdbService.supportedPlatforms.length,
+            itemBuilder: (context, index) {
+              final platform = TmdbService.supportedPlatforms[index];
+              return Padding(
+                padding: const EdgeInsets.only(right: 12.0),
+                child: TvFocusableCard(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ProviderCatalogScreen(initialPlatform: platform),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  scaleFactor: 1.06,
+                  child: Container(
+                    width: isTv ? 160 : 130,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          platform.primaryColor.withValues(alpha: 0.35),
+                          const Color(0xFF161616),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: platform.primaryColor.withValues(alpha: 0.5),
+                        width: 1.2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: platform.primaryColor.withValues(alpha: 0.15),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              platform.iconEmoji,
+                              style: TextStyle(fontSize: isTv ? 22 : 18),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: platform.primaryColor.withValues(alpha: 0.25),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                platform.badgeText,
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white,
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          platform.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: isTv ? 14 : 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
