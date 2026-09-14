@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/iptv_service.dart';
+import '../services/analytics_service.dart';
 import '../widgets/tv_focusable_card.dart';
 
 class LiveTvPlayerScreen extends StatefulWidget {
@@ -122,6 +123,12 @@ class _LiveTvPlayerScreenState extends State<LiveTvPlayerScreen> {
     try {
       final channel = _currentChannel;
       final headers = channel.httpHeaders ?? {};
+
+      AnalyticsService.logPlayContent(
+        title: channel.name,
+        contentType: 'iptv',
+        category: channel.groupTitle,
+      );
 
       await _player.open(
         Media(

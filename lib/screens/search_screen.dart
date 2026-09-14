@@ -6,6 +6,7 @@ import '../services/moviebox_api_service.dart';
 import '../services/fourkhdhub_service.dart';
 import '../services/app_language_service.dart';
 import '../services/search_history_service.dart';
+import '../services/analytics_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import 'detail_screen.dart';
 
@@ -165,6 +166,8 @@ class _SearchScreenState extends State<SearchScreen> {
   void _performSearch() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) return;
+
+    AnalyticsService.logSearch(query);
 
     SearchHistoryService.addSearchQuery(query);
     _loadSearchHistory();

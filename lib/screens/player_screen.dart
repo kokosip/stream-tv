@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 import '../widgets/tv_focusable_card.dart';
 import '../services/playback_progress_service.dart';
 import '../services/app_language_service.dart';
+import '../services/analytics_service.dart';
 
 class PlayerSwitchAudioResult {
   final String streamUrl;
@@ -268,6 +269,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _playPauseFocusNode.requestFocus();
     });
+
+    // Track playback event in Analytics
+    final String contentType = (widget.subjectType == 2 || widget.episode > 0) ? 'series' : 'movie';
+    AnalyticsService.logPlayContent(
+      title: widget.title,
+      contentType: contentType,
+      episode: widget.episode > 0 ? 'S${widget.season}E${widget.episode}' : null,
+    );
 
     _currentTitle = widget.title;
     _currentSeason = widget.season;

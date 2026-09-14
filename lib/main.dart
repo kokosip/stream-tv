@@ -1,11 +1,31 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'services/app_language_service.dart';
+import 'services/analytics_service.dart';
 import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase
+  try {
+    await Firebase.initializeApp();
+
+    // Pass all uncaught fatal errors from Flutter framework to Crashlytics
+    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+
+    // Pass all uncaught asynchronous errors to Crashlytics
+    PlatformDispatcher.instance.onError = (error, stack) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      return true;
+    };
+  } catch (e) {
+    debugPrint('Firebase initialization failed: $e');
+  }
   
   // Restrict Flutter imageCache size to prevent Android TV Low Memory (OOM) killer crashes
   PaintingBinding.instance.imageCache.maximumSizeBytes = 40 * 1024 * 1024;
@@ -27,6 +47,9 @@ class MovieBoxTvApp extends StatelessWidget {
         return MaterialApp(
           title: 'MovieBox TV',
           debugShowCheckedModeBanner: false,
+          navigatorObservers: [
+            AnalyticsService.observer,
+          ],
           locale: Locale(langCode),
           theme: ThemeData(
             brightness: Brightness.dark,
