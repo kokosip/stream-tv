@@ -864,7 +864,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
       final bestStream = finalStreams.first;
       final String streamUrl = bestStream['resourceLink'] ?? bestStream['resource_link'] ?? '';
-      final String resourceId = bestStream['resourceId'] ?? bestStream['resource_id'] ?? '';
+      final String resourceId = bestStream['resourceId']?.toString() ?? bestStream['resource_id']?.toString() ?? '';
       if (streamUrl.isEmpty) return null;
 
       final List<String> siblingIds = [widget.subjectId];
@@ -1040,7 +1040,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
       final bestStream = filteredList.first;
       final String nextStreamUrl = bestStream['resourceLink'] ?? bestStream['resource_link'] ?? '';
-      final String nextResourceId = bestStream['resourceId'] ?? bestStream['resource_id'] ?? '';
+      final String nextResourceId = bestStream['resourceId']?.toString() ?? bestStream['resource_id']?.toString() ?? '';
       if (nextStreamUrl.isEmpty) return null;
 
       final List<String> siblingIds = [widget.subjectId];
@@ -1781,7 +1781,7 @@ class _DetailScreenState extends State<DetailScreen> {
     }
 
     final String streamUrl = stream['resourceLink'] ?? stream['resource_link'] ?? "";
-    final String resourceId = stream['resourceId'] ?? stream['resource_id'] ?? "";
+    final String resourceId = stream['resourceId']?.toString() ?? stream['resource_id']?.toString() ?? "";
 
     if (streamUrl.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(

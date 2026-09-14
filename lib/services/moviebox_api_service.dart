@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
@@ -33,6 +34,8 @@ class ApiException implements Exception {
 }
 
 class MovieBoxApiService {
+  static final Random _rng = Random();
+
   static const List<String> HOST_POOL = [
     "https://api6.aoneroom.com",
     "https://api5.aoneroom.com",
@@ -52,6 +55,81 @@ class MovieBoxApiService {
   // Token absorbed from the server dynamically
   String? _runtimeToken;
   Future<void>? _tokenFetchFuture;
+
+  late final String _userAgent;
+  late final String _clientInfo;
+  late final String _spoofedIp;
+
+  String get userAgent => _userAgent;
+  String get clientInfo => _clientInfo;
+  String get spoofedIp => _spoofedIp;
+
+  MovieBoxApiService() {
+    _initDeviceIdentity();
+  }
+
+  void _initDeviceIdentity() {
+    const androidVersions = [
+      ["9", "PQ3A.190605.03081104"],
+      ["10", "QP1A.191005.007.A3"],
+      ["11", "RP1A.200720.011"],
+      ["12", "S1B.220414.015"],
+      ["13", "TQ2A.230405.003"],
+    ];
+    const redmiDevices = [
+      ["23078RKD5C", "Redmi"],
+      ["2201117TY", "Redmi"],
+      ["2201117TG", "Redmi"],
+      ["22101316G", "Redmi"],
+      ["21121210G", "Redmi"],
+      ["M2012K11AG", "Redmi"],
+      ["M2007J20CG", "Redmi"],
+    ];
+    const versionCodes = [50020117, 50020118, 50020119, 50020120, 50020121];
+    const networkTypes = ["NETWORK_WIFI", "NETWORK_MOBILE"];
+    const timezones = [
+      "Asia/Kolkata",
+      "Asia/Shanghai",
+      "Asia/Tokyo",
+      "America/New_York",
+      "Europe/London",
+    ];
+
+    final android = androidVersions[_rng.nextInt(androidVersions.length)];
+    final device = redmiDevices[_rng.nextInt(redmiDevices.length)];
+    final versionCode = versionCodes[_rng.nextInt(versionCodes.length)];
+    final network = networkTypes[_rng.nextInt(networkTypes.length)];
+    final timezone = timezones[_rng.nextInt(timezones.length)];
+    final gaid = _randomUuid();
+    final deviceId = _randomHex(32);
+
+    _userAgent =
+        "com.community.oneroom/$versionCode (Linux; U; Android ${android[0]}; en_US; ${device[0]}; Build/${android[1]}; Cronet/135.0.7012.3)";
+
+    _clientInfo =
+        '{"package_name":"com.community.oneroom","version_name":"4.0.01.0813.03","version_code":$versionCode,"os":"android","os_version":"${android[0]}","install_ch":"ps","device_id":"$deviceId","install_store":"ps","gaid":"$gaid","brand":"${device[1]}","model":"${device[0]}","system_language":"en","net":"$network","region":"US","timezone":"$timezone","sp_code":"40401","X-Play-Mode":"2"}';
+
+    const ipPrefixes = [
+      "103.241", "49.36", "117.195", "106.198", "122.162", "157.32", "182.70", "103.58", "27.60", "59.90"
+    ];
+    final prefix = ipPrefixes[_rng.nextInt(ipPrefixes.length)];
+    final c = 1 + _rng.nextInt(253);
+    final d = 1 + _rng.nextInt(253);
+    _spoofedIp = "$prefix.$c.$d";
+  }
+
+  static String _randomHex(int len) {
+    const chars = '0123456789abcdef';
+    final sb = StringBuffer();
+    for (int i = 0; i < len; i++) {
+      sb.write(chars[_rng.nextInt(16)]);
+    }
+    return sb.toString();
+  }
+
+  static String _randomUuid() {
+    return "${_randomHex(8)}-${_randomHex(4)}-${_randomHex(4)}-${_randomHex(4)}-${_randomHex(12)}";
+  }
 
   void _absorbXUser(Map<String, String> headers) {
     String xUser = "";
@@ -168,7 +246,7 @@ class MovieBoxApiService {
   }
 
   /// Assemble final request headers
-  static Map<String, String> _buildSignedHeaders({
+  Map<String, String> _buildSignedHeaders({
     required String method,
     required String url,
     String accept = "application/json",
@@ -187,27 +265,26 @@ class MovieBoxApiService {
       timestampMs: ts,
     );
 
-    final userAgent = "com.community.oneroom/50020045 (Linux; U; Android 11; en_MG; Redmi 2201117TG; Build/RP1A.200720.011; Cronet/135.0.7012.3)";
-    final clientInfo = '{"package_name":"com.community.oneroom","version_name":"3.0.03.0529.03","version_code":50020045,"os":"android","os_version":"11","install_ch":"ps","device_id":"59bf891583d7f950ad0090886b510528","install_store":"ps","gaid":"f1b203a4-84c1-4b10-a29d-ee1e847c2311","brand":"Redmi","model":"2201117TG","system_language":"en","net":"NETWORK_WIFI","region":"MG","country":"MG","timezone":"Europe/Paris","sp_code":"64601","language":"en","locale":"en_MG","preferred_language":"en","X-Play-Mode":"2"}';
-
     final Map<String, String> headers = {
-      "User-Agent": userAgent,
+      "User-Agent": _userAgent,
       "Accept": accept,
       "Content-Type": contentType,
-      "Accept-Language": "en-MG,en;q=0.9,id;q=0.8,*;q=0.5",
-      "Accept-Country": "MG",
-      "Accept-Timezone": "Europe/Paris",
-      "X-Language": "en",
-      "X-Locale": "en-MG",
-      "X-Region": "MG",
-      "X-Country": "MG",
-      "x-language": "en",
-      "x-locale": "en-MG",
       "Connection": "keep-alive",
       "X-Client-Token": clientToken,
       "x-tr-signature": signature,
-      "X-Client-Info": clientInfo,
+      "X-Client-Info": _clientInfo,
+      "x-client-info": _clientInfo,
       "X-Client-Status": "0",
+      "x-client-status": "0",
+      "x-forwarded-for": _spoofedIp,
+      "X-Forwarded-For": _spoofedIp,
+      "Accept-Language": "en-US,en;q=0.9,id;q=0.8,*;q=0.5",
+      "X-Language": "en",
+      "x-language": "en",
+      "X-Locale": "en-US",
+      "x-locale": "en-US",
+      "X-Region": "US",
+      "X-Country": "US",
     };
 
     if (authToken != null) {
@@ -453,9 +530,12 @@ class MovieBoxApiService {
     int ep = 0,
     int resolution = 1080,
   }) async {
+    final queryParams = (se > 0 || ep > 0)
+        ? "subjectId=$subjectId&se=$se&ep=$ep&page=1&perPage=20${resolution > 0 ? '&resolution=$resolution' : ''}"
+        : "subjectId=$subjectId&page=1&perPage=20${resolution > 0 ? '&resolution=$resolution' : ''}";
     return _request(
       "GET",
-      "/wefeed-mobile-bff/subject-api/resource?subjectId=$subjectId&se=$se&ep=$ep&resolution=$resolution&page=1&perPage=20",
+      "/wefeed-mobile-bff/subject-api/resource?$queryParams",
     );
   }
 
@@ -544,12 +624,31 @@ class MovieBoxApiService {
         final siblingResults = await Future.wait(validSiblings.map((sibId) async {
           try {
             final resList = await getResources(subjectId: sibId, se: se, ep: ep, resolution: 1080);
-            final files = resList['list'] ?? [];
+            final files = resList['list'] ?? (resList['data'] is Map ? resList['data']['list'] : null) ?? [];
             if (files is List && files.isNotEmpty) {
-              final sibRid = files[0]['resourceId']?.toString() ?? files[0]['id']?.toString() ?? '';
-              if (sibRid.isNotEmpty) {
-                final sibSubs = await getExtCaptions(subjectId: sibId, resourceId: sibRid);
-                return sibSubs['extCaptions'] ?? (sibSubs['data'] is Map ? sibSubs['data']['extCaptions'] : null);
+              // Find matching episode or fallback to first
+              dynamic matchItem;
+              for (final f in files) {
+                if (f is Map) {
+                  final fSe = int.tryParse(f['se']?.toString() ?? '') ?? 0;
+                  final fEp = int.tryParse(f['ep']?.toString() ?? '') ?? 0;
+                  if (se == 0 && ep == 0) {
+                    matchItem = f;
+                    break;
+                  }
+                  if (fSe == se && fEp == ep) {
+                    matchItem = f;
+                    break;
+                  }
+                }
+              }
+              matchItem ??= files[0];
+              if (matchItem is Map) {
+                final sibRid = matchItem['resourceId']?.toString() ?? matchItem['id']?.toString() ?? '';
+                if (sibRid.isNotEmpty) {
+                  final sibSubs = await getExtCaptions(subjectId: sibId, resourceId: sibRid);
+                  return sibSubs['extCaptions'] ?? (sibSubs['data'] is Map ? sibSubs['data']['extCaptions'] : null);
+                }
               }
             }
           } catch (_) {}
