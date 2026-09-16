@@ -46,6 +46,8 @@ class MovieBoxApiService {
     "https://api.inmoviebox.com",
   ];
 
+  static const String STREAM_REFERER = "https://api.inmoviebox.com/";
+
   static const String SECRET_KEY_DEFAULT = "76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O";
   static const String SECRET_KEY_ALT = "Xqn2nnO41/L92o1iuXhSLHTbXvY4Z5ZZ62m8mSLA";
 
@@ -300,17 +302,36 @@ class MovieBoxApiService {
       return _tokenFetchFuture;
     }
     
-    print("No token found. Fetching token...");
+    print("No token found. Fetching token via visitor-login...");
     _tokenFetchFuture = () async {
+      // 1. Try visitor-login first (official guest session endpoint)
+      try {
+        final res = await _request(
+          "POST",
+          "/wefeed-mobile-bff/user-api/visitor-login",
+          body: {},
+        );
+        final data = res['data'] is Map ? res['data'] : res;
+        final token = data['token']?.toString();
+        if (token != null && token.isNotEmpty) {
+          _runtimeToken = token;
+          print("Obtained runtime token via visitor-login: $_runtimeToken");
+          return;
+        }
+      } catch (e) {
+        print("visitor-login error: $e, falling back to getHomepage");
+      }
+
+      // 2. Fallback: getHomepage to absorb from x-user
       try {
         await getHomepage(page: 1, tabId: 0);
-        print("Token fetched successfully: $_runtimeToken");
+        print("Token fetched successfully via getHomepage: $_runtimeToken");
       } catch (e) {
         print("Failed to fetch token: $e");
-      } finally {
-        _tokenFetchFuture = null;
       }
-    }();
+    }().whenComplete(() {
+      _tokenFetchFuture = null;
+    });
     return _tokenFetchFuture;
   }
 
@@ -320,7 +341,8 @@ class MovieBoxApiService {
     String pathAndQuery, {
     Map<String, dynamic>? body,
   }) async {
-    if (_runtimeToken == null && !pathAndQuery.contains("tab-operating")) {
+    final isAuthExempt = pathAndQuery.contains("tab-operating") || pathAndQuery.contains("visitor-login");
+    if (_runtimeToken == null && !isAuthExempt) {
       await _ensureToken();
     }
 
@@ -415,7 +437,7 @@ class MovieBoxApiService {
         } else {
           if (response.statusCode == 401 || response.statusCode == 403 || response.statusCode == 441) {
             _runtimeToken = null; // Clear token to force refresh
-            if (!pathAndQuery.contains("tab-operating")) {
+            if (!isAuthExempt) {
               print("Auth failed with ${response.statusCode}. Retrying with a new token...");
               await _ensureToken();
               if (_runtimeToken != null) {
@@ -485,6 +507,53 @@ class MovieBoxApiService {
     );
   }
 
+  /// Decode CloudFront-Policy from signed cookie string to obtain MPEG-DASH manifest URL
+  static String? resolveDashManifestFromPolicy(String signCookie) {
+    if (signCookie.isEmpty) return null;
+    for (final part in signCookie.split(';')) {
+      final trimmed = part.trim();
+      if (trimmed.startsWith('CloudFront-Policy=')) {
+        final raw = trimmed.substring('CloudFront-Policy='.length).trim();
+        String normalized = raw
+            .replaceAll('-', '+')
+            .replaceAll('_', '=')
+            .replaceAll('~', '/');
+        final pad = (4 - (normalized.length % 4)) % 4;
+        if (pad > 0) {
+          normalized += '=' * pad;
+        }
+        try {
+          final decodedBytes = base64.decode(normalized);
+          final jsonStr = utf8.decode(decodedBytes);
+          final data = jsonDecode(jsonStr);
+          final statements = data['Statement'] as List?;
+          if (statements != null && statements.isNotEmpty) {
+            final resource = statements[0]['Resource']?.toString() ?? '';
+            var clean = resource;
+            if (clean.endsWith('*')) clean = clean.substring(0, clean.length - 1);
+            if (clean.endsWith('/')) clean = clean.substring(0, clean.length - 1);
+            if (clean.startsWith('http://') || clean.startsWith('https://')) {
+              return '$clean/index.mpd';
+            }
+          }
+        } catch (_) {}
+      }
+    }
+    return null;
+  }
+
+  /// Check whether a given URL points to the deprecated version notification MP4 video
+  static bool isDeprecationNoticeUrl(String url) {
+    if (url.isEmpty) return false;
+    final lower = url.toLowerCase();
+    return lower.contains("1c7de0bd3393702d9191801f15f88f8d") ||
+           lower.contains("9a0461bc39da389663bf3dbb17091d3f") ||
+           lower.contains("b164fbfb4347792950bdfbfb563d39d9") ||
+           lower.contains("/notice.mp4") ||
+           lower.contains("notice") ||
+           (lower.contains("macdn.aoneroom.com") && lower.contains("/other/"));
+  }
+
   /// Search movies & TV shows
   Future<Map<String, dynamic>> search({
     required String query,
@@ -498,11 +567,19 @@ class MovieBoxApiService {
       "perPage": perPage,
       "subjectType": subjectType,
     };
-    return _request(
-      "POST",
-      "/wefeed-mobile-bff/subject-api/search",
-      body: payload,
-    );
+    try {
+      return await _request(
+        "POST",
+        "/wefeed-mobile-bff/subject-api/search/v2",
+        body: payload,
+      );
+    } catch (_) {
+      return _request(
+        "POST",
+        "/wefeed-mobile-bff/subject-api/search",
+        body: payload,
+      );
+    }
   }
 
   /// Get Details of a Movie/TV show
@@ -521,10 +598,20 @@ class MovieBoxApiService {
     );
   }
 
-  /// Get Streaming video resources (M3U8 / MP4 files)
-  /// For Movies: se = 0, ep = 0
-  /// For Series: pass actual se (season) and ep (episode)
-  Future<Map<String, dynamic>> getResources({
+  /// Get Playback Info (v2 API for MPEG-DASH streams with CloudFront signed cookies)
+  Future<Map<String, dynamic>> getPlayInfo({
+    required String subjectId,
+    int se = 0,
+    int ep = 0,
+  }) async {
+    final path = (se > 0 || ep > 0)
+        ? "/wefeed-mobile-bff/subject-api/play-info/v2?subjectId=$subjectId&se=$se&ep=$ep"
+        : "/wefeed-mobile-bff/subject-api/play-info/v2?subjectId=$subjectId";
+    return _request("GET", path);
+  }
+
+  /// Legacy raw resource endpoint (M3U8 / MP4 files)
+  Future<Map<String, dynamic>> _getRawResources({
     required String subjectId,
     int se = 0,
     int ep = 0,
@@ -537,6 +624,155 @@ class MovieBoxApiService {
       "GET",
       "/wefeed-mobile-bff/subject-api/resource?$queryParams",
     );
+  }
+
+  /// Get Streaming video resources (MPEG-DASH / MP4 files)
+  /// Prioritizes play-info/v2 DASH streams, decodes CloudFront signed policy,
+  /// attaches authentication headers, links resourceId for captions,
+  /// and automatically filters out deprecation notice videos.
+  Future<Map<String, dynamic>> getResources({
+    required String subjectId,
+    int se = 0,
+    int ep = 0,
+    int resolution = 1080,
+  }) async {
+    // 1. Fetch play-info/v2 and raw resources in parallel
+    final playInfoFuture = getPlayInfo(subjectId: subjectId, se: se, ep: ep)
+        .catchError((_) => <String, dynamic>{});
+    final rawResourceFuture = _getRawResources(
+      subjectId: subjectId,
+      se: se,
+      ep: ep,
+      resolution: resolution,
+    ).catchError((_) => <String, dynamic>{});
+
+    final results = await Future.wait([playInfoFuture, rawResourceFuture]);
+    final playInfo = results[0];
+    final rawRes = results[1];
+
+    // Grab raw resources list to extract matching resourceId (needed for captions)
+    final rawList = (rawRes['list'] ?? (rawRes['data'] is Map ? rawRes['data']['list'] : null) ?? []) as List<dynamic>;
+    String? matchedResourceId;
+    for (final item in rawList) {
+      if (item is Map) {
+        final itemSe = int.tryParse(item['se']?.toString() ?? '') ?? 0;
+        final itemEp = int.tryParse(item['ep']?.toString() ?? '') ?? 0;
+        if ((se == 0 && ep == 0) || (itemSe == se && itemEp == ep)) {
+          matchedResourceId = item['resourceId']?.toString() ?? item['id']?.toString();
+          if (matchedResourceId != null && matchedResourceId.isNotEmpty) break;
+        }
+      }
+    }
+    if (matchedResourceId == null && rawList.isNotEmpty && rawList.first is Map) {
+      matchedResourceId = rawList.first['resourceId']?.toString() ?? rawList.first['id']?.toString();
+    }
+
+    final playData = playInfo['data'] is Map ? playInfo['data'] as Map<String, dynamic> : playInfo;
+    final rawStreams = (playData['streams'] as List<dynamic>?) ?? [];
+    final List<Map<String, dynamic>> adaptedStreams = [];
+
+    for (final st in rawStreams) {
+      if (st is! Map) continue;
+      final signCookie = (st['signCookie'] ?? '').toString();
+      final streamUrl = (st['url'] ?? '').toString();
+
+      // Attempt DASH manifest extraction from signCookie
+      String? playableUrl = resolveDashManifestFromPolicy(signCookie);
+
+      // If no DASH manifest, fallback to direct streamUrl if not a notice video
+      if (playableUrl == null) {
+        if (!isDeprecationNoticeUrl(streamUrl) && streamUrl.startsWith('http')) {
+          playableUrl = streamUrl;
+        }
+      }
+
+      if (playableUrl == null) continue;
+
+      final isDash = playableUrl.endsWith('.mpd') || (st['format'] ?? '').toString().toUpperCase() == 'DASH';
+      final resStr = (st['resolutions'] ?? playData['displayResolutions'] ?? '1080,720,480').toString();
+      final resList = resStr
+          .split(',')
+          .map((s) => int.tryParse(s.trim()))
+          .whereType<int>()
+          .toList();
+      final maxRes = resList.isNotEmpty ? resList.reduce(max) : 1080;
+
+      final headers = <String, String>{
+        "User-Agent": _userAgent,
+        "Referer": STREAM_REFERER,
+      };
+      if (signCookie.isNotEmpty) {
+        headers["Cookie"] = signCookie.trim();
+      }
+
+      final streamId = st['id']?.toString() ?? matchedResourceId ?? '';
+      final codec = (st['codecName'] ?? st['codec'] ?? 'hevc').toString();
+      final title = (playData['title'] ?? 'MovieBox Stream').toString();
+
+      if (isDash && resList.length > 1) {
+        for (final r in resList) {
+          adaptedStreams.add({
+            'resourceId': streamId,
+            'resourceLink': playableUrl,
+            'resource_link': playableUrl,
+            'url': playableUrl,
+            'resolution': r,
+            'codecName': codec,
+            'codec_name': codec,
+            'format': 'DASH',
+            'size': st['size'] ?? 0,
+            'fileName': se > 0 && ep > 0
+                ? "$title S${se.toString().padLeft(2, '0')}E${ep.toString().padLeft(2, '0')} ${r}p $codec"
+                : "$title ${r}p $codec",
+            'headers': headers,
+            'signCookie': signCookie,
+            'se': se,
+            'ep': ep,
+          });
+        }
+      } else {
+        adaptedStreams.add({
+          'resourceId': streamId,
+          'resourceLink': playableUrl,
+          'resource_link': playableUrl,
+          'url': playableUrl,
+          'resolution': maxRes,
+          'codecName': codec,
+          'codec_name': codec,
+          'format': isDash ? 'DASH' : 'MP4',
+          'size': st['size'] ?? 0,
+          'fileName': se > 0 && ep > 0
+              ? "$title S${se.toString().padLeft(2, '0')}E${ep.toString().padLeft(2, '0')} ${maxRes}p $codec"
+              : "$title ${maxRes}p $codec",
+          'headers': headers,
+          'signCookie': signCookie,
+          'se': se,
+          'ep': ep,
+        });
+      }
+    }
+
+    if (adaptedStreams.isNotEmpty) {
+      return {
+        'code': 0,
+        'message': 'ok',
+        'list': adaptedStreams,
+        'data': {'list': adaptedStreams},
+      };
+    }
+
+    // Fallback: If play-info has no streams, return filtered legacy items (excluding notice URLs)
+    final filteredLegacy = rawList.where((item) {
+      if (item is! Map) return false;
+      final link = (item['resourceLink'] ?? item['resource_link'] ?? '').toString();
+      return !isDeprecationNoticeUrl(link);
+    }).toList();
+
+    return {
+      'code': 0,
+      'list': filteredLegacy,
+      'data': {'list': filteredLegacy},
+    };
   }
 
   /// Get Subtitles (external captions) for a selected resource

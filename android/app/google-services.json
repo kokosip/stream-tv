@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "183210826241",
+    "project_id": "moviebox-5fd76",
+    "storage_bucket": "moviebox-5fd76.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:183210826241:android:d4e3842a5242fc9e8c7e00",
+        "android_client_info": {
+          "package_name": "com.koko.moviebox_tv_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAHN9Tc3XHacW_8x6TwBX90fJcsGXxBQWc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

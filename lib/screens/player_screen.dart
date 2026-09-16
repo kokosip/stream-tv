@@ -196,6 +196,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final GlobalKey<PopupMenuButtonState<Color>> _colorPopupMenuKey = GlobalKey();
   final GlobalKey<PopupMenuButtonState<BoxFit>> _fitMenuKey = GlobalKey();
 
+  Map<String, String>? _extractStreamHeaders(Map<String, dynamic>? stream) {
+    if (stream == null) return null;
+    if (stream['headers'] is Map) {
+      final rawMap = stream['headers'] as Map;
+      return rawMap.map((k, v) => MapEntry(k.toString(), v.toString()));
+    }
+    final signCookie = stream['signCookie']?.toString();
+    if (signCookie != null && signCookie.isNotEmpty) {
+      return {
+        'User-Agent': 'com.community.oneroom/50020118 (Linux; U; Android 12; en_US; Redmi 2201117TG; Build/S1B.220414.015; Cronet/135.0.7012.3)',
+        'Referer': 'https://api.inmoviebox.com/',
+        'Cookie': signCookie.trim(),
+      };
+    }
+    return null;
+  }
+
   void _enterPipMode() async {
     try {
       await _pipChannel.invokeMethod('enterPip');
@@ -437,7 +454,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
 
       // Open media and start playback
-      await _player.open(Media(widget.streamUrl));
+      final headers = _extractStreamHeaders(_currentStream ?? widget.currentStream);
+      await _player.open(Media(widget.streamUrl, httpHeaders: headers));
     } catch (e) {
       _showErrorDialog("Failed to initialize video player: $e");
     }
@@ -1430,7 +1448,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
         });
         _setupSubtitles(res.captions);
-        await _player.open(Media(res.streamUrl));
+        final headers = _extractStreamHeaders(res.currentStream ?? _currentStream);
+        await _player.open(Media(res.streamUrl, httpHeaders: headers));
         await _player.seek(currentPos);
       }
     } catch (e) {
@@ -1463,7 +1482,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         setState(() {
           _currentStream = stream;
         });
-        await _player.open(Media(newUrl));
+        final headers = _extractStreamHeaders(stream);
+        await _player.open(Media(newUrl, httpHeaders: headers));
         await _player.seek(currentPos);
       }
     } catch (e) {
@@ -1509,7 +1529,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         });
 
         _setupSubtitles(nextData.captions);
-        await _player.open(Media(nextData.streamUrl));
+        final headers = _extractStreamHeaders(nextData.currentStream ?? _currentStream);
+        await _player.open(Media(nextData.streamUrl, httpHeaders: headers));
         _startHideTimer();
       }
     } catch (e) {
@@ -1718,7 +1739,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
           });
 
           _setupSubtitles(nextData.captions);
-          await _player.open(Media(nextData.streamUrl));
+          final headers = _extractStreamHeaders(nextData.currentStream ?? _currentStream);
+          await _player.open(Media(nextData.streamUrl, httpHeaders: headers));
           _startHideTimer();
           return;
         }
