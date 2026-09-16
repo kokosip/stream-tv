@@ -183,7 +183,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
       if (_selectedProvider == 'moviebox') {
         final res = await _api.search(query: query);
-        final list = (res['items'] as List<dynamic>?) ?? [];
+        final list = (res['items'] as List<dynamic>?) ?? (res['list'] as List<dynamic>?) ?? [];
         for (final item in list) {
           if (item is Map) {
             item['provider'] = 'moviebox';
@@ -196,11 +196,12 @@ class _SearchScreenState extends State<SearchScreen> {
       } else {
         // Search both in parallel
         final results = await Future.wait([
-          _api.search(query: query).catchError((e) => <String, dynamic>{'items': []}),
+          _api.search(query: query).catchError((e) => <String, dynamic>{'items': [], 'list': []}),
           _fourkApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
         ]);
 
-        final mbList = (results[0] is Map ? (results[0] as Map)['items'] as List<dynamic>? : null) ?? [];
+        final mbRes = results[0] is Map ? (results[0] as Map) : null;
+        final mbList = ((mbRes?['items'] ?? mbRes?['list']) as List<dynamic>?) ?? [];
         for (final item in mbList) {
           if (item is Map) {
             item['provider'] = 'moviebox';

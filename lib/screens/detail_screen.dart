@@ -179,12 +179,16 @@ class _DetailScreenState extends State<DetailScreen> {
         }
 
         if (isTvShow && seasonsList.isNotEmpty) {
-          final matchingSeason = seasonsList.firstWhere(
-            (s) => (s['se'] ?? 1) == targetSeason,
-            orElse: () => seasonsList.first,
-          );
-          _selectedSeasonNumber = matchingSeason['se'] ?? 1;
-          initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
+          dynamic matchingSeason;
+          for (final s in seasonsList) {
+            if (s is Map && (s['se'] ?? 1) == targetSeason) {
+              matchingSeason = s;
+              break;
+            }
+          }
+          matchingSeason ??= seasonsList.first;
+          _selectedSeasonNumber = (matchingSeason is Map ? matchingSeason['se'] : null) ?? 1;
+          initialEpisodesCount = (matchingSeason is Map ? (matchingSeason['maxEp'] ?? 1) : 1) as int;
           _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
         }
 
@@ -410,7 +414,10 @@ class _DetailScreenState extends State<DetailScreen> {
       final List<Map<String, dynamic>> foundSources = [];
 
       // 1. Check MovieBox (Primary Priority)
-      final mbItems = (mbRes['items'] as List?) ?? [];
+      final mbItems = (mbRes['items'] as List?) ??
+          (mbRes['list'] as List?) ??
+          ((mbRes['results'] as List?)?.firstOrNull?['subjects'] as List?) ??
+          [];
       if (mbItems.isNotEmpty) {
         final bestMb = mbItems.first;
         final subId = (bestMb['subjectId'] ?? bestMb['id']).toString();
@@ -505,12 +512,16 @@ class _DetailScreenState extends State<DetailScreen> {
       }
 
       if (isTvShow && seasonsList.isNotEmpty) {
-        final matchingSeason = seasonsList.firstWhere(
-          (s) => (s['se'] ?? 1) == targetSeason,
-          orElse: () => seasonsList.first,
-        );
-        _selectedSeasonNumber = matchingSeason['se'] ?? 1;
-        initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
+        dynamic matchingSeason;
+        for (final s in seasonsList) {
+          if (s is Map && (s['se'] ?? 1) == targetSeason) {
+            matchingSeason = s;
+            break;
+          }
+        }
+        matchingSeason ??= seasonsList.first;
+        _selectedSeasonNumber = (matchingSeason is Map ? matchingSeason['se'] : null) ?? 1;
+        initialEpisodesCount = (matchingSeason is Map ? (matchingSeason['maxEp'] ?? 1) : 1) as int;
         _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
       }
 
@@ -597,12 +608,16 @@ class _DetailScreenState extends State<DetailScreen> {
           }
 
           if (seasonsList.isNotEmpty) {
-            final matchingSeason = seasonsList.firstWhere(
-              (s) => (s['se'] ?? 1) == targetSeason,
-              orElse: () => seasonsList.first,
-            );
-            _selectedSeasonNumber = matchingSeason['se'] ?? 1;
-            initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
+            dynamic matchingSeason;
+            for (final s in seasonsList) {
+              if (s is Map && (s['se'] ?? 1) == targetSeason) {
+                matchingSeason = s;
+                break;
+              }
+            }
+            matchingSeason ??= seasonsList.first;
+            _selectedSeasonNumber = (matchingSeason is Map ? matchingSeason['se'] : null) ?? 1;
+            initialEpisodesCount = (matchingSeason is Map ? (matchingSeason['maxEp'] ?? 1) : 1) as int;
             _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
           }
         } catch (_) {}
@@ -746,15 +761,15 @@ class _DetailScreenState extends State<DetailScreen> {
         }).toList();
       }
 
-      // Deduplicate streams by resourceId
+      // Deduplicate streams by unique key (resourceId/link + resolution + codec)
       final Map<String, dynamic> uniqueStreams = {};
       for (final item in filteredList) {
         final id = item['resourceId']?.toString() ?? item['resource_id']?.toString() ?? '';
-        if (id.isNotEmpty) {
-          uniqueStreams[id] = item;
-        } else {
-          uniqueStreams[uniqueStreams.length.toString()] = item;
-        }
+        final res = item['resolution']?.toString() ?? '';
+        final codec = item['codecName']?.toString() ?? item['codec_name']?.toString() ?? '';
+        final link = item['resourceLink']?.toString() ?? item['resource_link']?.toString() ?? '';
+        final key = id.isNotEmpty ? "${id}_${res}_$codec" : "${link}_${res}_$codec";
+        uniqueStreams[key] = item;
       }
       final List<dynamic> finalStreams = uniqueStreams.values.toList();
 
@@ -838,11 +853,11 @@ class _DetailScreenState extends State<DetailScreen> {
       final Map<String, dynamic> uniqueStreams = {};
       for (final item in filteredList) {
         final id = item['resourceId']?.toString() ?? item['resource_id']?.toString() ?? '';
-        if (id.isNotEmpty) {
-          uniqueStreams[id] = item;
-        } else {
-          uniqueStreams[uniqueStreams.length.toString()] = item;
-        }
+        final res = item['resolution']?.toString() ?? '';
+        final codec = item['codecName']?.toString() ?? item['codec_name']?.toString() ?? '';
+        final link = item['resourceLink']?.toString() ?? item['resource_link']?.toString() ?? '';
+        final key = id.isNotEmpty ? "${id}_${res}_$codec" : "${link}_${res}_$codec";
+        uniqueStreams[key] = item;
       }
       final List<dynamic> finalStreams = uniqueStreams.values.toList();
 
@@ -1261,11 +1276,11 @@ class _DetailScreenState extends State<DetailScreen> {
       final Map<String, dynamic> uniqueStreams = {};
       for (final item in filteredList) {
         final id = item['resourceId']?.toString() ?? item['resource_id']?.toString() ?? '';
-        if (id.isNotEmpty) {
-          uniqueStreams[id] = item;
-        } else {
-          uniqueStreams[uniqueStreams.length.toString()] = item;
-        }
+        final res = item['resolution']?.toString() ?? '';
+        final codec = item['codecName']?.toString() ?? item['codec_name']?.toString() ?? '';
+        final link = item['resourceLink']?.toString() ?? item['resource_link']?.toString() ?? '';
+        final key = id.isNotEmpty ? "${id}_${res}_$codec" : "${link}_${res}_$codec";
+        uniqueStreams[key] = item;
       }
       final List<dynamic> finalStreams = uniqueStreams.values.toList();
       finalStreams.sort((a, b) {
@@ -2347,11 +2362,11 @@ class _DetailScreenState extends State<DetailScreen> {
       final Map<String, dynamic> uniqueStreams = {};
       for (final item in filteredList) {
         final id = item['resourceId']?.toString() ?? item['resource_id']?.toString() ?? '';
-        if (id.isNotEmpty) {
-          uniqueStreams[id] = item;
-        } else {
-          uniqueStreams[uniqueStreams.length.toString()] = item;
-        }
+        final res = item['resolution']?.toString() ?? '';
+        final codec = item['codecName']?.toString() ?? item['codec_name']?.toString() ?? '';
+        final link = item['resourceLink']?.toString() ?? item['resource_link']?.toString() ?? '';
+        final key = id.isNotEmpty ? "${id}_${res}_$codec" : "${link}_${res}_$codec";
+        uniqueStreams[key] = item;
       }
       targetStreams = uniqueStreams.values.toList();
     } catch (_) {}

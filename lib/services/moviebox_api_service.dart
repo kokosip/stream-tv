@@ -46,7 +46,7 @@ class MovieBoxApiService {
     "https://api.inmoviebox.com",
   ];
 
-  static const String STREAM_REFERER = "https://api.inmoviebox.com/";
+  static const String STREAM_REFERER = "https://sportslive.wine";
 
   static const String SECRET_KEY_DEFAULT = "76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O";
   static const String SECRET_KEY_ALT = "Xqn2nnO41/L92o1iuXhSLHTbXvY4Z5ZZ62m8mSLA";
@@ -554,6 +554,59 @@ class MovieBoxApiService {
            (lower.contains("macdn.aoneroom.com") && lower.contains("/other/"));
   }
 
+  /// Clean titles by removing tags, season prefixes, resolution tags, brackets
+  static String cleanMovieBoxTitle(String rawTitle) {
+    var title = rawTitle.trim();
+    if (title.isEmpty) return "";
+
+    while (title.startsWith('[')) {
+      final closePos = title.indexOf(']');
+      if (closePos != -1) {
+        final remainder = title.substring(closePos + 1).trim();
+        if (remainder.isNotEmpty) {
+          title = remainder;
+        } else {
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+
+    final openBracket = title.indexOf('[');
+    if (openBracket > 0) {
+      title = title.substring(0, openBracket).trim();
+    }
+
+    final openParen = title.indexOf('(');
+    if (openParen > 0) {
+      final inside = title.substring(openParen + 1);
+      final insideContent = inside.split(')').first.trim();
+      final year = int.tryParse(insideContent);
+      final isYear = insideContent.length == 4 && year != null && year >= 1900 && year <= 2099;
+      if (!isYear) {
+        title = title.substring(0, openParen).trim();
+      }
+    }
+
+    final dashPos = title.lastIndexOf(" - ");
+    if (dashPos != -1) {
+      final suffix = title.substring(dashPos + 3).toLowerCase();
+      const tags = [
+        "hindi", "tamil", "telugu", "kannada", "malayalam", "bengali",
+        "marathi", "punjabi", "gujarati", "urdu", "english", "spanish",
+        "french", "german", "italian", "japanese", "korean", "chinese",
+        "russian", "portuguese", "turkish", "arabic", "dub", "audio",
+        "multi", "season"
+      ];
+      if (tags.any((t) => suffix.contains(t))) {
+        title = title.substring(0, dashPos).trim();
+      }
+    }
+
+    return title.trim();
+  }
+
   /// Search movies & TV shows
   Future<Map<String, dynamic>> search({
     required String query,
@@ -567,19 +620,43 @@ class MovieBoxApiService {
       "perPage": perPage,
       "subjectType": subjectType,
     };
+    Map<String, dynamic> res;
     try {
-      return await _request(
+      res = await _request(
         "POST",
         "/wefeed-mobile-bff/subject-api/search/v2",
         body: payload,
       );
     } catch (_) {
-      return _request(
+      res = await _request(
         "POST",
         "/wefeed-mobile-bff/subject-api/search",
         body: payload,
       );
     }
+
+    // Normalize subjects across API schema variations
+    // v2: { results: [ { subjects: [ ... ] } ] }
+    // v1: { list: [ ... ] } or { items: [ ... ] }
+    List<dynamic> subjects = [];
+    if (res['results'] is List && (res['results'] as List).isNotEmpty) {
+      final firstGroup = (res['results'] as List).first;
+      if (firstGroup is Map && firstGroup['subjects'] is List) {
+        subjects = List<dynamic>.from(firstGroup['subjects'] as List);
+      }
+    }
+    if (subjects.isEmpty && res['items'] is List) {
+      subjects = List<dynamic>.from(res['items'] as List);
+    }
+    if (subjects.isEmpty && res['list'] is List) {
+      subjects = List<dynamic>.from(res['list'] as List);
+    }
+
+    return {
+      ...res,
+      'items': subjects,
+      'list': subjects,
+    };
   }
 
   /// Get Details of a Movie/TV show
@@ -701,13 +778,19 @@ class MovieBoxApiService {
         "User-Agent": _userAgent,
         "Referer": STREAM_REFERER,
       };
-      if (signCookie.isNotEmpty) {
-        headers["Cookie"] = signCookie.trim();
+      final cleanCookie = signCookie
+          .split(';')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .join('; ');
+      if (cleanCookie.isNotEmpty) {
+        headers["Cookie"] = cleanCookie;
       }
 
       final streamId = st['id']?.toString() ?? matchedResourceId ?? '';
       final codec = (st['codecName'] ?? st['codec'] ?? 'hevc').toString();
-      final title = (playData['title'] ?? 'MovieBox Stream').toString();
+      final rawTitle = (playData['title'] ?? 'MovieBox Stream').toString();
+      final title = cleanMovieBoxTitle(rawTitle);
 
       if (isDash && resList.length > 1) {
         for (final r in resList) {

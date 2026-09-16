@@ -206,7 +206,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (signCookie != null && signCookie.isNotEmpty) {
       return {
         'User-Agent': 'com.community.oneroom/50020118 (Linux; U; Android 12; en_US; Redmi 2201117TG; Build/S1B.220414.015; Cronet/135.0.7012.3)',
-        'Referer': 'https://api.inmoviebox.com/',
+        'Referer': 'https://sportslive.wine',
         'Cookie': signCookie.trim(),
       };
     }
