@@ -2601,7 +2601,7 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  Widget _buildHeroDownloadButton(bool isTv) {
+  Widget _buildHeroDownloadButton(bool isTv, {bool isMobile = false}) {
     return ValueListenableBuilder<List<DownloadItem>>(
       valueListenable: _downloadService.downloadsNotifier,
       builder: (context, downloadItems, _) {
@@ -2631,32 +2631,35 @@ class _DetailScreenState extends State<DetailScreen> {
 
         return TvFocusableCard(
           onTap: () => _handleDownloadAction(),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(isMobile ? 12 : 14),
           scaleFactor: 1.05,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            padding: EdgeInsets.symmetric(
+              horizontal: isMobile ? 14 : 24,
+              vertical: isMobile ? 14 : 16,
+            ),
             decoration: BoxDecoration(
               color: isCompleted ? Colors.teal.shade900.withValues(alpha: 0.6) : const Color(0xFF1A1A1A),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(isMobile ? 12 : 14),
               border: Border.all(color: btnBorderColor, width: 1.5),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (isDownloading)
-                  const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: SpinKitRing(color: Colors.amberAccent, size: 18),
+                  SizedBox(
+                    width: isMobile ? 18 : 22,
+                    height: isMobile ? 18 : 22,
+                    child: SpinKitRing(color: Colors.amberAccent, size: isMobile ? 16 : 18),
                   )
                 else
-                  Icon(btnIcon, color: btnIconColor, size: 24),
+                  Icon(btnIcon, color: btnIconColor, size: isMobile ? 20 : 24),
                 const SizedBox(width: 8),
                 Text(
                   btnLabel,
                   style: GoogleFonts.outfit(
                     color: Colors.white,
-                    fontSize: 16,
+                    fontSize: isMobile ? 13 : 16,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -2917,95 +2920,102 @@ class _DetailScreenState extends State<DetailScreen> {
                         const SizedBox(height: 16),
                       ],
                       // Main Hero Play Button Row
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          TvFocusableCard(
-                            onTap: () {
-                              if (_noStreamingSourcesFound) {
-                                _showUnavailableDialog();
-                                return;
-                              }
-                              _playEpisode(_selectedSeasonNumber, _selectedEpisodeNumber);
-                            },
-                            borderRadius: BorderRadius.circular(14),
-                            scaleFactor: 1.05,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                              decoration: BoxDecoration(
-                                gradient: _noStreamingSourcesFound
-                                    ? const LinearGradient(
-                                        colors: [Color(0xFF333333), Color(0xFF222222)],
-                                      )
-                                    : const LinearGradient(
-                                        colors: [Color(0xFFE50914), Color(0xFFB81D24)],
-                                      ),
-                                borderRadius: BorderRadius.circular(14),
-                                boxShadow: _noStreamingSourcesFound
-                                    ? null
-                                    : [
-                                        BoxShadow(
-                                          color: Colors.redAccent.withValues(alpha: 0.4),
-                                          blurRadius: 16,
-                                          offset: const Offset(0, 4),
-                                        ),
-                                      ],
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    _noStreamingSourcesFound ? Icons.schedule_rounded : Icons.play_arrow_rounded,
-                                    color: Colors.white,
-                                    size: 32,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Text(
-                                    playBtnText,
-                                    style: GoogleFonts.outfit(
-                                      color: Colors.white,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          if (_is4kHub) ...[
-                            const SizedBox(width: 16),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
                             TvFocusableCard(
-                              onTap: () => _open4kQualitySelector(),
+                              onTap: () {
+                                if (_noStreamingSourcesFound) {
+                                  _showUnavailableDialog();
+                                  return;
+                                }
+                                _playEpisode(_selectedSeasonNumber, _selectedEpisodeNumber);
+                              },
                               borderRadius: BorderRadius.circular(14),
                               scaleFactor: 1.05,
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF1A1A1A),
+                                  gradient: _noStreamingSourcesFound
+                                      ? const LinearGradient(
+                                          colors: [Color(0xFF333333), Color(0xFF222222)],
+                                        )
+                                      : const LinearGradient(
+                                          colors: [Color(0xFFE50914), Color(0xFFB81D24)],
+                                        ),
                                   borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5), width: 1.5),
+                                  boxShadow: _noStreamingSourcesFound
+                                      ? null
+                                      : [
+                                          BoxShadow(
+                                            color: Colors.redAccent.withValues(alpha: 0.4),
+                                            blurRadius: 16,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(Icons.tune_rounded, color: Colors.cyanAccent, size: 26),
-                                    const SizedBox(width: 10),
-                                    Text(
-                                      AppLanguageService.tr(en: "Select Quality", id: "Pilih Kualitas"),
-                                      style: GoogleFonts.outfit(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
+                                    Icon(
+                                      _noStreamingSourcesFound ? Icons.schedule_rounded : Icons.play_arrow_rounded,
+                                      color: Colors.white,
+                                      size: 32,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Flexible(
+                                      child: Text(
+                                        playBtnText,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.outfit(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
                             ),
+                            if (_is4kHub) ...[
+                              const SizedBox(width: 16),
+                              TvFocusableCard(
+                                onTap: () => _open4kQualitySelector(),
+                                borderRadius: BorderRadius.circular(14),
+                                scaleFactor: 1.05,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF1A1A1A),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5), width: 1.5),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.tune_rounded, color: Colors.cyanAccent, size: 26),
+                                      const SizedBox(width: 10),
+                                      Text(
+                                        AppLanguageService.tr(en: "Select Quality", id: "Pilih Kualitas"),
+                                        style: GoogleFonts.outfit(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                            const SizedBox(width: 16),
+                            _buildHeroDownloadButton(isTv),
                           ],
-                          const SizedBox(width: 16),
-                          _buildHeroDownloadButton(isTv),
-                        ],
+                        ),
                       ),
                     ],
                   ),
@@ -3181,15 +3191,19 @@ class _DetailScreenState extends State<DetailScreen> {
                               Icon(
                                 _noStreamingSourcesFound ? Icons.schedule_rounded : Icons.play_arrow_rounded,
                                 color: Colors.white,
-                                size: 28,
+                                size: 26,
                               ),
-                              const SizedBox(width: 8),
-                              Text(
-                                playBtnText,
-                                style: GoogleFonts.outfit(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  playBtnText,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                             ],
@@ -3198,13 +3212,13 @@ class _DetailScreenState extends State<DetailScreen> {
                       ),
                     ),
                     if (_is4kHub) ...[
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       TvFocusableCard(
                         onTap: () => _open4kQualitySelector(),
                         borderRadius: BorderRadius.circular(12),
                         scaleFactor: 1.05,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                           decoration: BoxDecoration(
                             color: const Color(0xFF1A1A1A),
                             borderRadius: BorderRadius.circular(12),
@@ -3213,13 +3227,13 @@ class _DetailScreenState extends State<DetailScreen> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.tune_rounded, color: Colors.cyanAccent, size: 22),
-                              const SizedBox(width: 6),
+                              const Icon(Icons.tune_rounded, color: Colors.cyanAccent, size: 20),
+                              const SizedBox(width: 4),
                               Text(
                                 AppLanguageService.tr(en: "Quality", id: "Kualitas"),
                                 style: GoogleFonts.outfit(
                                   color: Colors.cyanAccent,
-                                  fontSize: 13,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -3228,8 +3242,8 @@ class _DetailScreenState extends State<DetailScreen> {
                         ),
                       ),
                     ],
-                    const SizedBox(width: 10),
-                    _buildHeroDownloadButton(isTv),
+                    const SizedBox(width: 8),
+                    _buildHeroDownloadButton(isTv, isMobile: true),
                   ],
                 ),
               ],

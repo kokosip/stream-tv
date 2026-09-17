@@ -416,8 +416,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         await platform.setProperty('vd-lavc-skiploopfilter', 'all');
         // Utilize 4 threads if software decoding fallback occurs on quad-core TV chipsets
         await platform.setProperty('vd-lavc-threads', '4');
-        // Auto-reconnect on network drops for HLS / HTTP streams to prevent ffurl_read timeouts
-        await platform.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
+        // Forcibly allow seeking on HTTP streams and enable fast keyframe seeking
+        await platform.setProperty('force-seekable', 'yes');
+        await platform.setProperty('hr-seek', 'yes');
+        await platform.setProperty('hr-seek-framedrop', 'yes');
+        // Auto-reconnect on network drops for HLS / HTTP streams to prevent ffurl_read timeouts, enable seeking
+        await platform.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,seekable=1');
         // Demuxer cache optimizations: 64MB buffer and 30s readahead to absorb Wi-Fi jitter on TV
         await platform.setProperty('demuxer-max-bytes', '67108864');
         await platform.setProperty('demuxer-max-back-bytes', '16777216');
@@ -1267,8 +1271,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  const SizedBox(width: 12),
-                                  ..._buildTopBarActionButtons(isPortrait: false),
+                                  Flexible(
+                                    child: SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: _buildTopBarActionButtons(isPortrait: false),
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),

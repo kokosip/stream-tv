@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as dom;
@@ -328,28 +329,141 @@ class FourKHdHubService {
     return null;
   }
 
-  /// Resolve HubCloud drive page
+  /// Resolve HubCloud drive page or shortener (greenmotors.cc)
   Future<String?> _resolveHubCloud(String driveUrl) async {
     try {
+      String currentUrl = driveUrl;
+
+      // 1. If URL is an ad-shortener / mediator (e.g. greenmotors.cc), bypass it first
+      if (_isShortenerUrl(currentUrl)) {
+        final bypassed = await _bypassShortener(currentUrl);
+        if (bypassed != null && bypassed.isNotEmpty) {
+          currentUrl = bypassed;
+        }
+      }
+
       final response = await _client.get(
-        Uri.parse(driveUrl),
-        headers: _headers,
-      ).timeout(const Duration(seconds: 8));
+        Uri.parse(currentUrl),
+        headers: {
+          ..._headers,
+          'Referer': _baseUrl,
+        },
+      ).timeout(const Duration(seconds: 10));
+
       if (response.statusCode != 200) return null;
+
+      // 2. If the response HTML contains the obfuscated shortener token s('o', ...), decode it
+      if (response.body.contains("s('o'") || response.body.contains('s("o"')) {
+        final bypassed = _extractAndDecodeShortener(response.body);
+        if (bypassed != null && bypassed.isNotEmpty && bypassed != currentUrl) {
+          return _resolveHubCloud(bypassed);
+        }
+      }
 
       final doc = html_parser.parse(response.body);
       final downloadBtn = doc.querySelector(
         "a#download, a.btn-primary, a.btn-success, a.btn[href*='/download/'], a[href*='/download/'], a[href*='gamerxyt.com'], a[href*='hubcloud.php']",
       );
 
-      final resolverUrl = downloadBtn?.attributes['href'];
+      String? resolverUrl = downloadBtn?.attributes['href'];
+      if (resolverUrl == null || resolverUrl.isEmpty) {
+        // Fallback: check any <a> tag pointing to gamerxyt or hubcloud.php
+        final altLink = doc.querySelector("a[href*='gamerxyt.com'], a[href*='hubcloud.php']");
+        resolverUrl = altLink?.attributes['href'];
+      }
+
       if (resolverUrl == null || resolverUrl.isEmpty) return null;
 
-      return await _resolveGamerxyt(resolverUrl, driveUrl);
+      return await _resolveGamerxyt(resolverUrl, currentUrl);
     } catch (e) {
       print("HubCloud resolver error: $e");
       return null;
     }
+  }
+
+  /// Checks if URL belongs to an intermediary shortener
+  bool _isShortenerUrl(String url) {
+    final lower = url.toLowerCase();
+    return lower.contains('greenmotors') ||
+        lower.contains('homelander') ||
+        lower.contains('bonus') ||
+        (!lower.contains('hubcloud') && !lower.contains('drive') && lower.contains('?id='));
+  }
+
+  /// Bypass shortener by fetching the page and decoding its obfuscated payload
+  Future<String?> _bypassShortener(String shortenerUrl) async {
+    try {
+      final response = await _client.get(
+        Uri.parse(shortenerUrl),
+        headers: {
+          ..._headers,
+          'Referer': _baseUrl,
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) return null;
+
+      return _extractAndDecodeShortener(response.body);
+    } catch (e) {
+      print("Shortener bypass fetch error for $shortenerUrl: $e");
+      return null;
+    }
+  }
+
+  /// Extracts and decodes token from body e.g. `s('o', '<base64>', ...)`
+  String? _extractAndDecodeShortener(String body) {
+    try {
+      final match = RegExp(r"""s\(\s*['"]o['"]\s*,\s*['"]([^'"]+)['"]""").firstMatch(body);
+      if (match != null) {
+        final token = match.group(1);
+        if (token != null && token.isNotEmpty) {
+          return _decodeGreenMotorsToken(token);
+        }
+      }
+    } catch (e) {
+      print("Error extracting shortener token: $e");
+    }
+    return null;
+  }
+
+  /// Decodes: Base64 -> Base64 -> ROT13 -> Base64 -> JSON -> Base64('o')
+  String? _decodeGreenMotorsToken(String token) {
+    try {
+      // 1. Base64 decode
+      final s1 = utf8.decode(base64.decode(token));
+      // 2. Base64 decode
+      final s2 = utf8.decode(base64.decode(s1));
+      // 3. ROT13 decode
+      final s3 = _rot13(s2);
+      // 4. Base64 decode
+      final s4 = utf8.decode(base64.decode(s3));
+      // 5. JSON parse
+      final Map<String, dynamic> data = jsonDecode(s4);
+      final oVal = data['o']?.toString();
+      if (oVal != null && oVal.isNotEmpty) {
+        // 6. Base64 decode the destination HubCloud URL
+        return utf8.decode(base64.decode(oVal));
+      }
+    } catch (e) {
+      print("Error decoding greenmotors token: $e");
+    }
+    return null;
+  }
+
+  /// ROT13 cipher implementation
+  String _rot13(String input) {
+    final buffer = StringBuffer();
+    for (int i = 0; i < input.length; i++) {
+      final code = input.codeUnitAt(i);
+      if (code >= 65 && code <= 90) {
+        buffer.writeCharCode((code - 65 + 13) % 26 + 65);
+      } else if (code >= 97 && code <= 122) {
+        buffer.writeCharCode((code - 97 + 13) % 26 + 97);
+      } else {
+        buffer.writeCharCode(code);
+      }
+    }
+    return buffer.toString();
   }
 
   /// Resolve Gamerxyt / HubCloud download page
@@ -374,8 +488,8 @@ class FourKHdHubService {
         final href = a.attributes['href'] ?? '';
         if (!href.startsWith('https://')) continue;
 
-        // Pixel HubCloud redirect link e.g. https://pixel.hubcloud.cx/?id=...
-        if (href.contains('pixel.hubcloud.')) {
+        // Pixel HubCloud redirect link e.g. https://pixel.hubcloud.cx/?id=... or pixel.hubcloud.ist/?id=...
+        if (href.contains('pixel.hubcloud.') || href.contains('pixel.')) {
           final directRedirect = await _resolvePixelHubCloudRedirect(href);
           if (directRedirect != null) {
             candidateUrls.add(directRedirect);
@@ -385,7 +499,11 @@ class FourKHdHubService {
           if (pId != null) {
             candidateUrls.add('https://pixeldrain.com/api/file/$pId?download');
           }
-        } else if (href.contains('snvhost.') || href.contains('storage.googleapis.com') || href.contains('r2.')) {
+        } else if (href.contains('workers.dev') ||
+            href.contains('snvhost.') ||
+            href.contains('storage.googleapis.com') ||
+            href.contains('cloudflarestorage.com') ||
+            href.contains('r2.')) {
           candidateUrls.add(href);
         }
       }
@@ -405,27 +523,51 @@ class FourKHdHubService {
     }
   }
 
-  /// Resolves pixel.hubcloud.cx redirect link to direct video CDN URL
+  /// Resolves pixel redirect link (following intermediate 302 redirects) to direct video CDN URL
   Future<String?> _resolvePixelHubCloudRedirect(String pixelUrl) async {
     try {
-      final request = http.Request('GET', Uri.parse(pixelUrl))
-        ..headers.addAll(_headers)
-        ..followRedirects = true
-        ..maxRedirects = 5;
+      String targetUrl = pixelUrl;
+      for (int i = 0; i < 5; i++) {
+        final request = http.Request('GET', Uri.parse(targetUrl))
+          ..headers.addAll(_headers)
+          ..followRedirects = false;
 
-      final streamedResponse = await _client.send(request).timeout(const Duration(seconds: 8));
-      final finalUri = streamedResponse.request?.url ?? Uri.parse(pixelUrl);
+        final streamedResponse = await _client.send(request).timeout(const Duration(seconds: 8));
+        final statusCode = streamedResponse.statusCode;
+        final location = streamedResponse.headers['location'];
 
-      // Check if redirect contains link parameter e.g. dl.php?link=https://...
-      final linkParam = finalUri.queryParameters['link'];
-      if (linkParam != null && linkParam.startsWith('https://')) {
-        return linkParam;
-      }
+        // Check if query parameter has link=
+        final uriToCheck = location != null ? Uri.tryParse(location) : Uri.tryParse(targetUrl);
+        if (uriToCheck != null) {
+          final linkParam = uriToCheck.queryParameters['link'];
+          if (linkParam != null && linkParam.startsWith('https://')) {
+            return linkParam;
+          }
+        }
 
-      if (finalUri.toString().startsWith('https://video-downloads.googleusercontent.com') ||
-          finalUri.toString().contains('storage.googleapis.com') ||
-          finalUri.toString().contains('cloudflarestorage.com')) {
-        return finalUri.toString();
+        if (statusCode >= 300 && statusCode < 400 && location != null && location.isNotEmpty) {
+          targetUrl = location;
+          if (targetUrl.startsWith('https://video-downloads.googleusercontent.com') ||
+              targetUrl.contains('storage.googleapis.com') ||
+              targetUrl.contains('cloudflarestorage.com')) {
+            return targetUrl;
+          }
+          continue;
+        }
+
+        final finalUri = Uri.parse(targetUrl);
+        final linkParam = finalUri.queryParameters['link'];
+        if (linkParam != null && linkParam.startsWith('https://')) {
+          return linkParam;
+        }
+
+        if (targetUrl.startsWith('https://video-downloads.googleusercontent.com') ||
+            targetUrl.contains('storage.googleapis.com') ||
+            targetUrl.contains('cloudflarestorage.com')) {
+          return targetUrl;
+        }
+
+        break;
       }
 
       return null;
@@ -464,16 +606,19 @@ class FourKHdHubService {
 
   int _scoreMirror(String url) {
     final lower = url.toLowerCase();
-    if (lower.contains('googleusercontent.com') ||
+    // Prioritize high-speed CDNs that support HTTP Range (206 Partial Content) for seeking/forwarding
+    if (lower.contains('workers.dev') ||
         lower.contains('cloudflarestorage.com') ||
         lower.contains('r2.') ||
-        lower.contains('workers.dev')) {
+        lower.contains('snvhost.') ||
+        lower.contains('pixeldrain.com')) {
       return 0;
     }
     if (lower.contains('storage.googleapis.com') || lower.contains('hubcloud.cx/re/')) {
       return 1;
     }
-    if (lower.contains('pixeldrain.com')) {
+    // googleusercontent download server does not support HTTP Range requests
+    if (lower.contains('googleusercontent.com')) {
       return 2;
     }
     return 3;
