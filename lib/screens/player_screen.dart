@@ -180,6 +180,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     'Stretch (Full)': BoxFit.fill,
   };
 
+  // Screen Orientation state (defaults to Landscape, can be toggled to Portrait during playback)
+  bool _isPortrait = false;
+  late FocusNode _orientationFocusNode;
+
   // FocusNodes for Android TV Remote Navigation
   late FocusNode _backFocusNode;
   late FocusNode _subtitleFocusNode;
@@ -221,6 +225,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  void _toggleOrientation() {
+    setState(() {
+      _isPortrait = !_isPortrait;
+    });
+    if (_isPortrait) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+    } else {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    }
+    _startHideTimer();
+  }
+
   void _loadSubtitles(String url) async {
     if (url.isEmpty) return;
     setState(() {
@@ -245,6 +267,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void initState() {
     super.initState();
     
+    // Force default landscape mode and immersive sticky mode upon entering player
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+
     // Initialize MediaKit Player and Controller with 32MB buffer size for TV streaming stability
     _player = Player(
       configuration: const PlayerConfiguration(
@@ -258,6 +287,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _subtitleFocusNode = FocusNode();
     _subtitleColorFocusNode = FocusNode();
     _fitModeFocusNode = FocusNode();
+    _orientationFocusNode = FocusNode();
     _pipFocusNode = FocusNode();
     _rewindFocusNode = FocusNode();
     _playPauseFocusNode = FocusNode();
@@ -580,6 +610,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _subtitleFocusNode.dispose();
     _subtitleColorFocusNode.dispose();
     _fitModeFocusNode.dispose();
+    _orientationFocusNode.dispose();
     _pipFocusNode.dispose();
     _rewindFocusNode.dispose();
     _playPauseFocusNode.dispose();
@@ -602,14 +633,363 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.dispose();
   }
 
+  List<Widget> _buildTopBarActionButtons({required bool isPortrait}) {
+    final List<Widget> buttons = [];
+    final double iconSize = isPortrait ? 22 : 28;
+    final EdgeInsets btnPadding = EdgeInsets.all(isPortrait ? 6.0 : 8.0);
+    final double spacing = isPortrait ? 6 : 12;
+
+    // Episodes Drawer Button (TV Series)
+    if (_seasons.isNotEmpty || _currentSeason > 0) {
+      buttons.add(
+        TvFocusableCard(
+          focusNode: _episodesFocusNode,
+          borderRadius: BorderRadius.circular(24),
+          onTap: _showEpisodeModal,
+          child: Padding(
+            padding: btnPadding,
+            child: Icon(Icons.video_library, color: Colors.white, size: iconSize),
+          ),
+        ),
+      );
+      buttons.add(SizedBox(width: spacing));
+    }
+
+    // Audio Dub Selector Button
+    if (_dubs.isNotEmpty && widget.onSwitchAudio != null) {
+      buttons.add(
+        TvFocusableCard(
+          focusNode: _audioFocusNode,
+          borderRadius: BorderRadius.circular(24),
+          onTap: () {
+            _audioPopupMenuKey.currentState?.showButtonMenu();
+          },
+          child: IgnorePointer(
+            child: PopupMenuButton<dynamic>(
+              key: _audioPopupMenuKey,
+              color: const Color(0xFF1E1E1E),
+              onSelected: (dub) => _switchAudio(dub),
+              itemBuilder: (context) {
+                return _dubs.map((dub) {
+                  final label = _formatDubLabel(dub);
+                  final isSelected = label == _currentAudioName;
+                  return PopupMenuItem<dynamic>(
+                    value: dub,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          label,
+                          style: GoogleFonts.outfit(
+                            color: isSelected ? Colors.redAccent : Colors.white,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                        if (isSelected)
+                          const Icon(Icons.check, color: Colors.redAccent, size: 18),
+                      ],
+                    ),
+                  );
+                }).toList();
+              },
+              child: Padding(
+                padding: btnPadding,
+                child: Icon(Icons.audiotrack, color: Colors.white, size: iconSize),
+              ),
+            ),
+          ),
+        ),
+      );
+      buttons.add(SizedBox(width: spacing));
+    }
+
+    // Video Quality Selector Button
+    if (_availableStreams.isNotEmpty) {
+      buttons.add(
+        TvFocusableCard(
+          focusNode: _qualityFocusNode,
+          borderRadius: BorderRadius.circular(24),
+          onTap: () {
+            _qualityPopupMenuKey.currentState?.showButtonMenu();
+          },
+          child: IgnorePointer(
+            child: PopupMenuButton<Map<String, dynamic>>(
+              key: _qualityPopupMenuKey,
+              color: const Color(0xFF1E1E1E),
+              onSelected: (stream) => _switchQuality(stream),
+              itemBuilder: (context) {
+                return _availableStreams.map((s) {
+                  final mapStream = Map<String, dynamic>.from(s is Map ? s : {});
+                  final label = _formatStreamQualityLabel(mapStream);
+                  final isSelected = _currentStream != null &&
+                      ((_currentStream!['resourceId'] != null && _currentStream!['resourceId'] == mapStream['resourceId']) ||
+                       (_currentStream!['url'] != null && _currentStream!['url'] == mapStream['url']) ||
+                       (_currentStream!['resourceLink'] != null && _currentStream!['resourceLink'] == mapStream['resourceLink']));
+                  return PopupMenuItem<Map<String, dynamic>>(
+                    value: mapStream,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          label,
+                          style: GoogleFonts.outfit(
+                            color: isSelected ? Colors.redAccent : Colors.white,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                        if (isSelected)
+                          const Icon(Icons.check, color: Colors.redAccent, size: 18),
+                      ],
+                    ),
+                  );
+                }).toList();
+              },
+              child: Padding(
+                padding: btnPadding,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.high_quality, color: Colors.white, size: iconSize),
+                    if (_currentStream != null) ...[
+                      const SizedBox(width: 4),
+                      Text(
+                        _formatShortQualityLabel(_currentStream),
+                        style: GoogleFonts.outfit(
+                          color: Colors.white70,
+                          fontSize: isPortrait ? 10 : 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      buttons.add(SizedBox(width: spacing));
+    }
+
+    // Subtitle Selector Button
+    if (_availableSubtitles.isNotEmpty) {
+      buttons.add(
+        TvFocusableCard(
+          focusNode: _subtitleFocusNode,
+          borderRadius: BorderRadius.circular(24),
+          onTap: () {
+            _popupMenuKey.currentState?.showButtonMenu();
+          },
+          child: IgnorePointer(
+            child: PopupMenuButton<String>(
+              key: _popupMenuKey,
+              color: const Color(0xFF1E1E1E),
+              onSelected: (url) {
+                if (url.isEmpty) {
+                  setState(() {
+                    _selectedSubtitleUrl = null;
+                    _subtitleEntries = [];
+                  });
+                } else {
+                  setState(() {
+                    _selectedSubtitleUrl = url;
+                  });
+                  _loadSubtitles(url);
+                }
+              },
+              itemBuilder: (context) {
+                return [
+                  PopupMenuItem<String>(
+                    value: "",
+                    child: Text(
+                      "Off",
+                      style: GoogleFonts.outfit(
+                        color: _selectedSubtitleUrl == null ? Colors.redAccent : Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  ..._availableSubtitles.map((sub) {
+                    final label = sub['normalizedLan'] ??
+                                  sub['lanName'] ?? 
+                                  sub['language'] ?? 
+                                  sub['lan'] ?? 
+                                  sub['lang'] ?? 
+                                  "Subtitle";
+                    final subUrl = (sub['url'] ?? sub['link'] ?? sub['src'] ?? sub['path'] ?? '').toString();
+                    if (subUrl.isEmpty) return null;
+
+                    final isSelected = _selectedSubtitleUrl == subUrl;
+                    return PopupMenuItem<String>(
+                      value: subUrl,
+                      child: Text(
+                        label.toString(),
+                        style: GoogleFonts.outfit(
+                          color: isSelected ? Colors.redAccent : Colors.white,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                    );
+                  }).whereType<PopupMenuItem<String>>(),
+                ];
+              },
+              child: Padding(
+                padding: btnPadding,
+                child: Icon(Icons.subtitles, color: Colors.white, size: iconSize),
+              ),
+            ),
+          ),
+        ),
+      );
+      buttons.add(SizedBox(width: spacing));
+
+      // Subtitle Color Button
+      buttons.add(
+        TvFocusableCard(
+          focusNode: _subtitleColorFocusNode,
+          borderRadius: BorderRadius.circular(24),
+          onTap: () {
+            _colorPopupMenuKey.currentState?.showButtonMenu();
+          },
+          child: IgnorePointer(
+            child: PopupMenuButton<Color>(
+              key: _colorPopupMenuKey,
+              color: const Color(0xFF1E1E1E),
+              onSelected: (color) {
+                setState(() {
+                  _selectedSubtitleColor = color;
+                });
+              },
+              itemBuilder: (context) {
+                return _subtitleColors.entries.map((entry) {
+                  final isSelected = _selectedSubtitleColor == entry.value;
+                  return PopupMenuItem<Color>(
+                    value: entry.value,
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 16,
+                          height: 16,
+                          decoration: BoxDecoration(
+                            color: entry.value,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white38),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          entry.key,
+                          style: GoogleFonts.outfit(
+                            color: isSelected ? Colors.redAccent : Colors.white,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList();
+              },
+              child: Padding(
+                padding: btnPadding,
+                child: Icon(Icons.palette, color: Colors.white, size: iconSize),
+              ),
+            ),
+          ),
+        ),
+      );
+      buttons.add(SizedBox(width: spacing));
+    }
+
+    // Aspect Ratio / Screen Zoom Fit Button
+    buttons.add(
+      TvFocusableCard(
+        focusNode: _fitModeFocusNode,
+        borderRadius: BorderRadius.circular(24),
+        onTap: () {
+          _fitMenuKey.currentState?.showButtonMenu();
+        },
+        child: IgnorePointer(
+          child: PopupMenuButton<BoxFit>(
+            key: _fitMenuKey,
+            color: const Color(0xFF1E1E1E),
+            onSelected: (mode) {
+              setState(() {
+                _selectedFitMode = mode;
+              });
+            },
+            itemBuilder: (context) {
+              return _fitModes.entries.map((entry) {
+                final isSelected = _selectedFitMode == entry.value;
+                return PopupMenuItem<BoxFit>(
+                  value: entry.value,
+                  child: Text(
+                    entry.key,
+                    style: GoogleFonts.outfit(
+                      color: isSelected ? Colors.redAccent : Colors.white,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                );
+              }).toList();
+            },
+            child: Padding(
+              padding: btnPadding,
+              child: Icon(Icons.aspect_ratio, color: Colors.white, size: iconSize),
+            ),
+          ),
+        ),
+      ),
+    );
+    buttons.add(SizedBox(width: spacing));
+
+    // Screen Orientation Toggle Button (Default Landscape, toggleable to Portrait during playback)
+    buttons.add(
+      TvFocusableCard(
+        focusNode: _orientationFocusNode,
+        borderRadius: BorderRadius.circular(24),
+        onTap: _toggleOrientation,
+        child: Tooltip(
+          message: _isPortrait
+              ? AppLanguageService.tr(en: "Switch to Landscape", id: "Ubah ke Lanskap")
+              : AppLanguageService.tr(en: "Switch to Portrait", id: "Ubah ke Potret"),
+          child: Padding(
+            padding: btnPadding,
+            child: Icon(
+              _isPortrait ? Icons.stay_current_landscape : Icons.stay_current_portrait,
+              color: _isPortrait ? Colors.redAccent : Colors.white,
+              size: iconSize,
+            ),
+          ),
+        ),
+      ),
+    );
+    buttons.add(SizedBox(width: spacing));
+
+    // Picture-in-Picture (PiP) Button
+    buttons.add(
+      TvFocusableCard(
+        focusNode: _pipFocusNode,
+        borderRadius: BorderRadius.circular(24),
+        onTap: _enterPipMode,
+        child: Padding(
+          padding: btnPadding,
+          child: Icon(Icons.picture_in_picture_alt, color: Colors.white, size: iconSize),
+        ),
+      ),
+    );
+
+    return buttons;
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Hide status bar and force landscape mode inside player
+    // Hide status bar inside player
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+
+    final mediaQuery = MediaQuery.of(context);
+    final isPortrait = mediaQuery.orientation == Orientation.portrait || _isPortrait;
+    final topInset = mediaQuery.padding.top;
+    final bottomInset = mediaQuery.padding.bottom;
 
     // Subtitle rendering and position tracking are now handled inside ValueListenableBuilders below
     // to prevent heavy UI rebuilds on every position change.
@@ -673,9 +1053,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
               // 2. Custom Subtitles Overlay
               if (_selectedSubtitleUrl != null && _isInitialized && !_isPipMode)
                 Positioned(
-                  bottom: _showControls ? 90 : 30,
-                  left: 40,
-                  right: 40,
+                  bottom: _showControls
+                      ? (isPortrait ? (bottomInset > 0 ? bottomInset + 80 : 80) : 90)
+                      : (isPortrait ? (bottomInset > 0 ? bottomInset + 30 : 30) : 30),
+                  left: isPortrait ? 20 : 40,
+                  right: isPortrait ? 20 : 40,
                   child: ValueListenableBuilder<Duration>(
                     valueListenable: _positionNotifier,
                     builder: (context, pos, child) {
@@ -686,7 +1068,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           currentSubText,
                           textAlign: TextAlign.center,
                           style: GoogleFonts.outfit(
-                            fontSize: 18,
+                            fontSize: isPortrait ? 16 : 18,
                             color: _selectedSubtitleColor,
                             fontWeight: FontWeight.bold,
                             shadows: const [
@@ -727,336 +1109,97 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       color: Colors.black.withOpacity(0.5),
                       child: Stack(
                         children: [
-                          // Top Bar: Back & Title
-                          Positioned(
-                            top: 24,
-                            left: 24,
-                            right: 24,
-                            child: Row(
-                              children: [
-                                TvFocusableCard(
-                                  focusNode: _backFocusNode,
-                                  borderRadius: BorderRadius.circular(24),
-                                  onTap: () => Navigator.pop(context, {
-                                    'season': _currentSeason,
-                                    'episode': _currentEpisode,
-                                  }),
-                                  child: const Padding(
-                                    padding: EdgeInsets.all(8.0),
-                                    child: Icon(Icons.arrow_back, color: Colors.white, size: 28),
+                          // Top Bar: Back, Title & Action Controls
+                          if (isPortrait)
+                            Positioned(
+                              top: topInset > 0 ? topInset + 6 : 16,
+                              left: 16,
+                              right: 16,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      TvFocusableCard(
+                                        focusNode: _backFocusNode,
+                                        borderRadius: BorderRadius.circular(24),
+                                        onTap: () => Navigator.pop(context, {
+                                          'season': _currentSeason,
+                                          'episode': _currentEpisode,
+                                        }),
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(6.0),
+                                          child: Icon(Icons.arrow_back, color: Colors.white, size: 24),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          (_currentSeason > 0 || _currentEpisode > 0)
+                                              ? "$_currentTitle • S$_currentSeason E$_currentEpisode"
+                                              : _currentTitle,
+                                          style: GoogleFonts.outfit(
+                                            color: Colors.white,
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    (_currentSeason > 0 || _currentEpisode > 0)
-                                        ? "$_currentTitle • S$_currentSeason E$_currentEpisode"
-                                        : _currentTitle,
-                                    style: GoogleFonts.outfit(
-                                      color: Colors.white,
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
+                                  const SizedBox(height: 8),
+                                  SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: _buildTopBarActionButtons(isPortrait: true),
                                     ),
                                   ),
-                                ),
-                                // Episodes Drawer Button (TV Series)
-                                if (_seasons.isNotEmpty || _currentSeason > 0) ...[
+                                ],
+                              ),
+                            )
+                          else
+                            Positioned(
+                              top: 24,
+                              left: 24,
+                              right: 24,
+                              child: Row(
+                                children: [
                                   TvFocusableCard(
-                                    focusNode: _episodesFocusNode,
+                                    focusNode: _backFocusNode,
                                     borderRadius: BorderRadius.circular(24),
-                                    onTap: _showEpisodeModal,
+                                    onTap: () => Navigator.pop(context, {
+                                      'season': _currentSeason,
+                                      'episode': _currentEpisode,
+                                    }),
                                     child: const Padding(
                                       padding: EdgeInsets.all(8.0),
-                                      child: Icon(Icons.video_library, color: Colors.white, size: 28),
+                                      child: Icon(Icons.arrow_back, color: Colors.white, size: 28),
                                     ),
                                   ),
                                   const SizedBox(width: 12),
-                                ],
-                                // Audio Dub Selector Button
-                                if (_dubs.isNotEmpty && widget.onSwitchAudio != null) ...[
-                                  TvFocusableCard(
-                                    focusNode: _audioFocusNode,
-                                    borderRadius: BorderRadius.circular(24),
-                                    onTap: () {
-                                      _audioPopupMenuKey.currentState?.showButtonMenu();
-                                    },
-                                    child: IgnorePointer(
-                                      child: PopupMenuButton<dynamic>(
-                                        key: _audioPopupMenuKey,
-                                        color: const Color(0xFF1E1E1E),
-                                        onSelected: (dub) => _switchAudio(dub),
-                                        itemBuilder: (context) {
-                                          return _dubs.map((dub) {
-                                            final label = _formatDubLabel(dub);
-                                            final isSelected = label == _currentAudioName;
-                                            return PopupMenuItem<dynamic>(
-                                              value: dub,
-                                              child: Row(
-                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                children: [
-                                                  Text(
-                                                    label,
-                                                    style: GoogleFonts.outfit(
-                                                      color: isSelected ? Colors.redAccent : Colors.white,
-                                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                                    ),
-                                                  ),
-                                                  if (isSelected)
-                                                    const Icon(Icons.check, color: Colors.redAccent, size: 18),
-                                                ],
-                                              ),
-                                            );
-                                          }).toList();
-                                        },
-                                        child: const Padding(
-                                          padding: EdgeInsets.all(8.0),
-                                          child: Icon(Icons.audiotrack, color: Colors.white, size: 28),
-                                        ),
+                                  Expanded(
+                                    child: Text(
+                                      (_currentSeason > 0 || _currentEpisode > 0)
+                                          ? "$_currentTitle • S$_currentSeason E$_currentEpisode"
+                                          : _currentTitle,
+                                      style: GoogleFonts.outfit(
+                                        color: Colors.white,
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
                                       ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
                                   const SizedBox(width: 12),
+                                  ..._buildTopBarActionButtons(isPortrait: false),
                                 ],
-                                // Video Quality Selector Button
-                                if (_availableStreams.isNotEmpty) ...[
-                                  TvFocusableCard(
-                                    focusNode: _qualityFocusNode,
-                                    borderRadius: BorderRadius.circular(24),
-                                    onTap: () {
-                                      _qualityPopupMenuKey.currentState?.showButtonMenu();
-                                    },
-                                    child: IgnorePointer(
-                                      child: PopupMenuButton<Map<String, dynamic>>(
-                                        key: _qualityPopupMenuKey,
-                                        color: const Color(0xFF1E1E1E),
-                                        onSelected: (stream) => _switchQuality(stream),
-                                        itemBuilder: (context) {
-                                          return _availableStreams.map((s) {
-                                            final mapStream = Map<String, dynamic>.from(s is Map ? s : {});
-                                            final label = _formatStreamQualityLabel(mapStream);
-                                            final isSelected = _currentStream != null &&
-                                                ((_currentStream!['resourceId'] != null && _currentStream!['resourceId'] == mapStream['resourceId']) ||
-                                                 (_currentStream!['url'] != null && _currentStream!['url'] == mapStream['url']) ||
-                                                 (_currentStream!['resourceLink'] != null && _currentStream!['resourceLink'] == mapStream['resourceLink']));
-                                            return PopupMenuItem<Map<String, dynamic>>(
-                                              value: mapStream,
-                                              child: Row(
-                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                children: [
-                                                  Text(
-                                                    label,
-                                                    style: GoogleFonts.outfit(
-                                                      color: isSelected ? Colors.redAccent : Colors.white,
-                                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                                    ),
-                                                  ),
-                                                  if (isSelected)
-                                                    const Icon(Icons.check, color: Colors.redAccent, size: 18),
-                                                ],
-                                              ),
-                                            );
-                                          }).toList();
-                                        },
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(8.0),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              const Icon(Icons.high_quality, color: Colors.white, size: 28),
-                                              if (_currentStream != null) ...[
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  _formatShortQualityLabel(_currentStream),
-                                                  style: GoogleFonts.outfit(
-                                                    color: Colors.white70,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                ],
-                                // Subtitle Selector Button
-                                if (_availableSubtitles.isNotEmpty) ...[
-                                  TvFocusableCard(
-                                    focusNode: _subtitleFocusNode,
-                                    borderRadius: BorderRadius.circular(24),
-                                    onTap: () {
-                                      _popupMenuKey.currentState?.showButtonMenu();
-                                    },
-                                    child: IgnorePointer(
-                                      child: PopupMenuButton<String>(
-                                        key: _popupMenuKey,
-                                        color: const Color(0xFF1E1E1E),
-                                        onSelected: (url) {
-                                          if (url.isEmpty) {
-                                            setState(() {
-                                              _selectedSubtitleUrl = null;
-                                              _subtitleEntries = [];
-                                            });
-                                          } else {
-                                            setState(() {
-                                              _selectedSubtitleUrl = url;
-                                            });
-                                            _loadSubtitles(url);
-                                          }
-                                        },
-                                        itemBuilder: (context) {
-                                          return [
-                                            PopupMenuItem<String>(
-                                              value: "",
-                                              child: Text(
-                                                "Off",
-                                                style: GoogleFonts.outfit(
-                                                  color: _selectedSubtitleUrl == null ? Colors.redAccent : Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ),
-                                            ..._availableSubtitles.map((sub) {
-                                              final label = sub['normalizedLan'] ??
-                                                            sub['lanName'] ?? 
-                                                            sub['language'] ?? 
-                                                            sub['lan'] ?? 
-                                                            sub['lang'] ?? 
-                                                            "Subtitle";
-                                              final subUrl = (sub['url'] ?? sub['link'] ?? sub['src'] ?? sub['path'] ?? '').toString();
-                                              if (subUrl.isEmpty) return null;
-
-                                              final isSelected = _selectedSubtitleUrl == subUrl;
-                                              return PopupMenuItem<String>(
-                                                value: subUrl,
-                                                child: Text(
-                                                  label.toString(),
-                                                  style: GoogleFonts.outfit(
-                                                    color: isSelected ? Colors.redAccent : Colors.white,
-                                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                                  ),
-                                                ),
-                                              );
-                                            }).whereType<PopupMenuItem<String>>(),
-                                          ];
-                                        },
-                                        child: const Padding(
-                                          padding: EdgeInsets.all(8.0),
-                                          child: Icon(Icons.subtitles, color: Colors.white, size: 28),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  // Subtitle Color Button
-                                  TvFocusableCard(
-                                    focusNode: _subtitleColorFocusNode,
-                                    borderRadius: BorderRadius.circular(24),
-                                    onTap: () {
-                                      _colorPopupMenuKey.currentState?.showButtonMenu();
-                                    },
-                                    child: IgnorePointer(
-                                      child: PopupMenuButton<Color>(
-                                        key: _colorPopupMenuKey,
-                                        color: const Color(0xFF1E1E1E),
-                                        onSelected: (color) {
-                                          setState(() {
-                                            _selectedSubtitleColor = color;
-                                          });
-                                        },
-                                        itemBuilder: (context) {
-                                          return _subtitleColors.entries.map((entry) {
-                                            final isSelected = _selectedSubtitleColor == entry.value;
-                                            return PopupMenuItem<Color>(
-                                              value: entry.value,
-                                              child: Row(
-                                                children: [
-                                                  Container(
-                                                    width: 16,
-                                                    height: 16,
-                                                    decoration: BoxDecoration(
-                                                      color: entry.value,
-                                                      shape: BoxShape.circle,
-                                                      border: Border.all(color: Colors.white38),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 12),
-                                                  Text(
-                                                    entry.key,
-                                                    style: GoogleFonts.outfit(
-                                                      color: isSelected ? Colors.redAccent : Colors.white,
-                                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            );
-                                          }).toList();
-                                        },
-                                        child: const Padding(
-                                          padding: EdgeInsets.all(8.0),
-                                          child: Icon(Icons.palette, color: Colors.white, size: 28),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                                const SizedBox(width: 12),
-                                // Aspect Ratio / Screen Zoom Fit Button
-                                TvFocusableCard(
-                                  focusNode: _fitModeFocusNode,
-                                  borderRadius: BorderRadius.circular(24),
-                                  onTap: () {
-                                    _fitMenuKey.currentState?.showButtonMenu();
-                                  },
-                                  child: IgnorePointer(
-                                    child: PopupMenuButton<BoxFit>(
-                                      key: _fitMenuKey,
-                                      color: const Color(0xFF1E1E1E),
-                                      onSelected: (mode) {
-                                        setState(() {
-                                          _selectedFitMode = mode;
-                                        });
-                                      },
-                                      itemBuilder: (context) {
-                                        return _fitModes.entries.map((entry) {
-                                          final isSelected = _selectedFitMode == entry.value;
-                                          return PopupMenuItem<BoxFit>(
-                                            value: entry.value,
-                                            child: Text(
-                                              entry.key,
-                                              style: GoogleFonts.outfit(
-                                                color: isSelected ? Colors.redAccent : Colors.white,
-                                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                              ),
-                                            ),
-                                          );
-                                        }).toList();
-                                      },
-                                      child: const Padding(
-                                        padding: EdgeInsets.all(8.0),
-                                        child: Icon(Icons.aspect_ratio, color: Colors.white, size: 28),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                // Picture-in-Picture (PiP) Button
-                                TvFocusableCard(
-                                  focusNode: _pipFocusNode,
-                                  borderRadius: BorderRadius.circular(24),
-                                  onTap: _enterPipMode,
-                                  child: const Padding(
-                                    padding: EdgeInsets.all(8.0),
-                                    child: Icon(Icons.picture_in_picture_alt, color: Colors.white, size: 28),
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
-                          ),
 
                           // Center Controls: Play/Pause, Rewind, Fast Forward
                           Align(
@@ -1068,35 +1211,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   focusNode: _rewindFocusNode,
                                   borderRadius: BorderRadius.circular(32),
                                   onTap: () => _seekRelative(const Duration(seconds: -10)),
-                                  child: const Padding(
-                                    padding: EdgeInsets.all(12.0),
-                                    child: Icon(Icons.replay_10, color: Colors.white, size: 48),
+                                  child: Padding(
+                                    padding: EdgeInsets.all(isPortrait ? 8.0 : 12.0),
+                                    child: Icon(Icons.replay_10, color: Colors.white, size: isPortrait ? 40 : 48),
                                   ),
                                 ),
-                                const SizedBox(width: 48),
+                                SizedBox(width: isPortrait ? 28 : 48),
                                 TvFocusableCard(
                                   focusNode: _playPauseFocusNode,
                                   borderRadius: BorderRadius.circular(40),
                                   onTap: _togglePlayPause,
                                   child: Padding(
-                                    padding: const EdgeInsets.all(12.0),
+                                    padding: EdgeInsets.all(isPortrait ? 8.0 : 12.0),
                                     child: Icon(
                                       _isInitialized && _player.state.playing
                                           ? Icons.pause_circle_filled
                                           : Icons.play_circle_filled,
                                       color: Colors.redAccent,
-                                      size: 72,
+                                      size: isPortrait ? 60 : 72,
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 48),
+                                SizedBox(width: isPortrait ? 28 : 48),
                                 TvFocusableCard(
                                   focusNode: _forwardFocusNode,
                                   borderRadius: BorderRadius.circular(32),
                                   onTap: () => _seekRelative(const Duration(seconds: 10)),
-                                  child: const Padding(
-                                    padding: EdgeInsets.all(12.0),
-                                    child: Icon(Icons.forward_10, color: Colors.white, size: 48),
+                                  child: Padding(
+                                    padding: EdgeInsets.all(isPortrait ? 8.0 : 12.0),
+                                    child: Icon(Icons.forward_10, color: Colors.white, size: isPortrait ? 40 : 48),
                                   ),
                                 ),
                               ],
@@ -1105,9 +1248,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
                           // Bottom Bar: Progress Bar & Timestamps
                           Positioned(
-                            bottom: 24,
-                            left: 24,
-                            right: 24,
+                            bottom: isPortrait ? (bottomInset > 0 ? bottomInset + 12 : 16) : 24,
+                            left: isPortrait ? 16 : 24,
+                            right: isPortrait ? 16 : 24,
                             child: ValueListenableBuilder<Duration>(
                               valueListenable: _positionNotifier,
                               builder: (context, pos, child) {
