@@ -163,7 +163,11 @@ class _DetailScreenState extends State<DetailScreen> {
       try {
         final detailsRes = await _fourkApi.getDetails(widget.subjectId);
         final isTvShow = detailsRes['subjectType'] == 2;
-        List<dynamic> seasonsList = detailsRes['seasons'] ?? [];
+        final rawSeasons = detailsRes['seasons'] as List? ?? [];
+        final List<Map<String, dynamic>> seasonsList = rawSeasons
+            .map((s) => s is Map ? Map<String, dynamic>.from(s) : <String, dynamic>{})
+            .where((m) => m.isNotEmpty)
+            .toList();
         int initialEpisodesCount = 0;
         int targetSeason = widget.initialSeason ?? 1;
         int targetEpisode = widget.initialEpisode ?? 1;
@@ -3254,10 +3258,20 @@ class _DetailScreenState extends State<DetailScreen> {
   Widget _buildEpisodesSection({required bool isTv}) {
     if (!_isTvShow) return const SizedBox.shrink();
 
-    final currentSeasonData = _seasons.firstWhere(
-      (s) => (s['se'] ?? 1) == _selectedSeasonNumber,
-      orElse: () => _seasons.isNotEmpty ? _seasons.first : {'se': 1, 'maxEp': _episodesCount},
-    );
+    Map<String, dynamic>? currentSeasonData;
+    for (final s in _seasons) {
+      if (s is Map && (s['se'] ?? 1) == _selectedSeasonNumber) {
+        currentSeasonData = Map<String, dynamic>.from(s);
+        break;
+      }
+    }
+    if (currentSeasonData == null) {
+      if (_seasons.isNotEmpty && _seasons.first is Map) {
+        currentSeasonData = Map<String, dynamic>.from(_seasons.first as Map);
+      } else {
+        currentSeasonData = {'se': 1, 'maxEp': _episodesCount};
+      }
+    }
 
     List<dynamic> epList = [];
     if (currentSeasonData['episodes'] is List && (currentSeasonData['episodes'] as List).isNotEmpty) {

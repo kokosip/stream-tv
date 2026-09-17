@@ -1772,10 +1772,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _showEpisodeModal() {
     int selectedSeasonTab = _currentSeason > 0 ? _currentSeason : 1;
-    final seasonData = _seasons.firstWhere(
-      (s) => (s['se'] ?? 1) == selectedSeasonTab,
-      orElse: () => _seasons.isNotEmpty ? _seasons.first : {'se': 1, 'maxEp': widget.maxEpisodesInSeason},
-    );
+    Map<String, dynamic>? seasonData;
+    for (final s in _seasons) {
+      if (s is Map && (s['se'] ?? 1) == selectedSeasonTab) {
+        seasonData = Map<String, dynamic>.from(s);
+        break;
+      }
+    }
+    if (seasonData == null) {
+      if (_seasons.isNotEmpty && _seasons.first is Map) {
+        seasonData = Map<String, dynamic>.from(_seasons.first as Map);
+      } else {
+        seasonData = {'se': 1, 'maxEp': widget.maxEpisodesInSeason};
+      }
+    }
     int epCount = (seasonData['maxEp'] ?? widget.maxEpisodesInSeason) as int;
     if (epCount <= 0) epCount = 1;
 

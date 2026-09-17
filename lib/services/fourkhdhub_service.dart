@@ -196,14 +196,14 @@ class FourKHdHubService {
     }
 
     if (seasonEpisodes.isEmpty) {
-      return [
-        {'se': 1, 'maxEp': 1}
+      return <Map<String, dynamic>>[
+        <String, dynamic>{'se': 1, 'maxEp': 1}
       ];
     }
 
     final sortedKeys = seasonEpisodes.keys.toList()..sort();
-    return sortedKeys.map((sNum) {
-      return {
+    return sortedKeys.map<Map<String, dynamic>>((sNum) {
+      return <String, dynamic>{
         'se': sNum,
         'maxEp': seasonEpisodes[sNum] ?? 1,
       };
