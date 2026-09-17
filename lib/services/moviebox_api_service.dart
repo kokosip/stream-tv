@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class RateLimitException implements Exception {
   final String message;
@@ -51,11 +52,19 @@ class MovieBoxApiService {
   static const String SECRET_KEY_DEFAULT = "76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O";
   static const String SECRET_KEY_ALT = "Xqn2nnO41/L92o1iuXhSLHTbXvY4Z5ZZ62m8mSLA";
 
+  static const String _sessionTokenKey = 'moviebox_session_token';
+  static const String _sessionExpKey = 'moviebox_session_exp';
+  static const String _sessionUidKey = 'moviebox_session_uid';
+  static const String _sessionCreatedKey = 'moviebox_session_created';
+
+  // Global in-memory token shared across instances
+  static String? _globalRuntimeToken;
+
   // Active base host which we rotate on failure
   String _activeBase = HOST_POOL[0];
 
-  // Token absorbed from the server dynamically
-  String? _runtimeToken;
+  String? get _runtimeToken => _globalRuntimeToken;
+  set _runtimeToken(String? val) => _globalRuntimeToken = val;
   Future<void>? _tokenFetchFuture;
 
   late final String _userAgent;
@@ -143,11 +152,89 @@ class MovieBoxApiService {
     if (xUser.isEmpty) return;
     try {
       final payload = jsonDecode(xUser);
-      final token = payload['token'] ?? "";
+      final token = payload['token']?.toString() ?? "";
       if (token.isNotEmpty) {
         _runtimeToken = token;
+        savePersistedSession(token, uid: payload['uid']?.toString() ?? payload['userId']?.toString());
         print("ABSORBED DART RUNTIME TOKEN: $_runtimeToken");
       }
+    } catch (_) {}
+  }
+
+  /// Parse JWT claims (userId/uid, exp)
+  static Map<String, dynamic> parseJwtClaims(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return {};
+      var payload = parts[1].trim();
+      final pad = (4 - (payload.length % 4)) % 4;
+      if (pad > 0) {
+        payload += '=' * pad;
+      }
+      payload = payload.replaceAll('-', '+').replaceAll('_', '/');
+      final decodedBytes = base64.decode(payload);
+      final jsonStr = utf8.decode(decodedBytes);
+      final map = jsonDecode(jsonStr);
+      if (map is Map<String, dynamic>) {
+        return map;
+      }
+    } catch (_) {}
+    return {};
+  }
+
+  /// Check if a cached token is still valid (at least 60 seconds buffer before expiration)
+  static bool isSessionValid({required String token, int? expiresAt, int? createdAt}) {
+    if (token.trim().isEmpty) return false;
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    if (expiresAt != null && expiresAt > 0) {
+      return (nowSec + 60) < expiresAt;
+    }
+    if (createdAt != null && createdAt > 0) {
+      return nowSec < (createdAt + (7 * 24 * 3600));
+    }
+    return false;
+  }
+
+  /// Save token session to SharedPreferences
+  static Future<void> savePersistedSession(String token, {String? uid}) async {
+    try {
+      final claims = parseJwtClaims(token);
+      final exp = int.tryParse(claims['exp']?.toString() ?? '');
+      final userId = uid ?? claims['userId']?.toString() ?? claims['uid']?.toString();
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_sessionTokenKey, token);
+      if (exp != null) await prefs.setInt(_sessionExpKey, exp);
+      if (userId != null) await prefs.setString(_sessionUidKey, userId);
+      await prefs.setInt(_sessionCreatedKey, nowSec);
+    } catch (_) {}
+  }
+
+  /// Load persisted session token if still valid
+  static Future<String?> loadPersistedSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString(_sessionTokenKey);
+      if (token == null || token.isEmpty) return null;
+      final exp = prefs.getInt(_sessionExpKey);
+      final created = prefs.getInt(_sessionCreatedKey);
+
+      if (isSessionValid(token: token, expiresAt: exp, createdAt: created)) {
+        return token;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Invalidate / clear persisted session
+  static Future<void> clearPersistedSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_sessionTokenKey);
+      await prefs.remove(_sessionExpKey);
+      await prefs.remove(_sessionUidKey);
+      await prefs.remove(_sessionCreatedKey);
     } catch (_) {}
   }
 
@@ -302,9 +389,18 @@ class MovieBoxApiService {
       return _tokenFetchFuture;
     }
     
-    print("No token found. Fetching token via visitor-login...");
     _tokenFetchFuture = () async {
-      // 1. Try visitor-login first (official guest session endpoint)
+      // 1. Check persisted session in SharedPreferences
+      final cachedToken = await loadPersistedSession();
+      if (cachedToken != null) {
+        _runtimeToken = cachedToken;
+        print("Reusing valid persisted MovieBox token session");
+        return;
+      }
+
+      print("No valid persisted token found. Fetching token via visitor-login...");
+
+      // 2. Try visitor-login first (official guest session endpoint)
       try {
         final res = await _request(
           "POST",
@@ -315,6 +411,7 @@ class MovieBoxApiService {
         final token = data['token']?.toString();
         if (token != null && token.isNotEmpty) {
           _runtimeToken = token;
+          await savePersistedSession(token, uid: data['uid']?.toString() ?? data['userId']?.toString());
           print("Obtained runtime token via visitor-login: $_runtimeToken");
           return;
         }
@@ -322,7 +419,7 @@ class MovieBoxApiService {
         print("visitor-login error: $e, falling back to getHomepage");
       }
 
-      // 2. Fallback: getHomepage to absorb from x-user
+      // 3. Fallback: getHomepage to absorb from x-user
       try {
         await getHomepage(page: 1, tabId: 0);
         print("Token fetched successfully via getHomepage: $_runtimeToken");
@@ -437,6 +534,7 @@ class MovieBoxApiService {
         } else {
           if (response.statusCode == 401 || response.statusCode == 403 || response.statusCode == 441) {
             _runtimeToken = null; // Clear token to force refresh
+            clearPersistedSession();
             if (!isAuthExempt) {
               print("Auth failed with ${response.statusCode}. Retrying with a new token...");
               await _ensureToken();
