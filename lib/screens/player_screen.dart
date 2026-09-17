@@ -9,6 +9,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:http/http.dart' as http;
 import '../widgets/tv_focusable_card.dart';
+import '../widgets/subtitle_search_dialog.dart';
 import '../services/playback_progress_service.dart';
 import '../services/app_language_service.dart';
 import '../services/analytics_service.dart';
@@ -261,6 +262,51 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } catch (e) {
       print("Failed to load subtitles: $e");
     }
+  }
+
+  Future<void> _openOnlineSubtitleSearch() async {
+    _hideTimer?.cancel();
+    final result = await SubtitleSearchDialog.show(
+      context,
+      initialTitle: _currentTitle,
+      season: _currentSeason,
+      episode: _currentEpisode,
+    );
+
+    if (result != null && mounted) {
+      final entries = parseSrt(result.srtContent);
+      if (entries.isNotEmpty) {
+        final customSubEntry = {
+          'url': result.item.url,
+          'normalizedLan': "${result.item.languageName} (Online)",
+          'lanName': result.item.languageName,
+          'isOnline': true,
+        };
+
+        setState(() {
+          _subtitleEntries = entries;
+          _selectedSubtitleUrl = result.item.url;
+          if (!_availableSubtitles.any((s) => s['url'] == result.item.url)) {
+            _availableSubtitles.insert(0, customSubEntry);
+          }
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppLanguageService.tr(
+                en: "Applied subtitle: ${result.item.languageName} (${result.item.releaseName})",
+                id: "Subtitle diterapkan: ${result.item.languageName} (${result.item.releaseName})",
+              ),
+              style: GoogleFonts.outfit(color: Colors.white),
+            ),
+            backgroundColor: const Color(0xFF1E1E1E),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+    _startHideTimer();
   }
 
   @override
@@ -771,79 +817,105 @@ class _PlayerScreenState extends State<PlayerScreen> {
       buttons.add(SizedBox(width: spacing));
     }
 
-    // Subtitle Selector Button
-    if (_availableSubtitles.isNotEmpty) {
-      buttons.add(
-        TvFocusableCard(
-          focusNode: _subtitleFocusNode,
-          borderRadius: BorderRadius.circular(24),
-          onTap: () {
-            _popupMenuKey.currentState?.showButtonMenu();
-          },
-          child: IgnorePointer(
-            child: PopupMenuButton<String>(
-              key: _popupMenuKey,
-              color: const Color(0xFF1E1E1E),
-              onSelected: (url) {
-                if (url.isEmpty) {
-                  setState(() {
-                    _selectedSubtitleUrl = null;
-                    _subtitleEntries = [];
-                  });
-                } else {
-                  setState(() {
-                    _selectedSubtitleUrl = url;
-                  });
-                  _loadSubtitles(url);
-                }
-              },
-              itemBuilder: (context) {
-                return [
-                  PopupMenuItem<String>(
-                    value: "",
-                    child: Text(
-                      "Off",
-                      style: GoogleFonts.outfit(
-                        color: _selectedSubtitleUrl == null ? Colors.redAccent : Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  ..._availableSubtitles.map((sub) {
-                    final label = sub['normalizedLan'] ??
-                                  sub['lanName'] ?? 
-                                  sub['language'] ?? 
-                                  sub['lan'] ?? 
-                                  sub['lang'] ?? 
-                                  "Subtitle";
-                    final subUrl = (sub['url'] ?? sub['link'] ?? sub['src'] ?? sub['path'] ?? '').toString();
-                    if (subUrl.isEmpty) return null;
-
-                    final isSelected = _selectedSubtitleUrl == subUrl;
-                    return PopupMenuItem<String>(
-                      value: subUrl,
-                      child: Text(
-                        label.toString(),
+    // Subtitle Selector Button (Always available with in-app online search)
+    buttons.add(
+      TvFocusableCard(
+        focusNode: _subtitleFocusNode,
+        borderRadius: BorderRadius.circular(24),
+        onTap: () {
+          _popupMenuKey.currentState?.showButtonMenu();
+        },
+        child: IgnorePointer(
+          child: PopupMenuButton<String>(
+            key: _popupMenuKey,
+            color: const Color(0xFF1E1E1E),
+            onSelected: (url) {
+              if (url == "__search_online__") {
+                _openOnlineSubtitleSearch();
+              } else if (url.isEmpty) {
+                setState(() {
+                  _selectedSubtitleUrl = null;
+                  _subtitleEntries = [];
+                });
+              } else {
+                setState(() {
+                  _selectedSubtitleUrl = url;
+                });
+                _loadSubtitles(url);
+              }
+            },
+            itemBuilder: (context) {
+              return [
+                PopupMenuItem<String>(
+                  value: "__search_online__",
+                  child: Row(
+                    children: [
+                      const Icon(Icons.search, color: Colors.redAccent, size: 20),
+                      const SizedBox(width: 10),
+                      Text(
+                        AppLanguageService.tr(
+                          en: "Search Online Subtitles...",
+                          id: "Cari Subtitle Online...",
+                        ),
                         style: GoogleFonts.outfit(
-                          color: isSelected ? Colors.redAccent : Colors.white,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          color: Colors.redAccent,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                    );
-                  }).whereType<PopupMenuItem<String>>(),
-                ];
-              },
-              child: Padding(
-                padding: btnPadding,
-                child: Icon(Icons.subtitles, color: Colors.white, size: iconSize),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
+                PopupMenuItem<String>(
+                  value: "",
+                  child: Text(
+                    "Off",
+                    style: GoogleFonts.outfit(
+                      color: _selectedSubtitleUrl == null ? Colors.redAccent : Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                ..._availableSubtitles.map((sub) {
+                  final label = sub['normalizedLan'] ??
+                                sub['lanName'] ?? 
+                                sub['language'] ?? 
+                                sub['lan'] ?? 
+                                sub['lang'] ?? 
+                                "Subtitle";
+                  final subUrl = (sub['url'] ?? sub['link'] ?? sub['src'] ?? sub['path'] ?? '').toString();
+                  if (subUrl.isEmpty) return null;
+
+                  final isSelected = _selectedSubtitleUrl == subUrl;
+                  return PopupMenuItem<String>(
+                    value: subUrl,
+                    child: Text(
+                      label.toString(),
+                      style: GoogleFonts.outfit(
+                        color: isSelected ? Colors.redAccent : Colors.white,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  );
+                }).whereType<PopupMenuItem<String>>(),
+              ];
+            },
+            child: Padding(
+              padding: btnPadding,
+              child: Icon(
+                Icons.subtitles,
+                color: _selectedSubtitleUrl != null ? Colors.redAccent : Colors.white,
+                size: iconSize,
               ),
             ),
           ),
         ),
-      );
-      buttons.add(SizedBox(width: spacing));
+      ),
+    );
+    buttons.add(SizedBox(width: spacing));
 
-      // Subtitle Color Button
+    // Subtitle Color Button
+    if (_availableSubtitles.isNotEmpty || _subtitleEntries.isNotEmpty) {
       buttons.add(
         TvFocusableCard(
           focusNode: _subtitleColorFocusNode,
