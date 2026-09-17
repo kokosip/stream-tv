@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -23,7 +24,7 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
   final TmdbService _tmdb = TmdbService();
   late StreamingPlatformInfo _selectedPlatform;
   String _selectedType = 'all'; // 'all', 'movie', 'tv'
-  
+
   List<Map<String, dynamic>> _items = [];
   bool _isLoading = true;
   bool _isLoadingMore = false;
@@ -33,21 +34,36 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
 
   late final ScrollController _scrollController;
 
+  // Search state
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  String _searchQuery = "";
+  bool _isSearching = false;
+  List<Map<String, dynamic>> _searchResults = [];
+  Timer? _debounceTimer;
+
   @override
   void initState() {
     super.initState();
     _selectedPlatform = widget.initialPlatform;
     _scrollController = ScrollController()..addListener(_onScroll);
+    _searchFocusNode.addListener(() {
+      if (mounted) setState(() {});
+    });
     _loadItems(refresh: true);
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    _debounceTimer?.cancel();
     super.dispose();
   }
 
   void _onScroll() {
+    if (_searchQuery.isNotEmpty) return; // Disable catalog pagination during active search
     if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 400 &&
         !_isLoading &&
         !_isLoadingMore &&
@@ -98,7 +114,7 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
   }
 
   Future<void> _loadMore() async {
-    if (_isLoadingMore || !_hasMore) return;
+    if (_isLoadingMore || !_hasMore || _searchQuery.isNotEmpty) return;
 
     setState(() {
       _isLoadingMore = true;
@@ -131,12 +147,106 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
     }
   }
 
+  void _onSearchChanged(String val) {
+    _debounceTimer?.cancel();
+    final trimmed = val.trim();
+    if (trimmed.isEmpty) {
+      setState(() {
+        _searchQuery = "";
+        _isSearching = false;
+        _searchResults = [];
+      });
+      return;
+    }
+
+    // Instant local match on loaded items for instant responsiveness
+    final localMatches = _items.where((it) {
+      final title = (it['title'] ?? it['name'] ?? '').toString().toLowerCase();
+      return title.contains(trimmed.toLowerCase());
+    }).toList();
+
+    setState(() {
+      _searchQuery = trimmed;
+      _searchResults = localMatches;
+      _isSearching = true;
+    });
+
+    // Debounced TMDB deep catalog search for platform
+    _debounceTimer = Timer(const Duration(milliseconds: 550), () {
+      _performDeepSearch(trimmed);
+    });
+  }
+
+  Future<void> _performDeepSearch(String query) async {
+    if (!mounted || query.isEmpty) return;
+
+    setState(() {
+      _isSearching = true;
+    });
+
+    try {
+      final remoteResults = await _tmdb.searchByPlatform(
+        platform: _selectedPlatform,
+        query: query,
+        type: _selectedType,
+      );
+
+      if (mounted && _searchQuery == query) {
+        // Deduplicate between local results and remote TMDB results by subjectId / id
+        final seenIds = <String>{};
+        final combined = <Map<String, dynamic>>[];
+
+        for (final item in remoteResults) {
+          final id = (item['subjectId'] ?? item['id'] ?? '').toString();
+          if (id.isNotEmpty && !seenIds.contains(id)) {
+            seenIds.add(id);
+            combined.add(item);
+          }
+        }
+
+        for (final item in _searchResults) {
+          final id = (item['subjectId'] ?? item['id'] ?? '').toString();
+          if (id.isNotEmpty && !seenIds.contains(id)) {
+            seenIds.add(id);
+            combined.add(item);
+          }
+        }
+
+        setState(() {
+          _searchResults = combined;
+          _isSearching = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isSearching = false;
+        });
+      }
+    }
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    _debounceTimer?.cancel();
+    setState(() {
+      _searchQuery = "";
+      _isSearching = false;
+      _searchResults = [];
+    });
+  }
+
   void _selectPlatform(StreamingPlatformInfo platform) {
     if (_selectedPlatform.id == platform.id) return;
     setState(() {
       _selectedPlatform = platform;
     });
-    _loadItems(refresh: true);
+
+    if (_searchQuery.isNotEmpty) {
+      _performDeepSearch(_searchQuery);
+    } else {
+      _loadItems(refresh: true);
+    }
   }
 
   void _selectType(String type) {
@@ -144,7 +254,12 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
     setState(() {
       _selectedType = type;
     });
-    _loadItems(refresh: true);
+
+    if (_searchQuery.isNotEmpty) {
+      _performDeepSearch(_searchQuery);
+    } else {
+      _loadItems(refresh: true);
+    }
   }
 
   @override
@@ -283,7 +398,10 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
               ),
             ),
 
-            // 3. Filter Type Selector (All / Movies / TV)
+            // 3. Platform Search Bar
+            _buildSearchBar(isTv),
+
+            // 4. Filter Type Selector (All / Movies / TV)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
               child: Row(
@@ -297,12 +415,96 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
               ),
             ),
 
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
 
-            // 4. Catalog Grid
+            // 5. Catalog or Search Grid
             Expanded(
               child: _buildGridContent(crossAxisCount, isTv),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchBar(bool isTv) {
+    final themeColor = _selectedPlatform.primaryColor;
+    final hasFocus = _searchFocusNode.hasFocus;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+      child: Container(
+        height: 44,
+        decoration: BoxDecoration(
+          color: const Color(0xFF141414),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: hasFocus
+                ? themeColor
+                : (_searchQuery.isNotEmpty ? themeColor.withValues(alpha: 0.6) : const Color(0xFF262626)),
+            width: hasFocus ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 12),
+            Icon(
+              Icons.search_rounded,
+              color: _searchQuery.isNotEmpty || hasFocus ? themeColor : Colors.grey.shade500,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                onChanged: _onSearchChanged,
+                onSubmitted: (val) {
+                  _debounceTimer?.cancel();
+                  if (val.trim().isNotEmpty) {
+                    _performDeepSearch(val.trim());
+                  }
+                },
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 13,
+                ),
+                cursorColor: themeColor,
+                decoration: InputDecoration(
+                  hintText: AppLanguageService.tr(
+                    en: "Search on ${_selectedPlatform.name}...",
+                    id: "Cari di ${_selectedPlatform.name}...",
+                  ),
+                  hintStyle: GoogleFonts.outfit(
+                    color: Colors.grey.shade500,
+                    fontSize: 13,
+                  ),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                ),
+              ),
+            ),
+            if (_isSearching)
+              Padding(
+                padding: const EdgeInsets.only(right: 12.0),
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(themeColor),
+                  ),
+                ),
+              )
+            else if (_searchQuery.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.grey, size: 18),
+                splashRadius: 18,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                onPressed: _clearSearch,
+              ),
           ],
         ),
       ),
@@ -339,6 +541,126 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
   }
 
   Widget _buildGridContent(int crossAxisCount, bool isTv) {
+    // 1. If currently in search mode
+    if (_searchQuery.isNotEmpty) {
+      if (_isSearching && _searchResults.isEmpty) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SpinKitRing(color: _selectedPlatform.primaryColor, size: 40.0),
+              const SizedBox(height: 14),
+              Text(
+                AppLanguageService.tr(
+                  en: "Searching on ${_selectedPlatform.name}...",
+                  id: "Mencari di ${_selectedPlatform.name}...",
+                ),
+                style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 13),
+              ),
+            ],
+          ),
+        );
+      }
+
+      if (_searchResults.isEmpty) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.search_off_rounded, color: Colors.grey.shade600, size: 52),
+                const SizedBox(height: 14),
+                Text(
+                  AppLanguageService.tr(
+                    en: "No results for '$_searchQuery' on ${_selectedPlatform.name}",
+                    id: "Tidak ada hasil untuk '$_searchQuery' di ${_selectedPlatform.name}",
+                  ),
+                  style: GoogleFonts.outfit(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  AppLanguageService.tr(
+                    en: "Try checking the spelling or switch to another platform.",
+                    id: "Coba periksa ejaan atau ganti ke platform lain.",
+                  ),
+                  style: GoogleFonts.outfit(color: Colors.grey.shade500, fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 18),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _selectedPlatform.primaryColor.withValues(alpha: 0.2),
+                    foregroundColor: Colors.white,
+                    side: BorderSide(color: _selectedPlatform.primaryColor),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  ),
+                  onPressed: _clearSearch,
+                  icon: const Icon(Icons.clear_rounded, size: 16),
+                  label: Text(
+                    AppLanguageService.tr(en: "Clear Search", id: "Hapus Pencarian"),
+                    style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+            child: Row(
+              children: [
+                Text(
+                  AppLanguageService.tr(
+                    en: "Found ${_searchResults.length} titles on ${_selectedPlatform.name}",
+                    id: "Ditemukan ${_searchResults.length} judul di ${_selectedPlatform.name}",
+                  ),
+                  style: GoogleFonts.outfit(
+                    color: Colors.grey.shade400,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (_isSearching) ...[
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 10,
+                    height: 10,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(_selectedPlatform.primaryColor),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Expanded(
+            child: GridView.builder(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                childAspectRatio: 0.62,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 16,
+              ),
+              itemCount: _searchResults.length,
+              itemBuilder: (context, index) => _buildItemCard(_searchResults[index]),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // 2. Standard Catalog View
     if (_isLoading) {
       return Center(
         child: Column(
@@ -420,146 +742,152 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
               child: SpinKitRing(color: _selectedPlatform.primaryColor, size: 28),
             );
           }
-
-          final item = _items[index];
-          final title = item['title'] ?? item['name'] ?? "Untitled";
-          final coverUrl = item['cover']?['url'] ?? item['backdrop']?['url'] ?? "";
-          final rating = item['imdbRate'] ?? "";
-          final releaseDate = item['releaseDate'] ?? "";
-          final year = releaseDate.toString().isNotEmpty ? releaseDate.toString().split('-')[0] : "";
-          final isShow = item['subjectType'] == 2;
-
-          return TvFocusableCard(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => DetailScreen(
-                    subjectId: item['subjectId'] ?? "",
-                    provider: 'tmdb',
-                    tmdbData: item['rawTmdb'] ?? item,
-                  ),
-                ),
-              );
-            },
-            borderRadius: BorderRadius.circular(12),
-            scaleFactor: 1.05,
-            child: Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFF141414),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF222222)),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  // Poster Image
-                  CachedNetworkImage(
-                    imageUrl: coverUrl,
-                    fit: BoxFit.cover,
-                    memCacheWidth: 400,
-                    errorWidget: (context, url, error) => Container(
-                      color: const Color(0xFF1C1C1C),
-                      child: const Center(
-                        child: Icon(Icons.movie_outlined, color: Colors.grey, size: 32),
-                      ),
-                    ),
-                  ),
-
-                  // Bottom Gradient & Title Overlay
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.8),
-                            Colors.black.withValues(alpha: 0.95),
-                          ],
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.outfit(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              if (year.isNotEmpty)
-                                Text(
-                                  year,
-                                  style: GoogleFonts.outfit(
-                                    color: Colors.grey.shade400,
-                                    fontSize: 10,
-                                  ),
-                                ),
-                              if (rating.toString().isNotEmpty)
-                                Row(
-                                  children: [
-                                    const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
-                                    const SizedBox(width: 2),
-                                    Text(
-                                      rating.toString(),
-                                      style: GoogleFonts.outfit(
-                                        color: Colors.amber,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // Top Type badge (TV vs Movie)
-                  Positioned(
-                    top: 6,
-                    right: 6,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.75),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.white24, width: 0.5),
-                      ),
-                      child: Text(
-                        isShow ? "TV" : "MOVIE",
-                        style: GoogleFonts.outfit(
-                          color: isShow ? Colors.amberAccent : Colors.cyanAccent,
-                          fontSize: 8,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
+          return _buildItemCard(_items[index]);
         },
       ),
+    );
+  }
+
+  Widget _buildItemCard(Map<String, dynamic> item) {
+    final title = item['title'] ?? item['name'] ?? "Untitled";
+    final coverUrl = item['cover']?['url'] ?? item['backdrop']?['url'] ?? "";
+    final rating = item['imdbRate'] ?? "";
+    final releaseDate = item['releaseDate'] ?? "";
+    final year = releaseDate.toString().isNotEmpty ? releaseDate.toString().split('-')[0] : "";
+    final isShow = item['subjectType'] == 2;
+
+    return TvFocusableCard(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DetailScreen(
+              subjectId: item['subjectId'] ?? "",
+              provider: 'tmdb',
+              tmdbData: item['rawTmdb'] ?? item,
+            ),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      scaleFactor: 1.05,
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF141414),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF222222)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Poster Image
+            CachedNetworkImage(
+              imageUrl: coverUrl,
+              fit: BoxFit.cover,
+              memCacheWidth: 400,
+              errorWidget: (context, url, error) => Container(
+                color: const Color(0xFF1C1C1C),
+                child: const Center(
+                  child: Icon(Icons.movie_outlined, color: Colors.grey, size: 32),
+                ),
+              ),
+            ),
+
+            // Bottom Gradient & Title Overlay
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  gradient: themeGradientOverlay(),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        if (year.isNotEmpty)
+                          Text(
+                            year,
+                            style: GoogleFonts.outfit(
+                              color: Colors.grey.shade400,
+                              fontSize: 10,
+                            ),
+                          ),
+                        if (rating.toString().isNotEmpty)
+                          Row(
+                            children: [
+                              const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
+                              const SizedBox(width: 2),
+                              Text(
+                                rating.toString(),
+                                style: GoogleFonts.outfit(
+                                  color: Colors.amber,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Top Type badge (TV vs Movie)
+            Positioned(
+              top: 6,
+              right: 6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.white24, width: 0.5),
+                ),
+                child: Text(
+                  isShow ? "TV" : "MOVIE",
+                  style: GoogleFonts.outfit(
+                    color: isShow ? Colors.amberAccent : Colors.cyanAccent,
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  LinearGradient themeGradientOverlay() {
+    return LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.transparent,
+        Colors.black.withValues(alpha: 0.8),
+        Colors.black.withValues(alpha: 0.95),
+      ],
     );
   }
 }

@@ -246,6 +246,115 @@ class TmdbService {
     }
   }
 
+  /// Search movies and TV Shows available on a specific streaming platform
+  Future<List<Map<String, dynamic>>> searchByPlatform({
+    required StreamingPlatformInfo platform,
+    required String query,
+    String type = 'all', // 'all', 'movie', 'tv'
+    int page = 1,
+  }) async {
+    final cleanQuery = query.trim();
+    if (cleanQuery.isEmpty) return [];
+
+    try {
+      List<dynamic> rawResults = [];
+
+      if (type == 'movie') {
+        final res = await _get("/search/movie", params: {
+          "query": cleanQuery,
+          "page": page.toString(),
+        });
+        rawResults = (res['results'] as List? ?? []).map((m) {
+          final item = Map<String, dynamic>.from(m as Map);
+          item['media_type'] = 'movie';
+          return item;
+        }).toList();
+      } else if (type == 'tv') {
+        final res = await _get("/search/tv", params: {
+          "query": cleanQuery,
+          "page": page.toString(),
+        });
+        rawResults = (res['results'] as List? ?? []).map((t) {
+          final item = Map<String, dynamic>.from(t as Map);
+          item['media_type'] = 'tv';
+          return item;
+        }).toList();
+      } else {
+        final res = await _get("/search/multi", params: {
+          "query": cleanQuery,
+          "page": page.toString(),
+        });
+        rawResults = (res['results'] as List? ?? [])
+            .where((r) => r['media_type'] == 'movie' || r['media_type'] == 'tv')
+            .toList();
+      }
+
+      if (rawResults.isEmpty) return [];
+
+      // Limit top candidates to 16 to keep response snappy
+      final candidates = rawResults.take(16).toList();
+
+      // Check watch providers for each candidate in parallel
+      final checks = await Future.wait(candidates.map((item) async {
+        final mediaType = (item['media_type'] ?? (type == 'tv' ? 'tv' : 'movie')).toString();
+        final id = item['id'];
+        if (id == null) return null;
+
+        try {
+          final p = await _get("/$mediaType/$id/watch/providers");
+          final resultsMap = (p['results'] as Map? ?? {});
+
+          bool hasProvider = false;
+
+          // Check if providerId or alternative IDs match across regions
+          for (final countryEntry in resultsMap.values) {
+            if (countryEntry is Map) {
+              final flatrate = (countryEntry['flatrate'] as List? ?? []);
+              final buy = (countryEntry['buy'] as List? ?? []);
+              final rent = (countryEntry['rent'] as List? ?? []);
+              final all = [...flatrate, ...buy, ...rent];
+
+              if (all.any((pr) {
+                final pid = pr['provider_id'];
+                final pName = (pr['provider_name'] ?? '').toString().toLowerCase();
+                final targetName = platform.name.toLowerCase();
+                return pid == platform.providerId ||
+                    (platform.id == 'disney' && (pid == 337 || pid == 390)) ||
+                    (platform.id == 'prime' && (pid == 9 || pid == 10)) ||
+                    (platform.id == 'apple' && (pid == 2 || pid == 350)) ||
+                    (platform.id == 'hbo' && (pid == 384 || pid == 1899)) ||
+                    (platform.id == 'viu' && pid == 158) ||
+                    pName.contains(targetName);
+              })) {
+                hasProvider = true;
+                break;
+              }
+            }
+          }
+
+          // Check TV network if applicable
+          if (!hasProvider && platform.networkId != null && mediaType == 'tv') {
+            final tvDetails = await _get("/tv/$id");
+            final networks = (tvDetails['networks'] as List? ?? []);
+            if (networks.any((n) => n['id'] == platform.networkId)) {
+              hasProvider = true;
+            }
+          }
+
+          if (hasProvider) {
+            return normalizeItem(Map<String, dynamic>.from(item as Map), mediaType: mediaType);
+          }
+        } catch (_) {}
+        return null;
+      }));
+
+      return checks.whereType<Map<String, dynamic>>().toList();
+    } catch (e) {
+      print("Search by platform error: $e");
+      return [];
+    }
+  }
+
   /// Get Detailed info for a movie
   Future<Map<String, dynamic>?> getMovieDetails(int tmdbId) async {
     try {
