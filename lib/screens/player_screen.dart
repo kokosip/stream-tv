@@ -388,6 +388,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _currentAudioName = widget.currentAudioName;
     _availableStreams = List.from(widget.availableStreams);
     _currentStream = widget.currentStream;
+    _cleanAndSortAvailableStreams();
     _seasons = List.from(widget.seasons);
 
     _audioFocusNode = FocusNode();
@@ -776,10 +777,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 return _availableStreams.map((s) {
                   final mapStream = Map<String, dynamic>.from(s is Map ? s : {});
                   final label = _formatStreamQualityLabel(mapStream);
-                  final isSelected = _currentStream != null &&
-                      ((_currentStream!['resourceId'] != null && _currentStream!['resourceId'] == mapStream['resourceId']) ||
-                       (_currentStream!['url'] != null && _currentStream!['url'] == mapStream['url']) ||
-                       (_currentStream!['resourceLink'] != null && _currentStream!['resourceLink'] == mapStream['resourceLink']));
+                  final isSelected = _isStreamSelected(mapStream);
                   return PopupMenuItem<Map<String, dynamic>>(
                     value: mapStream,
                     child: Row(
@@ -1843,6 +1841,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _currentAudioName = res.audioName;
           if (res.availableStreams.isNotEmpty) {
             _availableStreams = res.availableStreams;
+            _cleanAndSortAvailableStreams();
           }
           if (res.currentStream != null) {
             _currentStream = res.currentStream;
@@ -1864,11 +1863,86 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  void _cleanAndSortAvailableStreams() {
+    final Map<String, Map<String, dynamic>> resMap = {};
+
+    for (final s in _availableStreams) {
+      if (s is! Map) continue;
+      final mapStream = Map<String, dynamic>.from(s);
+      final res = (mapStream['resolution'] is num)
+          ? (mapStream['resolution'] as num).toInt()
+          : (int.tryParse(mapStream['resolution']?.toString() ?? '0') ?? 0);
+      final label = _formatStreamQualityLabel(mapStream);
+
+      // Key by resolution or label to eliminate duplicates
+      final key = res > 0 ? "res_$res" : label;
+      if (!resMap.containsKey(key)) {
+        resMap[key] = mapStream;
+      } else {
+        final existing = resMap[key]!;
+        final existingSize = int.tryParse(existing['size']?.toString() ?? '0') ?? 0;
+        final mapSize = int.tryParse(mapStream['size']?.toString() ?? '0') ?? 0;
+        if (mapSize > existingSize) {
+          resMap[key] = mapStream;
+        }
+      }
+    }
+
+    final sortedStreams = resMap.values.toList()
+      ..sort((a, b) {
+        final resA = (a['resolution'] is num) ? (a['resolution'] as num).toInt() : (int.tryParse(a['resolution']?.toString() ?? '0') ?? 0);
+        final resB = (b['resolution'] is num) ? (b['resolution'] as num).toInt() : (int.tryParse(b['resolution']?.toString() ?? '0') ?? 0);
+        return resB.compareTo(resA); // Highest resolution first
+      });
+
+    _availableStreams = sortedStreams;
+
+    // Ensure _currentStream points to the best (highest) resolution if not set or resolution mismatch
+    if (_currentStream == null && _availableStreams.isNotEmpty) {
+      _currentStream = Map<String, dynamic>.from(_availableStreams.first as Map);
+    }
+  }
+
+  bool _isStreamSelected(Map<String, dynamic> mapStream) {
+    if (_currentStream == null) return false;
+
+    final curRes = (_currentStream!['resolution'] is num)
+        ? (_currentStream!['resolution'] as num).toInt()
+        : int.tryParse(_currentStream!['resolution']?.toString() ?? '0') ?? 0;
+    final mapRes = (mapStream['resolution'] is num)
+        ? (mapStream['resolution'] as num).toInt()
+        : int.tryParse(mapStream['resolution']?.toString() ?? '0') ?? 0;
+
+    // 1. Resolution comparison: if both have resolution defined, they MUST match
+    if (curRes > 0 && mapRes > 0) {
+      if (curRes != mapRes) return false;
+      final curLink = (_currentStream!['url'] ?? _currentStream!['resourceLink'] ?? '').toString();
+      final mapLink = (mapStream['url'] ?? mapStream['resourceLink'] ?? '').toString();
+      if (curLink.isNotEmpty && mapLink.isNotEmpty && curLink != mapLink) {
+        return false;
+      }
+      return true;
+    }
+
+    // 2. URL comparison
+    final curLink = (_currentStream!['url'] ?? _currentStream!['resourceLink'] ?? '').toString();
+    final mapLink = (mapStream['url'] ?? mapStream['resourceLink'] ?? '').toString();
+    if (curLink.isNotEmpty && mapLink.isNotEmpty) {
+      return curLink == mapLink;
+    }
+
+    // 3. Resource ID comparison
+    final curId = (_currentStream!['resourceId'] ?? _currentStream!['id'] ?? '').toString();
+    final mapId = (mapStream['resourceId'] ?? mapStream['id'] ?? '').toString();
+    return curId.isNotEmpty && curId == mapId;
+  }
+
   void _switchQuality(Map<String, dynamic> stream) async {
     final currentPos = _player.state.position;
 
     setState(() {
       _isSwitchingQuality = true;
+      _currentStream = stream;
     });
 
     try {
@@ -1918,6 +1992,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _nextEpisodeLabel = nextData.nextEpisodeLabel;
           if (nextData.availableStreams.isNotEmpty) {
             _availableStreams = nextData.availableStreams;
+            _cleanAndSortAvailableStreams();
           }
           if (nextData.currentStream != null) {
             _currentStream = nextData.currentStream;

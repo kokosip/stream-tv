@@ -867,14 +867,18 @@ class _DetailScreenState extends State<DetailScreen> {
       final List<dynamic> finalStreams = uniqueStreams.values.toList();
 
       finalStreams.sort((a, b) {
+        final resA = (a['resolution'] is num) ? (a['resolution'] as num).toInt() : (int.tryParse(a['resolution']?.toString() ?? '0') ?? 0);
+        final resB = (b['resolution'] is num) ? (b['resolution'] as num).toInt() : (int.tryParse(b['resolution']?.toString() ?? '0') ?? 0);
+        final resComp = resB.compareTo(resA);
+        if (resComp != 0) return resComp;
+
         final codecA = (a['codecName'] ?? a['codec_name'] ?? "").toString().toLowerCase();
         final codecB = (b['codecName'] ?? b['codec_name'] ?? "").toString().toLowerCase();
         final isHevcA = codecA.contains('hevc') || codecA.contains('h265') || codecA.contains('h.265');
         final isHevcB = codecB.contains('hevc') || codecB.contains('h265') || codecB.contains('h.265');
-        if (isHevcA && !isHevcB) return 1;
-        if (!isHevcA && isHevcB) return -1;
-        final resComp = (b['resolution'] ?? 0).compareTo(a['resolution'] ?? 0);
-        if (resComp != 0) return resComp;
+        if (isHevcA && !isHevcB) return -1;
+        if (!isHevcA && isHevcB) return 1;
+
         final sizeA = int.tryParse(a['size']?.toString() ?? '0') ?? 0;
         final sizeB = int.tryParse(b['size']?.toString() ?? '0') ?? 0;
         return sizeB.compareTo(sizeA);
@@ -1045,14 +1049,18 @@ class _DetailScreenState extends State<DetailScreen> {
       if (filteredList.isEmpty) return null;
 
       filteredList.sort((a, b) {
+        final resA = (a['resolution'] is num) ? (a['resolution'] as num).toInt() : (int.tryParse(a['resolution']?.toString() ?? '0') ?? 0);
+        final resB = (b['resolution'] is num) ? (b['resolution'] as num).toInt() : (int.tryParse(b['resolution']?.toString() ?? '0') ?? 0);
+        final resComp = resB.compareTo(resA);
+        if (resComp != 0) return resComp;
+
         final codecA = (a['codecName'] ?? a['codec_name'] ?? "").toString().toLowerCase();
         final codecB = (b['codecName'] ?? b['codec_name'] ?? "").toString().toLowerCase();
         final isHevcA = codecA.contains('hevc') || codecA.contains('h265') || codecA.contains('h.265');
         final isHevcB = codecB.contains('hevc') || codecB.contains('h265') || codecB.contains('h.265');
-        if (isHevcA && !isHevcB) return 1;
-        if (!isHevcA && isHevcB) return -1;
-        final resComp = (b['resolution'] ?? 0).compareTo(a['resolution'] ?? 0);
-        if (resComp != 0) return resComp;
+        if (isHevcA && !isHevcB) return -1;
+        if (!isHevcA && isHevcB) return 1;
+
         final sizeA = int.tryParse(a['size']?.toString() ?? '0') ?? 0;
         final sizeB = int.tryParse(b['size']?.toString() ?? '0') ?? 0;
         return sizeB.compareTo(sizeA);
@@ -1280,23 +1288,44 @@ class _DetailScreenState extends State<DetailScreen> {
 
       final Map<String, dynamic> uniqueStreams = {};
       for (final item in filteredList) {
-        final id = item['resourceId']?.toString() ?? item['resource_id']?.toString() ?? '';
-        final res = item['resolution']?.toString() ?? '';
-        final codec = item['codecName']?.toString() ?? item['codec_name']?.toString() ?? '';
-        final link = item['resourceLink']?.toString() ?? item['resource_link']?.toString() ?? '';
-        final key = id.isNotEmpty ? "${id}_${res}_$codec" : "${link}_${res}_$codec";
-        uniqueStreams[key] = item;
+        if (item is! Map) continue;
+        final res = (item['resolution'] is num)
+            ? (item['resolution'] as num).toInt()
+            : (int.tryParse(item['resolution']?.toString() ?? '0') ?? 0);
+        final format = (item['format'] ?? '').toString().toUpperCase();
+        final isDash = format == 'DASH';
+
+        final key = res > 0 ? "res_$res" : (item['resourceLink'] ?? item['url'] ?? item['resourceId'] ?? item.hashCode).toString();
+        if (!uniqueStreams.containsKey(key)) {
+          uniqueStreams[key] = item;
+        } else {
+          final existing = uniqueStreams[key]!;
+          final existingIsDash = (existing['format'] ?? '').toString().toUpperCase() == 'DASH';
+          if (!existingIsDash && isDash) {
+            uniqueStreams[key] = item;
+          } else {
+            final existingSize = int.tryParse(existing['size']?.toString() ?? '0') ?? 0;
+            final itemSize = int.tryParse(item['size']?.toString() ?? '0') ?? 0;
+            if (itemSize > existingSize) {
+              uniqueStreams[key] = item;
+            }
+          }
+        }
       }
       final List<dynamic> finalStreams = uniqueStreams.values.toList();
       finalStreams.sort((a, b) {
+        final resA = (a['resolution'] is num) ? (a['resolution'] as num).toInt() : (int.tryParse(a['resolution']?.toString() ?? '0') ?? 0);
+        final resB = (b['resolution'] is num) ? (b['resolution'] as num).toInt() : (int.tryParse(b['resolution']?.toString() ?? '0') ?? 0);
+        final resComp = resB.compareTo(resA);
+        if (resComp != 0) return resComp;
+
         final codecA = (a['codecName'] ?? a['codec_name'] ?? "").toString().toLowerCase();
         final codecB = (b['codecName'] ?? b['codec_name'] ?? "").toString().toLowerCase();
         final isHevcA = codecA.contains('hevc') || codecA.contains('h265') || codecA.contains('h.265');
         final isHevcB = codecB.contains('hevc') || codecB.contains('h265') || codecB.contains('h.265');
-        if (isHevcA && !isHevcB) return 1;
-        if (!isHevcA && isHevcB) return -1;
-        final resComp = (b['resolution'] ?? 0).compareTo(a['resolution'] ?? 0);
-        if (resComp != 0) return resComp;
+        if (isHevcA && !isHevcB) return -1;
+        if (!isHevcA && isHevcB) return 1;
+
         final sizeA = int.tryParse(a['size']?.toString() ?? '0') ?? 0;
         final sizeB = int.tryParse(b['size']?.toString() ?? '0') ?? 0;
         return sizeB.compareTo(sizeA);
