@@ -1030,6 +1030,27 @@ class MovieBoxApiService {
       print("Primary caption fetch error: $e");
     }
 
+    // 1b. If primary resource had no captions, query other resources of the same subject
+    if (allCaptions.isEmpty && subjectId.isNotEmpty) {
+      try {
+        final resList = await getResources(subjectId: subjectId, se: se, ep: ep, resolution: 1080);
+        final files = resList['list'] ?? (resList['data'] is Map ? resList['data']['list'] : null) ?? [];
+        if (files is List && files.isNotEmpty) {
+          for (final f in files) {
+            if (f is Map) {
+              final rid = f['resourceId']?.toString() ?? f['id']?.toString() ?? '';
+              if (rid.isNotEmpty && rid != resourceId) {
+                final extRes = await getExtCaptions(subjectId: subjectId, resourceId: rid);
+                final list = extRes['extCaptions'] ?? (extRes['data'] is Map ? extRes['data']['extCaptions'] : null);
+                appendCaptions(list);
+                if (allCaptions.isNotEmpty) break;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
     // 2. Cross-dub fallback: If active dub has few/no captions (< 5), query sibling dubs
     if (allCaptions.length < 5 && siblingSubjectIds.isNotEmpty) {
       final validSiblings = siblingSubjectIds

@@ -13,6 +13,8 @@ import '../widgets/subtitle_search_dialog.dart';
 import '../services/playback_progress_service.dart';
 import '../services/app_language_service.dart';
 import '../services/analytics_service.dart';
+import '../services/moviebox_api_service.dart';
+import '../services/online_subtitle_service.dart';
 
 class PlayerSwitchAudioResult {
   final String streamUrl;
@@ -161,6 +163,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String? _selectedSubtitleUrl;
   List<dynamic> _availableSubtitles = [];
   List<SubtitleEntry> _subtitleEntries = [];
+  int _subtitleResolutionToken = 0;
   static const MethodChannel _pipChannel = MethodChannel('com.koko.moviebox/pip');
   bool _isPipMode = false;
   bool _isErrorDialogShowing = false;
@@ -253,11 +256,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
-        final decoded = utf8.decode(response.bodyBytes);
+        final decoded = utf8.decode(response.bodyBytes, allowMalformed: true);
         final entries = parseSrt(decoded);
-        setState(() {
-          _subtitleEntries = entries;
-        });
+        if (mounted) {
+          setState(() {
+            _subtitleEntries = entries;
+          });
+        }
       }
     } catch (e) {
       print("Failed to load subtitles: $e");
@@ -872,12 +877,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 const PopupMenuDivider(),
                 PopupMenuItem<String>(
                   value: "",
-                  child: Text(
-                    "Off",
-                    style: GoogleFonts.outfit(
-                      color: _selectedSubtitleUrl == null ? Colors.redAccent : Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "Off",
+                        style: GoogleFonts.outfit(
+                          color: _selectedSubtitleUrl == null ? Colors.redAccent : Colors.white,
+                          fontWeight: _selectedSubtitleUrl == null ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      if (_selectedSubtitleUrl == null)
+                        const Icon(Icons.check, color: Colors.redAccent, size: 18),
+                    ],
                   ),
                 ),
                 ..._availableSubtitles.map((sub) {
@@ -893,12 +905,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   final isSelected = _selectedSubtitleUrl == subUrl;
                   return PopupMenuItem<String>(
                     value: subUrl,
-                    child: Text(
-                      label.toString(),
-                      style: GoogleFonts.outfit(
-                        color: isSelected ? Colors.redAccent : Colors.white,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                      ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            label.toString(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.outfit(
+                              color: isSelected ? Colors.redAccent : Colors.white,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                        if (isSelected)
+                          const Icon(Icons.check, color: Colors.redAccent, size: 18),
+                      ],
                     ),
                   );
                 }).whereType<PopupMenuItem<String>>(),
@@ -1601,6 +1624,158 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     if (_selectedSubtitleUrl != null) {
       _loadSubtitles(_selectedSubtitleUrl!);
+    }
+
+    _autoResolveMissingSubtitles();
+  }
+
+  Future<void> _autoResolveMissingSubtitles() async {
+    final int currentToken = ++_subtitleResolutionToken;
+    final isIdLang = AppLanguageService.currentLanguage.value == 'id';
+
+    // 1. BUILT-IN MOVIEBOX SUBTITLES:
+    // If _availableSubtitles has no MovieBox captions yet, try to load them!
+    final bool hasMovieBoxSubs = _availableSubtitles.any((s) => s['isMovieBox'] == true || (s['isFallback'] != true && s['isOnline'] != true));
+
+    if (!hasMovieBoxSubs || _availableSubtitles.isEmpty) {
+      try {
+        List<dynamic> movieBoxSubs = [];
+
+        // A. If provider is moviebox, try direct getCleanExtCaptions with subjectId
+        if (widget.provider == 'moviebox' && widget.subjectId.isNotEmpty) {
+          final resId = (_currentStream?['resourceId'] ?? widget.currentStream?['resourceId'] ?? '').toString();
+          movieBoxSubs = await MovieBoxApiService().getCleanExtCaptions(
+            subjectId: widget.subjectId,
+            resourceId: resId,
+            se: _currentSeason,
+            ep: _currentEpisode,
+          );
+        }
+
+        // B. If still empty (e.g. 4KHDHub, TMDB, or unlinked MovieBox title), search MovieBox by title!
+        if (movieBoxSubs.isEmpty && _currentTitle.isNotEmpty) {
+          final cleanTitle = OnlineSubtitleService.cleanSearchQuery(_currentTitle);
+          final searchRes = await MovieBoxApiService().search(query: cleanTitle);
+          final items = searchRes['list'] ?? [];
+          if (items is List && items.isNotEmpty) {
+            final firstItem = items.first;
+            final foundSubjectId = firstItem['subjectId']?.toString() ?? firstItem['id']?.toString() ?? '';
+            if (foundSubjectId.isNotEmpty) {
+              movieBoxSubs = await MovieBoxApiService().getCleanExtCaptions(
+                subjectId: foundSubjectId,
+                resourceId: '',
+                se: _currentSeason,
+                ep: _currentEpisode,
+              );
+            }
+          }
+        }
+
+        if (currentToken != _subtitleResolutionToken || !mounted) return;
+
+        if (movieBoxSubs.isNotEmpty) {
+          bool addedAny = false;
+          for (final sub in movieBoxSubs) {
+            if (sub is! Map) continue;
+            final url = (sub['url'] ?? sub['link'] ?? '').toString().trim();
+            if (url.isEmpty) continue;
+            final normalizedLang = normalizeSubtitleLanguage(sub);
+            if (!_availableSubtitles.any((s) => s['url'] == url)) {
+              final entry = Map<String, dynamic>.from(sub);
+              entry['normalizedLan'] = normalizedLang;
+              entry['isMovieBox'] = true;
+              _availableSubtitles.add(entry);
+              addedAny = true;
+            }
+          }
+
+          if (addedAny) {
+            // Auto-select if currently Off
+            if (_selectedSubtitleUrl == null && _availableSubtitles.isNotEmpty) {
+              final preferred = _availableSubtitles.firstWhere(
+                (sub) => sub['normalizedLan'] == (isIdLang ? 'Indonesian' : 'English'),
+                orElse: () => _availableSubtitles.firstWhere(
+                  (sub) => sub['normalizedLan'] == (isIdLang ? 'English' : 'Indonesian'),
+                  orElse: () => _availableSubtitles[0],
+                ),
+              );
+              _selectedSubtitleUrl = preferred['url'] ?? preferred['link'];
+              if (_selectedSubtitleUrl != null) {
+                _loadSubtitles(_selectedSubtitleUrl!);
+              }
+            }
+            if (mounted) setState(() {});
+          }
+        }
+      } catch (e) {
+        debugPrint("Error auto-resolving MovieBox subtitles: $e");
+      }
+    }
+
+    if (currentToken != _subtitleResolutionToken || !mounted) return;
+
+    // 2. OPENSUBTITLES BACKUP / FALLBACK ("cadangan"):
+    // If MovieBox does NOT have subtitles for the preferred language (e.g. Indonesian when app is 'id', or English),
+    // OR if subtitles are still completely empty:
+    final hasPreferredLang = _availableSubtitles.any((s) =>
+        (s['normalizedLan'] ?? '').toString().toLowerCase().contains(isIdLang ? 'indonesian' : 'english'));
+
+    if (!hasPreferredLang || _availableSubtitles.isEmpty) {
+      try {
+        final onlineSubs = await OnlineSubtitleService().searchSubtitles(
+          query: _currentTitle,
+          season: _currentSeason,
+          episode: _currentEpisode,
+        );
+
+        if (currentToken != _subtitleResolutionToken || !mounted) return;
+
+        if (onlineSubs.isNotEmpty) {
+          final Set<String> addedLangs = {};
+          final List<Map<String, dynamic>> fallbackEntries = [];
+
+          for (final item in onlineSubs) {
+            if (addedLangs.add(item.languageName.toLowerCase())) {
+              fallbackEntries.add({
+                'url': item.url,
+                'normalizedLan': "${item.languageName} (OpenSubtitles)",
+                'lanName': item.languageName,
+                'isFallback': true,
+                'release': item.releaseName,
+              });
+            }
+          }
+
+          bool addedAny = false;
+          for (final entry in fallbackEntries) {
+            if (!_availableSubtitles.any((s) => s['url'] == entry['url'])) {
+              _availableSubtitles.add(entry);
+              addedAny = true;
+            }
+          }
+
+          if (addedAny) {
+            final shouldAutoSelect = _selectedSubtitleUrl == null ||
+                (isIdLang && !_availableSubtitles.any((s) =>
+                    s['url'] == _selectedSubtitleUrl &&
+                    (s['normalizedLan'] ?? '').toString().toLowerCase().contains('indonesian')));
+
+            if (shouldAutoSelect) {
+              final bestFallback = _availableSubtitles.firstWhere(
+                (sub) => (sub['normalizedLan'] ?? '').toString().toLowerCase().contains(isIdLang ? 'indonesian' : 'english'),
+                orElse: () => _availableSubtitles.first,
+              );
+              _selectedSubtitleUrl = bestFallback['url'];
+              if (_selectedSubtitleUrl != null) {
+                _loadSubtitles(_selectedSubtitleUrl!);
+              }
+            }
+            if (mounted) setState(() {});
+          }
+        }
+      } catch (e) {
+        debugPrint("Error fetching fallback OpenSubtitles: $e");
+      }
     }
   }
 
