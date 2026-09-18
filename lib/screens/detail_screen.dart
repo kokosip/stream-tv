@@ -55,6 +55,7 @@ class _DetailScreenState extends State<DetailScreen> {
   String _selectedAudioName = "Original";
   int _selectedSeasonNumber = 1;
   int _selectedEpisodeNumber = 1;
+  int? _expandedEpisodeNumber;
   int _episodesCount = 0;
   
   bool _isLoadingDetails = true;
@@ -2719,6 +2720,29 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
+  Widget _buildEpisodePlayButton(int epNum, bool isTv, bool isSelected) {
+    return TvFocusableCard(
+      onTap: () => _playEpisode(_selectedSeasonNumber, epNum),
+      borderRadius: BorderRadius.circular(8),
+      scaleFactor: 1.1,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.redAccent : const Color(0xFF222222),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? Colors.redAccent : const Color(0xFF333333),
+          ),
+        ),
+        child: Icon(
+          Icons.play_arrow_rounded,
+          color: isSelected ? Colors.white : Colors.white70,
+          size: 18,
+        ),
+      ),
+    );
+  }
+
   Widget _buildBadge(String label, Color color, {required bool isTv}) {
     return Container(
       padding: EdgeInsets.symmetric(
@@ -3319,6 +3343,7 @@ class _DetailScreenState extends State<DetailScreen> {
                           _selectedSeasonNumber = seNum;
                           _episodesCount = maxEp;
                           _selectedEpisodeNumber = 1;
+                          _expandedEpisodeNumber = null;
                         });
                         _checkProgress();
                         _loadStreams();
@@ -3376,8 +3401,9 @@ class _DetailScreenState extends State<DetailScreen> {
           itemCount: epList.length,
           itemBuilder: (context, index) {
             final epItem = epList[index];
-            final epNum = epItem is Map ? (epItem['ep'] ?? (index + 1)) : (index + 1);
+            final int epNum = (epItem is Map ? (epItem['ep'] ?? (index + 1)) : (index + 1)) as int;
             final isSelected = _selectedEpisodeNumber == epNum;
+            final isExpanded = _expandedEpisodeNumber == epNum;
 
             // Check TVMaze metadata for official title, synopsis, still image, and rating
             final mazeKey = 'S${_selectedSeasonNumber}E$epNum';
@@ -3403,178 +3429,283 @@ class _DetailScreenState extends State<DetailScreen> {
               padding: const EdgeInsets.only(bottom: 12.0),
               child: TvFocusableCard(
                 onTap: () {
-                  _playEpisode(_selectedSeasonNumber, epNum);
+                  setState(() {
+                    if (_expandedEpisodeNumber == epNum) {
+                      _expandedEpisodeNumber = null;
+                    } else {
+                      _expandedEpisodeNumber = epNum;
+                      _selectedEpisodeNumber = epNum;
+                    }
+                  });
+                  _checkProgress();
+                  _loadStreams();
                 },
                 borderRadius: BorderRadius.circular(12),
                 scaleFactor: 1.02,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFF28181A) : const Color(0xFF161616),
+                    color: (isSelected || isExpanded) ? const Color(0xFF28181A) : const Color(0xFF161616),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: isSelected ? Colors.redAccent.withOpacity(0.8) : const Color(0xFF2C2C2C),
-                      width: isSelected ? 1.5 : 1,
+                      color: (isSelected || isExpanded) ? Colors.redAccent.withValues(alpha: 0.8) : const Color(0xFF2C2C2C),
+                      width: (isSelected || isExpanded) ? 1.5 : 1,
                     ),
                   ),
                   padding: EdgeInsets.all(isTv ? 14.0 : 10.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      // Thumbnail Container (16:9)
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          width: isTv ? 160 : 110,
-                          height: isTv ? 90 : 62,
-                          color: const Color(0xFF222222),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              if (displayThumb.isNotEmpty)
-                                Image.network(
-                                  displayThumb,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (ctx, err, stack) => Container(
-                                    color: const Color(0xFF222222),
-                                    child: const Icon(Icons.movie, color: Colors.white24),
-                                  ),
-                                ),
-                              // Dark gradient overlay
-                              Container(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      Colors.transparent,
-                                      Colors.black.withOpacity(0.6),
-                                    ],
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                  ),
-                                ),
-                              ),
-                              // Play icon
-                              Center(
-                                child: Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.5),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    isSelected ? Icons.play_arrow : Icons.play_arrow_outlined,
-                                    color: isSelected ? Colors.redAccent : Colors.white,
-                                    size: isTv ? 24 : 18,
-                                  ),
-                                ),
-                              ),
-                              // Badge EP number
-                              Positioned(
-                                top: 6,
-                                left: 6,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.7),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    "EP $epNum",
-                                    style: GoogleFonts.outfit(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      // Details
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                  child: AnimatedSize(
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Main Row: Thumbnail + Info + Actions
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            Row(
-                              children: [
-                                Text(
-                                  "Episode $epNum",
-                                  style: GoogleFonts.outfit(
-                                    color: isSelected ? Colors.redAccent : Colors.white,
-                                    fontSize: isTv ? 17 : 14,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                if (mazeData?.rating != null) ...[
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                                    decoration: BoxDecoration(
-                                      color: Colors.amber.withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: Colors.amber.withValues(alpha: 0.5), width: 0.5),
+                            // Thumbnail Container (16:9)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                width: isTv ? 160 : 96,
+                                height: isTv ? 90 : 54,
+                                color: const Color(0xFF222222),
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    if (displayThumb.isNotEmpty)
+                                      Image.network(
+                                        displayThumb,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (ctx, err, stack) => Container(
+                                          color: const Color(0xFF222222),
+                                          child: const Icon(Icons.movie, color: Colors.white24),
+                                        ),
+                                      ),
+                                    // Dark gradient overlay
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            Colors.transparent,
+                                            Colors.black.withValues(alpha: 0.5),
+                                          ],
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                        ),
+                                      ),
                                     ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(Icons.star, color: Colors.amber, size: 10),
-                                        const SizedBox(width: 3),
-                                        Text(
-                                          mazeData!.rating!.toStringAsFixed(1),
+                                    // Badge EP number
+                                    Positioned(
+                                      top: 4,
+                                      left: 4,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(alpha: 0.75),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          "EP $epNum",
                                           style: GoogleFonts.outfit(
-                                            color: Colors.amber,
-                                            fontSize: 10,
+                                            color: Colors.white,
+                                            fontSize: 9.5,
                                             fontWeight: FontWeight.bold,
                                           ),
                                         ),
-                                      ],
+                                      ),
                                     ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            SizedBox(width: isTv ? 16 : 12),
+                            // Details
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          "Episode $epNum",
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.outfit(
+                                            color: (isSelected || isExpanded) ? Colors.redAccent : Colors.white,
+                                            fontSize: isTv ? 16 : 13.5,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                      if (mazeData?.rating != null) ...[
+                                        const SizedBox(width: 5),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 4.5, vertical: 1.5),
+                                          decoration: BoxDecoration(
+                                            color: Colors.amber.withValues(alpha: 0.15),
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: Colors.amber.withValues(alpha: 0.4), width: 0.5),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.star_rounded, color: Colors.amber, size: 10),
+                                              const SizedBox(width: 2),
+                                              Text(
+                                                mazeData!.rating!.toStringAsFixed(1),
+                                                style: GoogleFonts.outfit(
+                                                  color: Colors.amber,
+                                                  fontSize: 9.5,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
-                                ],
-                                if (epTitle.isNotEmpty && epTitle != "Episode $epNum") ...[
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
+                                  if (epTitle.isNotEmpty && epTitle != "Episode $epNum") ...[
+                                    const SizedBox(height: 2),
+                                    Text(
                                       epTitle,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: GoogleFonts.outfit(
                                         color: Colors.white70,
-                                        fontSize: isTv ? 15 : 13,
+                                        fontSize: isTv ? 14 : 11.5,
                                       ),
                                     ),
-                                  ),
+                                  ],
+                                  if (!isExpanded) ...[
+                                    const SizedBox(height: 3),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          AppLanguageService.tr(en: "Details", id: "Detail"),
+                                          style: GoogleFonts.outfit(
+                                            color: Colors.white38,
+                                            fontSize: 10.5,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 2),
+                                        const Icon(
+                                          Icons.keyboard_arrow_down_rounded,
+                                          color: Colors.white38,
+                                          size: 13,
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ],
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              epDesc.isNotEmpty
-                                  ? epDesc
-                                  : "Season $_selectedSeasonNumber • Episode $epNum",
-                              maxLines: isTv ? 2 : 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.outfit(
-                                color: Colors.grey.shade400,
-                                fontSize: isTv ? 13 : 11,
-                                height: 1.3,
                               ),
+                            ),
+                            const SizedBox(width: 8),
+                            // Actions: Download & Play
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildEpisodeDownloadButton(epNum, isTv),
+                                const SizedBox(width: 6),
+                                _buildEpisodePlayButton(epNum, isTv, isSelected),
+                              ],
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      _buildEpisodeDownloadButton(epNum as int, isTv),
-                      const SizedBox(width: 10),
-                      // Play icon indicator
-                      Icon(
-                        Icons.play_circle_fill,
-                        color: isSelected ? Colors.redAccent : Colors.white30,
-                        size: isTv ? 32 : 24,
-                      ),
-                    ],
+
+                        // Expanded Description & Actions
+                        if (isExpanded) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            height: 1,
+                            color: const Color(0xFF2C2C2C),
+                          ),
+                          const SizedBox(height: 10),
+                          if (epTitle.isNotEmpty && epTitle != "Episode $epNum") ...[
+                            Text(
+                              epTitle,
+                              style: GoogleFonts.outfit(
+                                color: Colors.white,
+                                fontSize: isTv ? 16 : 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                          ],
+                          if (mazeData?.airDate != null && mazeData!.airDate!.isNotEmpty) ...[
+                            Row(
+                              children: [
+                                Icon(Icons.calendar_today_rounded, size: 11, color: Colors.grey.shade400),
+                                const SizedBox(width: 5),
+                                Text(
+                                  "${AppLanguageService.tr(en: "Air Date:", id: "Tayang:")} ${mazeData.airDate!}",
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.grey.shade400,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                          ],
+                          Text(
+                            epDesc.isNotEmpty
+                                ? epDesc
+                                : AppLanguageService.tr(
+                                    en: "No description available for this episode.",
+                                    id: "Tidak ada deskripsi untuk episode ini.",
+                                  ),
+                            style: GoogleFonts.outfit(
+                              color: Colors.white.withValues(alpha: 0.85),
+                              fontSize: isTv ? 14 : 12,
+                              height: 1.45,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TvFocusableCard(
+                            onTap: () => _playEpisode(_selectedSeasonNumber, epNum),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent,
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.redAccent.withValues(alpha: 0.3),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    AppLanguageService.tr(
+                                      en: "Play Episode $epNum",
+                                      id: "Putar Episode $epNum",
+                                    ),
+                                    style: GoogleFonts.outfit(
+                                      color: Colors.white,
+                                      fontSize: isTv ? 15 : 13,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
               ),
