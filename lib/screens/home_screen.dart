@@ -466,9 +466,11 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 22),
             const SizedBox(width: 10),
-            Text(
-              AppLanguageService.tr(en: "Delete Search?", id: "Hapus Pencarian?"),
-              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            Expanded(
+              child: Text(
+                AppLanguageService.tr(en: "Delete Search?", id: "Hapus Pencarian?"),
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
             ),
           ],
         ),
@@ -516,9 +518,11 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Icon(Icons.delete_sweep_rounded, color: Colors.redAccent, size: 24),
             const SizedBox(width: 10),
-            Text(
-              AppLanguageService.tr(en: "Clear Search History?", id: "Hapus Riwayat Pencarian?"),
-              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+            Expanded(
+              child: Text(
+                AppLanguageService.tr(en: "Clear Search History?", id: "Hapus Riwayat Pencarian?"),
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+              ),
             ),
           ],
         ),
@@ -601,9 +605,11 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 24),
             const SizedBox(width: 10),
-            Text(
-              AppLanguageService.tr(en: "Remove from History?", id: "Hapus dari Riwayat?"),
-              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+            Expanded(
+              child: Text(
+                AppLanguageService.tr(en: "Remove from History?", id: "Hapus dari Riwayat?"),
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+              ),
             ),
           ],
         ),
@@ -651,9 +657,11 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Icon(Icons.delete_sweep_rounded, color: Colors.redAccent, size: 24),
             const SizedBox(width: 10),
-            Text(
-              AppLanguageService.tr(en: "Clear Watch History?", id: "Hapus Riwayat Tontonan?"),
-              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+            Expanded(
+              child: Text(
+                AppLanguageService.tr(en: "Clear Watch History?", id: "Hapus Riwayat Tontonan?"),
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+              ),
             ),
           ],
         ),
@@ -1367,7 +1375,7 @@ class _HomeScreenState extends State<HomeScreen> {
           backgroundColor: const Color(0xFF1A1A1A),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Container(
-            width: 380,
+            constraints: const BoxConstraints(maxWidth: 380),
             padding: const EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1377,15 +1385,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     const Icon(Icons.language, color: Colors.redAccent, size: 24),
                     const SizedBox(width: 10),
-                    Text(
-                      AppLanguageService.tr(
-                        en: "App Language Settings",
-                        id: "Pengaturan Bahasa Aplikasi",
-                      ),
-                      style: GoogleFonts.outfit(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                    Expanded(
+                      child: Text(
+                        AppLanguageService.tr(
+                          en: "App Language Settings",
+                          id: "Pengaturan Bahasa Aplikasi",
+                        ),
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ],
@@ -1553,7 +1563,7 @@ class _HomeScreenState extends State<HomeScreen> {
             top: false,
             child: Padding(
               padding: EdgeInsets.symmetric(
-                horizontal: isTv ? 24.0 : (isShortScreen ? 12.0 : 16.0),
+                horizontal: isTv ? 24.0 : (isShortScreen ? 6.0 : 8.0),
                 vertical: isShortScreen ? 2.0 : 4.0,
               ),
               child: _buildBottomNavBar(isTv),
@@ -1704,11 +1714,15 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               const Icon(Icons.history_rounded, color: Colors.redAccent, size: 18),
               const SizedBox(width: 8),
-              Text(
-                AppLanguageService.tr(en: "Recent Searches", id: "Riwayat Pencarian"),
-                style: GoogleFonts.outfit(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+              Expanded(
+                child: Text(
+                  AppLanguageService.tr(en: "Recent Searches", id: "Riwayat Pencarian"),
+                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               TvFocusableCard(
                 onTap: _showClearAllSearchHistoryDialog,
                 borderRadius: BorderRadius.circular(6),
@@ -2110,11 +2124,15 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.only(bottom: 12.0),
           child: Row(
             children: [
-              Text(
-                AppLanguageService.tr(en: "Continue Watching / History", id: "Lanjutkan Nonton & Riwayat"),
-                style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              Expanded(
+                child: Text(
+                  AppLanguageService.tr(en: "Continue Watching / History", id: "Lanjutkan Nonton & Riwayat"),
+                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               TvFocusableCard(
                 onTap: _showClearAllWatchHistoryDialog,
                 borderRadius: BorderRadius.circular(8),
@@ -2525,115 +2543,138 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         ];
 
-        return Container(
-          width: double.infinity,
-          margin: EdgeInsets.zero,
-          padding: EdgeInsets.symmetric(horizontal: isTv ? 16 : 8, vertical: isTv ? 6 : 4),
-          decoration: BoxDecoration(
-            color: const Color(0xFF141414),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0xFF262626), width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.5),
-                blurRadius: 16,
-                offset: const Offset(0, 4),
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isVeryNarrow = constraints.maxWidth < 360;
+            final containerHPad = isTv ? 16.0 : (isVeryNarrow ? 4.0 : 6.0);
+            final containerVPad = isTv ? 6.0 : 4.0;
+            final innerWidth = (constraints.maxWidth - (containerHPad * 2)).clamp(0.0, double.infinity);
+
+            return Container(
+              width: double.infinity,
+              margin: EdgeInsets.zero,
+              padding: EdgeInsets.symmetric(horizontal: containerHPad, vertical: containerVPad),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141414),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: const Color(0xFF262626), width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    blurRadius: 16,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: navItems.map((item) {
-              final int index = item['index'] as int;
-              final bool isSelected = _currentTabIndex == index;
-              final IconData icon = item['icon'] as IconData;
-              final String label = item['label'] as String;
-              final int badge = item['badge'] as int? ?? 0;
-              final FocusNode fNode = item['focusNode'] as FocusNode;
-
-              return TvFocusableCard(
-                focusNode: fNode,
-                onTap: () {
-                  setState(() {
-                    _currentTabIndex = index;
-                    if (index == 0) {
-                      _isFiltering = false;
-                      _hasSearched = false;
-                      _searchController.clear();
-                    }
-                  });
-
-                  if (index == 1) {
-                    _loadSearchHistory();
-                    Future.delayed(const Duration(milliseconds: 100), () {
-                      if (mounted) {
-                        _searchFocusNode.requestFocus();
-                      }
-                    });
-                  } else if (index == 4 || index == 3 || index == 0) {
-                    _loadFavoritesAndProgress();
-                  }
-                },
-                borderRadius: BorderRadius.circular(16),
-                scaleFactor: 1.05,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isSelected ? (isTv ? 18 : 12) : (isTv ? 12 : 8),
-                    vertical: isTv ? 8 : 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isSelected ? Colors.redAccent.shade700 : Colors.transparent,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.center,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: innerWidth),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Icon(
-                            icon,
-                            color: isSelected ? Colors.white : Colors.grey.shade400,
-                            size: isTv ? 22 : 20,
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: navItems.map((item) {
+                      final int index = item['index'] as int;
+                      final bool isSelected = _currentTabIndex == index;
+                      final IconData icon = item['icon'] as IconData;
+                      final String label = item['label'] as String;
+                      final int badge = item['badge'] as int? ?? 0;
+                      final FocusNode fNode = item['focusNode'] as FocusNode;
+
+                      final double itemHPad = isSelected
+                          ? (isTv ? 18.0 : (isVeryNarrow ? 8.0 : 10.0))
+                          : (isTv ? 12.0 : (isVeryNarrow ? 5.0 : 6.0));
+                      final double itemVPad = isTv ? 8.0 : (isVeryNarrow ? 5.0 : 6.0);
+                      final double iconSize = isTv ? 22.0 : (isVeryNarrow ? 18.0 : 19.0);
+                      final double fontSize = isTv ? 13.0 : (isVeryNarrow ? 11.0 : 11.5);
+
+                      return TvFocusableCard(
+                        focusNode: fNode,
+                        onTap: () {
+                          setState(() {
+                            _currentTabIndex = index;
+                            if (index == 0) {
+                              _isFiltering = false;
+                              _hasSearched = false;
+                              _searchController.clear();
+                            }
+                          });
+
+                          if (index == 1) {
+                            _loadSearchHistory();
+                            Future.delayed(const Duration(milliseconds: 100), () {
+                              if (mounted) {
+                                _searchFocusNode.requestFocus();
+                              }
+                            });
+                          } else if (index == 4 || index == 3 || index == 0) {
+                            _loadFavoritesAndProgress();
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        scaleFactor: 1.05,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: itemHPad,
+                            vertical: itemVPad,
                           ),
-                          if (badge > 0 && !isSelected)
-                            Positioned(
-                              top: -4,
-                              right: -4,
-                              child: Container(
-                                padding: const EdgeInsets.all(3),
-                                decoration: const BoxDecoration(
-                                  color: Colors.redAccent,
-                                  shape: BoxShape.circle,
-                                ),
-                                constraints: const BoxConstraints(minWidth: 12, minHeight: 12),
-                                child: Text(
-                                  '$badge',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
-                                ),
+                          decoration: BoxDecoration(
+                            color: isSelected ? Colors.redAccent.shade700 : Colors.transparent,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Icon(
+                                    icon,
+                                    color: isSelected ? Colors.white : Colors.grey.shade400,
+                                    size: iconSize,
+                                  ),
+                                  if (badge > 0 && !isSelected)
+                                    Positioned(
+                                      top: -4,
+                                      right: -4,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(3),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.redAccent,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        constraints: const BoxConstraints(minWidth: 12, minHeight: 12),
+                                        child: Text(
+                                          '$badge',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
-                            ),
-                        ],
-                      ),
-                      if (isSelected) ...[
-                        const SizedBox(width: 6),
-                        Text(
-                          label,
-                          style: GoogleFonts.outfit(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: isTv ? 13 : 12,
+                              if (isSelected) ...[
+                                SizedBox(width: isTv ? 6.0 : 4.0),
+                                Text(
+                                  label,
+                                  style: GoogleFonts.outfit(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: fontSize,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
-                      ],
-                    ],
+                      );
+                    }).toList(),
                   ),
                 ),
-              );
-            }).toList(),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -3168,18 +3209,22 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               const Icon(Icons.tv_rounded, color: Colors.cyanAccent, size: 20),
               const SizedBox(width: 8),
-              Text(
-                AppLanguageService.tr(
-                  en: "Streaming Platforms",
-                  id: "Platform Streaming",
-                ),
-                style: GoogleFonts.outfit(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Text(
+                  AppLanguageService.tr(
+                    en: "Streaming Platforms",
+                    id: "Platform Streaming",
+                  ),
+                  style: GoogleFonts.outfit(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               Text(
                 AppLanguageService.tr(
                   en: "Explore All →",

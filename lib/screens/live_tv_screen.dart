@@ -98,14 +98,16 @@ class _LiveTvScreenState extends State<LiveTvScreen> {
           children: [
             const Icon(Icons.playlist_add_rounded, color: Colors.redAccent, size: 28),
             const SizedBox(width: 10),
-            Text(
-              "Tambah Playlist M3U",
-              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+            Expanded(
+              child: Text(
+                "Tambah Playlist M3U",
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+              ),
             ),
           ],
         ),
-        content: SizedBox(
-          width: 450,
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 450),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [

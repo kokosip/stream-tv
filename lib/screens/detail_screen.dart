@@ -1964,9 +1964,11 @@ class _DetailScreenState extends State<DetailScreen> {
             children: [
               const Icon(Icons.downloading_rounded, color: Colors.cyanAccent, size: 24),
               const SizedBox(width: 10),
-              Text(
-                AppLanguageService.tr(en: "Download in Progress", id: "Sedang Mengunduh"),
-                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+              Expanded(
+                child: Text(
+                  AppLanguageService.tr(en: "Download in Progress", id: "Sedang Mengunduh"),
+                  style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+                ),
               ),
             ],
           ),

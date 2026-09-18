@@ -74,9 +74,11 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           children: [
             const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 24),
             const SizedBox(width: 10),
-            Text(
-              AppLanguageService.tr(en: "Delete Download?", id: "Hapus Unduhan?"),
-              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+            Expanded(
+              child: Text(
+                AppLanguageService.tr(en: "Delete Download?", id: "Hapus Unduhan?"),
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+              ),
             ),
           ],
         ),

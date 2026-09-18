@@ -60,9 +60,11 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 22),
             const SizedBox(width: 10),
-            Text(
-              AppLanguageService.tr(en: "Delete Search?", id: "Hapus Pencarian?"),
-              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            Expanded(
+              child: Text(
+                AppLanguageService.tr(en: "Delete Search?", id: "Hapus Pencarian?"),
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
             ),
           ],
         ),
@@ -110,9 +112,11 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             const Icon(Icons.delete_sweep_rounded, color: Colors.redAccent, size: 24),
             const SizedBox(width: 10),
-            Text(
-              AppLanguageService.tr(en: "Clear Search History?", id: "Hapus Riwayat Pencarian?"),
-              style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+            Expanded(
+              child: Text(
+                AppLanguageService.tr(en: "Clear Search History?", id: "Hapus Riwayat Pencarian?"),
+                style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+              ),
             ),
           ],
         ),
@@ -250,11 +254,15 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             const Icon(Icons.history_rounded, color: Colors.redAccent, size: 18),
             const SizedBox(width: 8),
-            Text(
-              AppLanguageService.tr(en: "Recent Searches", id: "Riwayat Pencarian"),
-              style: GoogleFonts.outfit(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+            Expanded(
+              child: Text(
+                AppLanguageService.tr(en: "Recent Searches", id: "Riwayat Pencarian"),
+                style: GoogleFonts.outfit(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            const Spacer(),
+            const SizedBox(width: 8),
             TvFocusableCard(
               onTap: _showClearAllSearchHistoryDialog,
               borderRadius: BorderRadius.circular(6),
