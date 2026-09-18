@@ -1551,7 +1551,10 @@ class _DetailScreenState extends State<DetailScreen> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Row(
+                                      Wrap(
+                                        crossAxisAlignment: WrapCrossAlignment.center,
+                                        spacing: 8,
+                                        runSpacing: 4,
                                         children: [
                                           Text(
                                             quality,
@@ -1561,8 +1564,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
-                                          if (isRecommended) ...[
-                                            const SizedBox(width: 8),
+                                          if (isRecommended)
                                             Container(
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                               decoration: BoxDecoration(
@@ -1579,7 +1581,6 @@ class _DetailScreenState extends State<DetailScreen> {
                                                 ),
                                               ),
                                             ),
-                                          ],
                                         ],
                                       ),
                                       const SizedBox(height: 4),
@@ -2554,14 +2555,16 @@ class _DetailScreenState extends State<DetailScreen> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Row(
+                                          Wrap(
+                                            crossAxisAlignment: WrapCrossAlignment.center,
+                                            spacing: 8,
+                                            runSpacing: 4,
                                             children: [
                                               Text(
                                                 "${res}p $label",
                                                 style: GoogleFonts.outfit(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
                                               ),
-                                              if (isRecommended) ...[
-                                                const SizedBox(width: 8),
+                                              if (isRecommended)
                                                 Container(
                                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                   decoration: BoxDecoration(
@@ -2573,7 +2576,6 @@ class _DetailScreenState extends State<DetailScreen> {
                                                     style: GoogleFonts.outfit(color: Colors.tealAccent, fontSize: 9, fontWeight: FontWeight.bold),
                                                   ),
                                                 ),
-                                              ],
                                             ],
                                           ),
                                           if (sizeFormatted.isNotEmpty) ...[

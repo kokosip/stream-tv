@@ -1,9 +1,49 @@
+import 'dart:math';
 import 'package:flutter/widgets.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:crypto/crypto.dart';
 
 class AnalyticsService {
   static bool get _isAvailable => Firebase.apps.isNotEmpty;
+  static String? _cachedDeviceId;
+  static String? get deviceId => _cachedDeviceId;
+
+  /// Initialize persistent unique device identifier and attach to Crashlytics and Analytics.
+  static Future<String> initDeviceUser() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      String? id = prefs.getString('app_device_id');
+      if (id == null || id.isEmpty) {
+        final timestamp = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
+        final randomBytes = List<int>.generate(16, (_) => Random.secure().nextInt(256));
+        final randomHash = sha256.convert(randomBytes).toString().substring(0, 10);
+        id = 'tv_${timestamp}_$randomHash';
+        await prefs.setString('app_device_id', id);
+      }
+      _cachedDeviceId = id;
+
+      // Attach to Firebase Analytics
+      final analytics = _analytics;
+      if (analytics != null) {
+        await analytics.setUserId(id: id);
+      }
+
+      // Attach to Firebase Crashlytics
+      try {
+        await FirebaseCrashlytics.instance.setUserIdentifier(id);
+        await FirebaseCrashlytics.instance.setCustomKey('device_id', id);
+      } catch (_) {}
+
+      debugPrint('[Analytics] Initialized device user ID: $id');
+      return id;
+    } catch (e) {
+      debugPrint('[Analytics] Error initializing device user ID: $e');
+      return '';
+    }
+  }
 
   static FirebaseAnalytics? get _analytics {
     if (!_isAvailable) return null;

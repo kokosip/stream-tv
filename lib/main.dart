@@ -16,13 +16,31 @@ void main() async {
     await Firebase.initializeApp();
 
     // Pass all uncaught fatal errors from Flutter framework to Crashlytics
-    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+    FlutterError.onError = (FlutterErrorDetails details) {
+      // Don't report visual layout overflow glitches as fatal crashes
+      final bool isOverflow = details.exceptionAsString().contains('overflowed by');
+      if (isOverflow) {
+        FirebaseCrashlytics.instance.recordFlutterError(details, fatal: false);
+      } else {
+        FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+      }
+    };
 
     // Pass all uncaught asynchronous errors to Crashlytics
     PlatformDispatcher.instance.onError = (error, stack) {
       FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
       return true;
     };
+
+    // Tag build mode so crashes can be filtered as debug or release in Crashlytics
+    await FirebaseCrashlytics.instance.setCustomKey(
+      'build_mode',
+      kReleaseMode ? 'release' : (kProfileMode ? 'profile' : 'debug'),
+    );
+    await FirebaseCrashlytics.instance.setCustomKey('is_debug', kDebugMode);
+
+    // Initialize unique device user ID and attach to Analytics & Crashlytics
+    await AnalyticsService.initDeviceUser();
   } catch (e) {
     debugPrint('Firebase initialization failed: $e');
   }
