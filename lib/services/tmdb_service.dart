@@ -249,14 +249,16 @@ class TmdbService {
   /// Discover movies and TV shows from TMDB based on Language, Genre, Type, and Rating filters
   Future<List<Map<String, dynamic>>> discoverCatalog({
     String type = 'all', // 'all', 'movie', 'tv'
-    String language = 'Semua', // 'Semua', 'English', 'Indonesia', 'Korea', 'Japan', 'China'
+    String language = 'Semua', // 'Semua', 'English', 'Indonesia', 'Korea', 'Japan', 'China', 'India', 'Thailand'
     String genre = 'Semua', // 'Semua', 'Action', 'Comedy', 'Drama', 'Romantic', 'Horror', 'Anime'
     String rating = 'Semua', // 'Semua', 'G', 'PG', 'PG-13', 'R', 'NC-17', 'TV-G', 'TV-PG', 'TV-14', 'TV-MA'
+    String sortBy = 'auto', // 'auto', 'newest', 'popularity'
     int page = 1,
   }) async {
     try {
-      // 1. Map Language to ISO 639-1
+      // 1. Map Language to ISO 639-1 (with_original_language) & origin country
       String? langParam;
+      String? countryParam;
       if (language == 'English') {
         langParam = 'en';
       } else if (language == 'Indonesia') {
@@ -267,6 +269,15 @@ class TmdbService {
         langParam = 'ja';
       } else if (language == 'China') {
         langParam = 'zh';
+        countryParam = 'CN';
+      } else if (language == 'Taiwan') {
+        countryParam = 'TW';
+      } else if (language == 'Tagalog' || language == 'Filipina') {
+        langParam = 'tl';
+      } else if (language == 'India') {
+        langParam = 'hi';
+      } else if (language == 'Thailand') {
+        langParam = 'th';
       }
 
       // 2. Map Genre to TMDB Genre IDs
@@ -304,13 +315,23 @@ class TmdbService {
         }
       }
 
+      final bool isSortByNewest = sortBy == 'newest' || (sortBy == 'auto' && language != 'Semua');
+      final now = DateTime.now();
+      final todayStr = "${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
       Future<List<Map<String, dynamic>>> fetchMovies(int p) async {
         final params = <String, String>{
-          "sort_by": "popularity.desc",
           "page": p.toString(),
-          "vote_count.gte": "10",
         };
+        if (isSortByNewest) {
+          params["sort_by"] = "primary_release_date.desc";
+          params["primary_release_date.lte"] = todayStr;
+        } else {
+          params["sort_by"] = "popularity.desc";
+          params["vote_count.gte"] = "10";
+        }
         if (langParam != null) params["with_original_language"] = langParam;
+        if (countryParam != null) params["with_origin_country"] = countryParam;
         if (movieGenreParam != null) params["with_genres"] = movieGenreParam;
         if (movieCertParam != null) {
           params["certification_country"] = "US";
@@ -318,16 +339,25 @@ class TmdbService {
         }
         final res = await _get("/discover/movie", params: params);
         final results = (res['results'] as List? ?? []);
-        return results.map((item) => normalizeItem(item as Map<String, dynamic>, mediaType: 'movie')).toList();
+        return results
+            .where((item) => item is Map && item['poster_path'] != null && item['poster_path'].toString().isNotEmpty)
+            .map((item) => normalizeItem(item as Map<String, dynamic>, mediaType: 'movie'))
+            .toList();
       }
 
       Future<List<Map<String, dynamic>>> fetchTv(int p) async {
         final params = <String, String>{
-          "sort_by": "popularity.desc",
           "page": p.toString(),
-          "vote_count.gte": "5",
         };
+        if (isSortByNewest) {
+          params["sort_by"] = "first_air_date.desc";
+          params["first_air_date.lte"] = todayStr;
+        } else {
+          params["sort_by"] = "popularity.desc";
+          params["vote_count.gte"] = "5";
+        }
         if (langParam != null) params["with_original_language"] = langParam;
+        if (countryParam != null) params["with_origin_country"] = countryParam;
         if (tvGenreParam != null) params["with_genres"] = tvGenreParam;
         if (tvCertParam != null) {
           params["certification_country"] = "US";
@@ -335,28 +365,33 @@ class TmdbService {
         }
         final res = await _get("/discover/tv", params: params);
         final results = (res['results'] as List? ?? []);
-        return results.map((item) => normalizeItem(item as Map<String, dynamic>, mediaType: 'tv')).toList();
+        return results
+            .where((item) => item is Map && item['poster_path'] != null && item['poster_path'].toString().isNotEmpty)
+            .map((item) => normalizeItem(item as Map<String, dynamic>, mediaType: 'tv'))
+            .toList();
       }
 
       List<Map<String, dynamic>> combined = [];
 
       final resolvedType = type.toLowerCase();
       if (resolvedType == 'movies' || resolvedType == 'movie') {
-        // Fetch 3 pages to give plenty of catalog items (up to 60 items)
+        // Fetch 4 pages to give plenty of catalog items (up to 80 items)
         final results = await Future.wait([
           fetchMovies(page),
           fetchMovies(page + 1),
           fetchMovies(page + 2),
+          fetchMovies(page + 3),
         ]);
-        combined = [...results[0], ...results[1], ...results[2]];
+        combined = [...results[0], ...results[1], ...results[2], ...results[3]];
       } else if (resolvedType == 'tv series' || resolvedType == 'tv') {
-        // Fetch 3 pages to give plenty of catalog items (up to 60 items)
+        // Fetch 4 pages to give plenty of catalog items (up to 80 items)
         final results = await Future.wait([
           fetchTv(page),
           fetchTv(page + 1),
           fetchTv(page + 2),
+          fetchTv(page + 3),
         ]);
-        combined = [...results[0], ...results[1], ...results[2]];
+        combined = [...results[0], ...results[1], ...results[2], ...results[3]];
       } else {
         // All: Fetch both movies and tv concurrently (up to 80 items)
         final results = await Future.wait([
@@ -384,6 +419,15 @@ class TmdbService {
           uniqueResults.add(item);
         }
       }
+
+      if (isSortByNewest) {
+        uniqueResults.sort((a, b) {
+          final dateA = (a['releaseDate'] ?? '').toString();
+          final dateB = (b['releaseDate'] ?? '').toString();
+          return dateB.compareTo(dateA);
+        });
+      }
+
       return uniqueResults;
     } catch (e) {
       print("Discover Catalog Error: $e");

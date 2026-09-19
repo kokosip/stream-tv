@@ -879,144 +879,20 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      List<dynamic> sourceItems = [];
+      final typeParam = _selectedType == "Movies"
+          ? "movie"
+          : (_selectedType == "TV Series" ? "tv" : "all");
 
-      if (_selectedLanguage != "Semua") {
-        final int targetType = _selectedType == "TV Series" ? 2 : (_selectedType == "Movies" ? 1 : 0);
-        final results = await Future.wait([
-          _api.search(query: _selectedLanguage, subjectType: targetType, page: 1, perPage: 20),
-          _api.search(query: _selectedLanguage, subjectType: targetType, page: 2, perPage: 20),
-        ]);
-        sourceItems = [
-          ...(results[0]['items'] ?? []),
-          ...(results[1]['items'] ?? []),
-        ];
-      } else if (_selectedGenre != "Semua") {
-        final int targetType = _selectedType == "TV Series" ? 2 : (_selectedType == "Movies" ? 1 : 0);
-        final results = await Future.wait([
-          _api.search(query: _selectedGenre, subjectType: targetType, page: 1, perPage: 20),
-          _api.search(query: _selectedGenre, subjectType: targetType, page: 2, perPage: 20),
-        ]);
-        sourceItems = [
-          ...(results[0]['items'] ?? []),
-          ...(results[1]['items'] ?? []),
-        ];
-      } else if (_selectedRating != "Semua") {
-        // Search generic term "the" to get results with rating metadata to filter
-        final int targetType = _selectedType == "TV Series" ? 2 : (_selectedType == "Movies" ? 1 : 0);
-        final results = await Future.wait([
-          _api.search(query: "the", subjectType: targetType, page: 1, perPage: 20),
-          _api.search(query: "the", subjectType: targetType, page: 2, perPage: 20),
-        ]);
-        sourceItems = [
-          ...(results[0]['items'] ?? []),
-          ...(results[1]['items'] ?? []),
-        ];
-      } else {
-        if (_selectedType == "Movies") {
-          final res = await _api.getHomepage(page: 1, tabId: 2);
-          final List<dynamic> rawMovieItems = res['items'] ?? [];
-          for (final section in rawMovieItems) {
-            if (section['type'] == 'SUBJECTS_MOVIE') {
-              final List<dynamic> subs = section['subjects'] ?? [];
-              sourceItems.addAll(subs);
-            }
-          }
-        } else if (_selectedType == "TV Series") {
-          final res = await _api.getHomepage(page: 1, tabId: 5);
-          final List<dynamic> rawTvItems = res['items'] ?? [];
-          for (final section in rawTvItems) {
-            if (section['type'] == 'SUBJECTS_MOVIE') {
-              final List<dynamic> subs = section['subjects'] ?? [];
-              sourceItems.addAll(subs);
-            }
-          }
-        }
-      }
+      // Discover catalog using TMDB with_original_language & newest release sort
+      final rawResults = await _tmdb.discoverCatalog(
+        type: typeParam,
+        language: _selectedLanguage,
+        genre: _selectedGenre,
+        rating: _selectedRating,
+        sortBy: _selectedLanguage != "Semua" ? "newest" : "popularity",
+      );
 
-      final Set<String> seenIds = {};
-      final List<dynamic> uniqueItems = [];
-      for (final item in sourceItems) {
-        final id = (item['subjectId'] ?? item['id']?.toString() ?? "");
-        if (id.isNotEmpty && !seenIds.contains(id)) {
-          seenIds.add(id);
-          uniqueItems.add(item);
-        }
-      }
-
-      final List<dynamic> filtered = uniqueItems.where((item) {
-        if (_selectedLanguage != "Semua") {
-          final String title = (item['title'] ?? "").toString().toLowerCase();
-          final String language = (item['language'] ?? "").toString().toLowerCase();
-          final String country = (item['countryName'] ?? "").toString().toLowerCase();
-          
-          if (_selectedLanguage == "Indonesia") {
-            if (!language.contains("indonesia") && 
-                !country.contains("indonesia") && 
-                !title.contains("[indonesian]")) {
-              return false;
-            }
-          } else if (_selectedLanguage == "English") {
-            if (!language.contains("english") && 
-                !language.contains("en") && 
-                !language.contains("eng") && 
-                !country.contains("united states") && 
-                !country.contains("united kingdom") && 
-                !country.contains("canada") && 
-                !country.contains("australia")) {
-              return false;
-            }
-          } else if (_selectedLanguage == "Korea") {
-            if (!language.contains("korean") && !country.contains("korea")) {
-              return false;
-            }
-          } else if (_selectedLanguage == "Japan") {
-            if (!language.contains("japanese") && !country.contains("japan")) {
-              return false;
-            }
-          } else if (_selectedLanguage == "China") {
-            if (!language.contains("chinese") && 
-                !country.contains("china") && 
-                !country.contains("hong kong") && 
-                !country.contains("taiwan")) {
-              return false;
-            }
-          }
-        }
-
-        if (_selectedGenre != "Semua") {
-          final String genre = (item['genre'] ?? "").toString().toLowerCase();
-          final String targetGenre = _selectedGenre.toLowerCase();
-          if (targetGenre == "romantic") {
-            if (!genre.contains("romance") && !genre.contains("romantic")) {
-              return false;
-            }
-          } else if (targetGenre == "anime") {
-            if (!genre.contains("animation") && !genre.contains("anime")) {
-              return false;
-            }
-          } else {
-            if (!genre.contains(targetGenre)) {
-              return false;
-            }
-          }
-        }
-
-        if (_selectedType != "Semua") {
-          final type = item['subjectType'] ?? item['subject_type'] ?? 1;
-          final int expectedType = _selectedType == "TV Series" ? 2 : 1;
-          if (type != expectedType && type.toString() != expectedType.toString()) {
-            return false;
-          }
-        }
-
-        if (_selectedRating != "Semua") {
-          final String rating = (item['contentRating'] ?? "").toString().toUpperCase();
-          if (rating != _selectedRating.toUpperCase()) {
-            return false;
-          }
-        }
-
+      final List<dynamic> filtered = rawResults.where((item) {
         if (_nsfwFilter) {
           final restrictKid = item['restrictKid'];
           final genre = (item['genre'] ?? "").toString().toLowerCase();
@@ -1025,7 +901,7 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }
 
-        if (AppContentFilterService.filterHindi.value) {
+        if (AppContentFilterService.filterHindi.value && _selectedLanguage != "India") {
           if (AppContentFilterService.isItemHindiDub(item)) {
             return false;
           }
@@ -1038,7 +914,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _filteredResults = filtered;
       });
     } catch (e) {
-      print("MovieBox Apply Filters Error: $e");
+      print("Apply Filters Error: $e");
       setState(() {
         _errorMessage = "Gagal memfilter konten. Silakan coba lagi.";
       });
@@ -1058,7 +934,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildFilterDropdown(
             label: AppLanguageService.tr(en: "Language", id: "Bahasa"),
             value: _selectedLanguage,
-            items: ["Semua", "English", "Indonesia", "Korea", "Japan", "China"],
+            items: ["Semua", "English", "Indonesia", "Korea", "Japan", "China", "Taiwan", "Filipina", "India", "Thailand"],
             onChanged: (val) {
               if (val != null) {
                 setState(() {
@@ -1193,12 +1069,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   labelText = AppLanguageService.tr(en: "All", id: "Semua");
                 } else if (item == "Indonesia") {
                   labelText = AppLanguageService.tr(en: "Indonesian", id: "Indonesia");
+                } else if (item == "English") {
+                  labelText = AppLanguageService.tr(en: "English", id: "Inggris");
                 } else if (item == "Korea") {
                   labelText = AppLanguageService.tr(en: "Korean", id: "Korea");
                 } else if (item == "Japan") {
-                  labelText = AppLanguageService.tr(en: "Japanese", id: "Japan");
+                  labelText = AppLanguageService.tr(en: "Japanese", id: "Jepang");
                 } else if (item == "China") {
                   labelText = AppLanguageService.tr(en: "Chinese", id: "China");
+                } else if (item == "Taiwan") {
+                  labelText = AppLanguageService.tr(en: "Taiwan", id: "Taiwan");
+                } else if (item == "Filipina" || item == "Tagalog") {
+                  labelText = AppLanguageService.tr(en: "Tagalog / Filipino", id: "Tagalog / Filipina");
+                } else if (item == "India") {
+                  labelText = AppLanguageService.tr(en: "Hindi / India", id: "India / Hindi");
+                } else if (item == "Thailand") {
+                  labelText = AppLanguageService.tr(en: "Thai", id: "Thailand");
                 } else if (item == "Movies") {
                   labelText = AppLanguageService.tr(en: "Movies", id: "Film");
                 } else if (item == "TV Series") {
@@ -1255,10 +1141,15 @@ class _HomeScreenState extends State<HomeScreen> {
         final title = item['title'] ?? item['subjectTitle'] ?? "Untitled";
         final coverUrl = item['cover']?['url'] ?? "";
         final subjectId = item['subjectId'] ?? item['id']?.toString() ?? "";
-        final provider = item['provider'] ?? (subjectId.toString().startsWith('/') ? '4khdhub' : 'moviebox');
+        final provider = item['provider'] ??
+            (subjectId.toString().startsWith('tmdb_')
+                ? 'tmdb'
+                : (subjectId.toString().startsWith('/') ? '4khdhub' : 'moviebox'));
         final rating = item['imdbRate'] ?? item['imdbRatingValue'] ?? "";
         final type = item['subjectType'] ?? item['subject_type'] ?? 1;
         final isShow = type == 2 || type?.toString() == '2' || type?.toString().toLowerCase() == 'tv';
+        final releaseDate = (item['releaseDate'] ?? item['release_date'] ?? item['first_air_date'] ?? '').toString();
+        final year = releaseDate.isNotEmpty ? releaseDate.split('-')[0] : '';
 
         return TvFocusableCard(
           onTap: () {
@@ -1268,6 +1159,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 builder: (context) => DetailScreen(
                   subjectId: subjectId,
                   provider: provider,
+                  tmdbData: provider == 'tmdb' ? (item['rawTmdb'] ?? item) : null,
                 ),
               ),
             ).then((_) {
@@ -1314,16 +1206,35 @@ class _HomeScreenState extends State<HomeScreen> {
               Positioned(
                 top: 6,
                 right: 6,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: isShow ? Colors.blue.shade900.withOpacity(0.85) : Colors.red.shade900.withOpacity(0.85),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    isShow ? "TV" : "MOVIE",
-                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (year.isNotEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.75),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          year,
+                          style: GoogleFonts.outfit(color: Colors.white70, fontSize: 8, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isShow ? Colors.blue.shade900.withOpacity(0.85) : Colors.red.shade900.withOpacity(0.85),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        isShow ? "TV" : "MOVIE",
+                        style: GoogleFonts.outfit(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               Positioned(
@@ -1339,15 +1250,32 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   padding: const EdgeInsets.all(8.0),
-                  child: Text(
-                    title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.outfit(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                      if (releaseDate.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          releaseDate,
+                          style: GoogleFonts.outfit(
+                            color: Colors.grey.shade400,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
