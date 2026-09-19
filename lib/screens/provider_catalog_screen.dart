@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/tmdb_service.dart';
 import '../services/app_language_service.dart';
+import '../services/app_content_filter_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import 'detail_screen.dart';
 
@@ -83,11 +84,12 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
     }
 
     try {
-      final results = await _tmdb.getByPlatform(
+      final rawResults = await _tmdb.getByPlatform(
         platform: _selectedPlatform,
         type: _selectedType,
         page: _currentPage,
       );
+      final results = AppContentFilterService.filterList(rawResults);
 
       if (mounted) {
         setState(() {
@@ -122,11 +124,12 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
 
     try {
       final nextPage = _currentPage + 1;
-      final results = await _tmdb.getByPlatform(
+      final rawResults = await _tmdb.getByPlatform(
         platform: _selectedPlatform,
         type: _selectedType,
         page: nextPage,
       );
+      final results = AppContentFilterService.filterList(rawResults);
 
       if (mounted) {
         setState(() {
@@ -185,11 +188,12 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
     });
 
     try {
-      final remoteResults = await _tmdb.searchByPlatform(
+      final rawRemote = await _tmdb.searchByPlatform(
         platform: _selectedPlatform,
         query: query,
         type: _selectedType,
       );
+      final remoteResults = AppContentFilterService.filterList(rawRemote);
 
       if (mounted && _searchQuery == query) {
         // Deduplicate between local results and remote TMDB results by subjectId / id

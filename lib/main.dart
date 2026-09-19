@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'services/app_language_service.dart';
+import 'services/app_content_filter_service.dart';
 import 'services/analytics_service.dart';
 import 'screens/home_screen.dart';
 
@@ -51,6 +52,7 @@ void main() async {
 
   MediaKit.ensureInitialized();
   await AppLanguageService.init();
+  await AppContentFilterService.init();
   runApp(const MovieBoxTvApp());
 }
 

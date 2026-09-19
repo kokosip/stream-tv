@@ -246,6 +246,151 @@ class TmdbService {
     }
   }
 
+  /// Discover movies and TV shows from TMDB based on Language, Genre, Type, and Rating filters
+  Future<List<Map<String, dynamic>>> discoverCatalog({
+    String type = 'all', // 'all', 'movie', 'tv'
+    String language = 'Semua', // 'Semua', 'English', 'Indonesia', 'Korea', 'Japan', 'China'
+    String genre = 'Semua', // 'Semua', 'Action', 'Comedy', 'Drama', 'Romantic', 'Horror', 'Anime'
+    String rating = 'Semua', // 'Semua', 'G', 'PG', 'PG-13', 'R', 'NC-17', 'TV-G', 'TV-PG', 'TV-14', 'TV-MA'
+    int page = 1,
+  }) async {
+    try {
+      // 1. Map Language to ISO 639-1
+      String? langParam;
+      if (language == 'English') {
+        langParam = 'en';
+      } else if (language == 'Indonesia') {
+        langParam = 'id';
+      } else if (language == 'Korea') {
+        langParam = 'ko';
+      } else if (language == 'Japan') {
+        langParam = 'ja';
+      } else if (language == 'China') {
+        langParam = 'zh';
+      }
+
+      // 2. Map Genre to TMDB Genre IDs
+      String? movieGenreParam;
+      String? tvGenreParam;
+      if (genre == 'Action') {
+        movieGenreParam = '28';
+        tvGenreParam = '10759';
+      } else if (genre == 'Comedy') {
+        movieGenreParam = '35';
+        tvGenreParam = '35';
+      } else if (genre == 'Drama') {
+        movieGenreParam = '18';
+        tvGenreParam = '18';
+      } else if (genre == 'Romantic') {
+        movieGenreParam = '10749';
+        tvGenreParam = '10749,18';
+      } else if (genre == 'Horror') {
+        movieGenreParam = '27';
+        tvGenreParam = '9648,27';
+      } else if (genre == 'Anime') {
+        movieGenreParam = '16';
+        tvGenreParam = '16';
+      }
+
+      // 3. Map Rating / Certification
+      String? movieCertParam;
+      String? tvCertParam;
+      if (rating != 'Semua') {
+        if (['G', 'PG', 'PG-13', 'R', 'NC-17'].contains(rating)) {
+          movieCertParam = rating;
+        }
+        if (['TV-G', 'TV-PG', 'TV-14', 'TV-MA'].contains(rating)) {
+          tvCertParam = rating;
+        }
+      }
+
+      Future<List<Map<String, dynamic>>> fetchMovies(int p) async {
+        final params = <String, String>{
+          "sort_by": "popularity.desc",
+          "page": p.toString(),
+          "vote_count.gte": "10",
+        };
+        if (langParam != null) params["with_original_language"] = langParam;
+        if (movieGenreParam != null) params["with_genres"] = movieGenreParam;
+        if (movieCertParam != null) {
+          params["certification_country"] = "US";
+          params["certification"] = movieCertParam;
+        }
+        final res = await _get("/discover/movie", params: params);
+        final results = (res['results'] as List? ?? []);
+        return results.map((item) => normalizeItem(item as Map<String, dynamic>, mediaType: 'movie')).toList();
+      }
+
+      Future<List<Map<String, dynamic>>> fetchTv(int p) async {
+        final params = <String, String>{
+          "sort_by": "popularity.desc",
+          "page": p.toString(),
+          "vote_count.gte": "5",
+        };
+        if (langParam != null) params["with_original_language"] = langParam;
+        if (tvGenreParam != null) params["with_genres"] = tvGenreParam;
+        if (tvCertParam != null) {
+          params["certification_country"] = "US";
+          params["certification"] = tvCertParam;
+        }
+        final res = await _get("/discover/tv", params: params);
+        final results = (res['results'] as List? ?? []);
+        return results.map((item) => normalizeItem(item as Map<String, dynamic>, mediaType: 'tv')).toList();
+      }
+
+      List<Map<String, dynamic>> combined = [];
+
+      final resolvedType = type.toLowerCase();
+      if (resolvedType == 'movies' || resolvedType == 'movie') {
+        // Fetch 3 pages to give plenty of catalog items (up to 60 items)
+        final results = await Future.wait([
+          fetchMovies(page),
+          fetchMovies(page + 1),
+          fetchMovies(page + 2),
+        ]);
+        combined = [...results[0], ...results[1], ...results[2]];
+      } else if (resolvedType == 'tv series' || resolvedType == 'tv') {
+        // Fetch 3 pages to give plenty of catalog items (up to 60 items)
+        final results = await Future.wait([
+          fetchTv(page),
+          fetchTv(page + 1),
+          fetchTv(page + 2),
+        ]);
+        combined = [...results[0], ...results[1], ...results[2]];
+      } else {
+        // All: Fetch both movies and tv concurrently (up to 80 items)
+        final results = await Future.wait([
+          fetchMovies(page),
+          fetchMovies(page + 1),
+          fetchTv(page),
+          fetchTv(page + 1),
+        ]);
+        final movies = [...results[0], ...results[1]];
+        final tv = [...results[2], ...results[3]];
+        final maxLen = movies.length > tv.length ? movies.length : tv.length;
+        for (int i = 0; i < maxLen; i++) {
+          if (i < movies.length) combined.add(movies[i]);
+          if (i < tv.length) combined.add(tv[i]);
+        }
+      }
+
+      // Deduplicate by subjectId
+      final seenIds = <String>{};
+      final uniqueResults = <Map<String, dynamic>>[];
+      for (final item in combined) {
+        final id = (item['subjectId'] ?? item['id'] ?? '').toString();
+        if (id.isNotEmpty && !seenIds.contains(id)) {
+          seenIds.add(id);
+          uniqueResults.add(item);
+        }
+      }
+      return uniqueResults;
+    } catch (e) {
+      print("Discover Catalog Error: $e");
+      return [];
+    }
+  }
+
   /// Search movies and TV Shows available on a specific streaming platform
   Future<List<Map<String, dynamic>>> searchByPlatform({
     required StreamingPlatformInfo platform,

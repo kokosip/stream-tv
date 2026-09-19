@@ -12,6 +12,7 @@ import '../services/favorites_service.dart';
 import '../services/playback_progress_service.dart';
 import '../services/search_history_service.dart';
 import '../services/app_language_service.dart';
+import '../services/app_content_filter_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import '../widgets/tv_pin_pad_dialog.dart';
 import 'detail_screen.dart';
@@ -115,6 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadNsfwFilterPreference();
     _checkPasscodeSetup();
     _checkAutoUpdateSilently();
+    AppContentFilterService.filterHindi.addListener(_onHindiFilterChanged);
   }
 
   Future<void> _checkAutoUpdateSilently() async {
@@ -228,6 +230,17 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _onHindiFilterChanged() {
+    if (mounted) {
+      setState(() {
+        _applySearchFilter();
+        if (_isFiltering) {
+          _applyCustomFilters();
+        }
+      });
+    }
+  }
+
   Future<void> _loadAllHomeData() async {
     setState(() {
       _isLoadingHome = true;
@@ -317,6 +330,7 @@ class _HomeScreenState extends State<HomeScreen> {
             banners = bannerSection['banner']['banners'] ?? [];
           }
         }
+        banners = AppContentFilterService.filterList(banners);
 
         // 3. Assemble dynamic category rows
         final List<dynamic> assembledSections = [];
@@ -713,8 +727,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _applySearchFilter() {
+    List<dynamic> list = _rawSearchResults;
     if (_nsfwFilter) {
-      _searchResults = _rawSearchResults.where((item) {
+      list = list.where((item) {
         final restrictKid = item['restrictKid'];
         final genre = (item['genre'] ?? "").toString().toLowerCase();
         final rating = (item['contentRating'] ?? "").toString().toUpperCase();
@@ -726,9 +741,11 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         return true;
       }).toList();
-    } else {
-      _searchResults = List.from(_rawSearchResults);
     }
+    if (AppContentFilterService.filterHindi.value) {
+      list = AppContentFilterService.filterList(list);
+    }
+    _searchResults = list;
   }
 
   void _onSearch() async {
@@ -1004,6 +1021,12 @@ class _HomeScreenState extends State<HomeScreen> {
           final restrictKid = item['restrictKid'];
           final genre = (item['genre'] ?? "").toString().toLowerCase();
           if (restrictKid == 1 || restrictKid == '1' || genre.contains('erotic')) {
+            return false;
+          }
+        }
+
+        if (AppContentFilterService.filterHindi.value) {
+          if (AppContentFilterService.isItemHindiDub(item)) {
             return false;
           }
         }
@@ -1517,6 +1540,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _navHistoryFocusNode.dispose();
     _navDownloadsFocusNode.dispose();
     _navSettingsFocusNode.dispose();
+    AppContentFilterService.filterHindi.removeListener(_onHindiFilterChanged);
     super.dispose();
   }
 
@@ -2434,6 +2458,88 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Hide Hindi Dubs Filter Card
+          TvFocusableCard(
+            onTap: () async {
+              final current = AppContentFilterService.filterHindi.value;
+              await AppContentFilterService.setFilterHindi(!current);
+            },
+            borderRadius: BorderRadius.circular(14),
+            scaleFactor: 1.02,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF161616),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF262626)),
+              ),
+              child: ValueListenableBuilder<bool>(
+                valueListenable: AppContentFilterService.filterHindi,
+                builder: (context, filterActive, child) {
+                  return Row(
+                    children: [
+                      Icon(
+                        Icons.translate_rounded,
+                        color: filterActive ? Colors.cyanAccent : Colors.grey,
+                        size: 28,
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              AppLanguageService.tr(
+                                en: "Hide [Hindi] Dubs Filter",
+                                id: "Filter Sembunyikan Dub [Hindi]",
+                              ),
+                              style: GoogleFonts.outfit(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              filterActive
+                                  ? AppLanguageService.tr(
+                                      en: "Filter Enabled (Titles with [Hindi] tag are hidden)",
+                                      id: "Filter Aktif (Judul bertag [Hindi] disembunyikan)",
+                                    )
+                                  : AppLanguageService.tr(
+                                      en: "Filter Disabled (Showing all content including Hindi dubs)",
+                                      id: "Filter Nonaktif (Semua konten termasuk dub Hindi ditampilkan)",
+                                    ),
+                              style: GoogleFonts.outfit(
+                                color: Colors.grey.shade400,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: filterActive ? Colors.green.shade800 : Colors.red.shade900,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          filterActive ? "ON" : "OFF",
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -3632,6 +3738,10 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         return true;
       }).toList();
+    }
+
+    if (AppContentFilterService.filterHindi.value) {
+      filteredSubjects = AppContentFilterService.filterList(filteredSubjects);
     }
 
     if (filteredSubjects.isEmpty) return const SizedBox.shrink();

@@ -5,6 +5,7 @@ import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/moviebox_api_service.dart';
 import '../services/fourkhdhub_service.dart';
 import '../services/app_language_service.dart';
+import '../services/app_content_filter_service.dart';
 import '../services/search_history_service.dart';
 import '../services/analytics_service.dart';
 import '../widgets/tv_focusable_card.dart';
@@ -220,6 +221,10 @@ class _SearchScreenState extends State<SearchScreen> {
           if (i < fourkList.length) combined.add(fourkList[i]);
           if (i < mbList.length) combined.add(mbList[i]);
         }
+      }
+
+      if (AppContentFilterService.filterHindi.value) {
+        combined = AppContentFilterService.filterList(combined);
       }
 
       setState(() {
