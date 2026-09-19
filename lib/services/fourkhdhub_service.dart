@@ -488,6 +488,21 @@ class FourKHdHubService {
         final href = a.attributes['href'] ?? '';
         if (!href.startsWith('https://')) continue;
 
+        // Check Watch Online unwrapper (e.g. *.pages.dev/?u=...)
+        if (href.contains('pages.dev') && href.contains('u=')) {
+          final uri = Uri.tryParse(href);
+          final uParam = uri?.queryParameters['u'];
+          if (uParam != null && uParam.isNotEmpty) {
+            try {
+              final decoded = utf8.decode(base64.decode(uParam));
+              if (decoded.startsWith('https://')) {
+                candidateUrls.add(decoded);
+                continue;
+              }
+            } catch (_) {}
+          }
+        }
+
         // Pixel HubCloud redirect link e.g. https://pixel.hubcloud.cx/?id=... or pixel.hubcloud.ist/?id=...
         if (href.contains('pixel.hubcloud.') || href.contains('pixel.')) {
           final directRedirect = await _resolvePixelHubCloudRedirect(href);
@@ -508,7 +523,7 @@ class FourKHdHubService {
         }
       }
 
-      // Sort candidate URLs by reliability score
+      // Sort candidate URLs by reliability score (MovieBox-TUI v0.1.21 prioritization)
       candidateUrls.sort((a, b) => _scoreMirror(a).compareTo(_scoreMirror(b)));
 
       for (final cand in candidateUrls) {
@@ -576,7 +591,7 @@ class FourKHdHubService {
     }
   }
 
-  /// Preflight probe HTTP Range bytes=0-8191 to verify the CDN video stream is accessible
+  /// Preflight probe HTTP Range bytes=0-8191 to verify the CDN video stream is accessible & detect dead streams (MovieBox-TUI v0.1.21)
   Future<bool> _preflightProbe(String streamUrl) async {
     try {
       final request = http.Request('GET', Uri.parse(streamUrl))
@@ -587,15 +602,36 @@ class FourKHdHubService {
         ..followRedirects = true
         ..maxRedirects = 5;
 
-      final streamedResponse = await _client.send(request).timeout(const Duration(seconds: 6));
+      final streamedResponse = await _client.send(request).timeout(const Duration(seconds: 8));
       final statusCode = streamedResponse.statusCode;
       if (statusCode != 200 && statusCode != 206) {
         return false;
       }
 
       final contentType = (streamedResponse.headers['content-type'] ?? '').toLowerCase();
-      if (contentType.contains('text/html') || contentType.contains('application/json')) {
-        return false;
+      if (contentType.contains('text/html') ||
+          contentType.contains('text/plain') ||
+          contentType.contains('application/json') ||
+          contentType.contains('application/zip')) {
+        final bodyBytes = await streamedResponse.stream.toBytes();
+        final bodyLower = utf8.decode(bodyBytes, allowMalformed: true).toLowerCase();
+
+        if (bodyLower.contains('failed to extract link') ||
+            bodyLower.contains('token expired') ||
+            bodyLower.contains('file not found') ||
+            bodyLower.contains('404 not found') ||
+            bodyLower.contains('link has expired') ||
+            bodyLower.contains('expired') ||
+            bodyLower.contains('access denied') ||
+            bodyLower.contains('downloadquotaexceeded') ||
+            bodyLower.contains('generate link again')) {
+          print("4KHDHub preflight rejected dead/expired stream: $streamUrl");
+          return false;
+        }
+
+        if (contentType.contains('application/zip')) {
+          return false;
+        }
       }
 
       return true;
@@ -606,22 +642,29 @@ class FourKHdHubService {
 
   int _scoreMirror(String url) {
     final lower = url.toLowerCase();
-    // Prioritize high-speed CDNs that support HTTP Range (206 Partial Content) for seeking/forwarding
-    if (lower.contains('workers.dev') ||
+    // MovieBox-TUI v0.1.21: Prioritize seekable multi-connection CDNs; deprioritize workers.dev to avoid 403 token burn
+    if (lower.contains('pixel.hubcloud.') ||
+        lower.contains('googleusercontent.com') ||
+        lower.contains('googlevideo.com') ||
         lower.contains('cloudflarestorage.com') ||
         lower.contains('r2.') ||
-        lower.contains('snvhost.') ||
-        lower.contains('pixeldrain.com')) {
+        lower.contains('fsl server') ||
+        lower.contains('watch online')) {
       return 0;
     }
-    if (lower.contains('storage.googleapis.com') || lower.contains('hubcloud.cx/re/')) {
+    if (lower.contains('storage.googleapis.com') ||
+        lower.contains('hubcloud.cx/re/') ||
+        lower.contains('hubcloud.fans/re/')) {
       return 1;
     }
-    // googleusercontent download server does not support HTTP Range requests
-    if (lower.contains('googleusercontent.com')) {
+    if (lower.contains('pixeldrain.com') || lower.contains('pixeldrain.dev') || lower.contains('pixeldrain')) {
       return 2;
     }
-    return 3;
+    if (lower.contains('testzip.php') || lower.contains('vcloud.php') || lower.contains('drive.php') || lower.contains('gpdl.')) {
+      return 3;
+    }
+    // workers.dev and single-use proxies are deprioritized for playback to avoid 403
+    return 4;
   }
 
   String? _extractPixeldrainId(String raw) {

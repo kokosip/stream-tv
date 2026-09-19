@@ -205,6 +205,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final GlobalKey<PopupMenuButtonState<BoxFit>> _fitMenuKey = GlobalKey();
 
   Map<String, String>? _extractStreamHeaders(Map<String, dynamic>? stream) {
+    final is4kHub = widget.provider == '4khdhub' ||
+        (stream != null && stream['provider'] == '4khdhub') ||
+        widget.streamUrl.contains('hubcloud') ||
+        widget.streamUrl.contains('pixeldrain') ||
+        widget.streamUrl.contains('4khdhub');
+
+    if (is4kHub) {
+      final Map<String, String> base4kHeaders = {
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://4khdhub.one/',
+      };
+      if (stream != null && stream['headers'] is Map) {
+        final rawMap = stream['headers'] as Map;
+        base4kHeaders.addAll(rawMap.map((k, v) => MapEntry(k.toString(), v.toString())));
+      }
+      return base4kHeaders;
+    }
+
     if (stream == null) return null;
     if (stream['headers'] is Map) {
       final rawMap = stream['headers'] as Map;

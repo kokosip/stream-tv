@@ -289,8 +289,14 @@ class DownloadService {
       }
 
       var request = http.Request('GET', Uri.parse(item.streamUrl));
-      // Use media player User-Agent (ExoPlayer) which MovieBox CDN accepts (browser UAs return 428 Forbidden)
-      request.headers['User-Agent'] = 'ExoPlayer/2.18.1 (Linux; Android 11)';
+      if (item.provider.toLowerCase() == '4khdhub') {
+        request.headers['User-Agent'] =
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+        request.headers['Referer'] = 'https://4khdhub.one/';
+      } else {
+        // Use media player User-Agent (ExoPlayer) which MovieBox CDN accepts (browser UAs return 428 Forbidden)
+        request.headers['User-Agent'] = 'ExoPlayer/2.18.1 (Linux; Android 11)';
+      }
 
       if (startByte > 0) {
         request.headers['Range'] = 'bytes=$startByte-';

@@ -79,6 +79,12 @@ class _DetailScreenState extends State<DetailScreen> {
     _checkProgress();
   }
 
+  @override
+  void dispose() {
+    ScaffoldMessenger.of(context).clearSnackBars();
+    super.dispose();
+  }
+
   void _checkProgress() async {
     final pos = await PlaybackProgressService.getProgress(
       widget.subjectId,
@@ -965,6 +971,12 @@ class _DetailScreenState extends State<DetailScreen> {
         final bestRelease = releases.first;
         final streamUrl = await _fourkApi.resolveReleaseStream(bestRelease);
         if (streamUrl == null || streamUrl.isEmpty) return null;
+        bestRelease['provider'] = '4khdhub';
+        bestRelease['headers'] = {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://4khdhub.one/',
+        };
 
         int nextNextSeason = season;
         int nextNextEpisode = episode + 1;
@@ -1359,6 +1371,7 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   void _open4kQualitySelector() async {
+    if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
     if (_streams.isNotEmpty) {
       _show4kQualitySelectionDialog(_streams);
       return;
@@ -1429,6 +1442,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Future<void> _show4kQualitySelectionDialog(List<dynamic> releases) async {
     if (!mounted || releases.isEmpty) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
 
     await showDialog(
       context: context,
@@ -1713,6 +1727,14 @@ class _DetailScreenState extends State<DetailScreen> {
       String? streamUrl;
       try {
         streamUrl = await _fourkApi.resolveReleaseStream(stream);
+        if (streamUrl != null && streamUrl.isNotEmpty) {
+          stream['provider'] = '4khdhub';
+          stream['headers'] = {
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://4khdhub.one/',
+          };
+        }
       } catch (e) {
         print("Error resolving stream: $e");
       }
@@ -1723,30 +1745,35 @@ class _DetailScreenState extends State<DetailScreen> {
 
       if (streamUrl == null || streamUrl.isEmpty) {
         if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(AppLanguageService.tr(
-                en: "Mirror is dead or expired. Please try another quality/release.",
-                id: "Mirror tidak aktif / kadaluarsa. Silakan pilih rilis/kualitas lain.",
-              )),
-              duration: const Duration(seconds: 4),
+              content: Text(
+                AppLanguageService.tr(
+                  en: "Mirror is dead or expired. Please try another quality/release.",
+                  id: "Mirror tidak aktif / kadaluarsa. Silakan pilih rilis/kualitas lain.",
+                ),
+                style: GoogleFonts.outfit(color: Colors.white, fontSize: 13),
+              ),
+              duration: const Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              showCloseIcon: true,
+              closeIconColor: Colors.white70,
               action: SnackBarAction(
-                label: AppLanguageService.tr(en: "Choose Quality", id: "Pilih Kualitas"),
+                label: AppLanguageService.tr(en: "Close", id: "Tutup"),
                 textColor: Colors.cyanAccent,
                 onPressed: () {
-                  if (_streams.isNotEmpty) {
-                    _show4kQualitySelectionDialog(_streams);
-                  } else {
-                    _open4kQualitySelector();
-                  }
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
                 },
               ),
             ),
           );
 
-          // Re-open quality selector dialog so user can immediately pick an alternate release
+          // Re-open quality selector dialog after clearing snackbar so it doesn't linger
           Future.delayed(const Duration(milliseconds: 300), () {
             if (mounted) {
+              ScaffoldMessenger.of(context).clearSnackBars();
               if (_streams.isNotEmpty) {
                 _show4kQualitySelectionDialog(_streams);
               } else {

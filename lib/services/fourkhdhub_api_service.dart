@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as html_dom;
 import 'package:http/http.dart' as http;
@@ -364,11 +365,15 @@ class FourKHdHubApiService {
     }
   }
 
-  /// Resolve HubDrive / HubCloud / PixelDrain release mirror to a playable direct video URL
-  Future<Map<String, dynamic>?> resolveRelease(Map<String, dynamic> resourceItem) async {
+  /// Resolve HubDrive / HubCloud / Mediator / PixelDrain release mirror to a playable direct video URL
+  Future<Map<String, dynamic>?> resolveRelease(
+    Map<String, dynamic> resourceItem, {
+    bool isPlayback = true,
+  }) async {
     final List<dynamic> mirrors = resourceItem["mirrors"] ?? [];
     if (mirrors.isEmpty) return null;
 
+    final List<Map<String, String>> allCandidates = [];
     String? lastError;
 
     for (final mirror in mirrors) {
@@ -378,47 +383,197 @@ class FourKHdHubApiService {
       try {
         List<Map<String, String>> candidates = [];
 
-        if (resolverUrl.contains("hubcloud.")) {
-          candidates = await _resolveHubCloud(resolverUrl);
+        if (resolverUrl.contains("greenmotors.") ||
+            resolverUrl.contains("greenmountmotors.") ||
+            _isMediatorUrl(resolverUrl)) {
+          candidates = await _resolveGreenMotors(resolverUrl, isPlayback: isPlayback);
+        } else if (resolverUrl.contains("hubcloud.")) {
+          candidates = await _resolveHubCloud(resolverUrl, isPlayback: isPlayback);
         } else if (resolverUrl.contains("hubdrive.")) {
-          candidates = await _resolveHubDrive(resolverUrl);
+          candidates = await _resolveHubDrive(resolverUrl, isPlayback: isPlayback);
         } else {
-          candidates = [
-            {"url": resolverUrl, "label": mirror["label"] ?? "Direct"}
-          ];
-        }
-
-        for (final candidate in candidates) {
-          final url = candidate["url"]!;
-          final label = candidate["label"]!;
-
-          final Map<String, String> streamHeaders = {
-            "User-Agent": BROWSER_UA,
-            "Referer": baseUrl,
-          };
-
-          // Preflight stream probe
-          final playable = await _probeStreamUrl(url, streamHeaders);
-          if (playable != null) {
-            print("4KHDHub resolved playable stream: $playable ($label)");
-            return {
-              "mediaUrl": playable,
-              "headers": streamHeaders,
-              "sourceLabel": label,
-            };
+          final validated = _validatePlaybackUrl(resolverUrl);
+          if (validated != null) {
+            candidates = [
+              {"url": validated, "label": mirror["label"] ?? "Direct"}
+            ];
           }
         }
+
+        allCandidates.addAll(candidates);
       } catch (e) {
-        print("Mirror resolution failed for $resolverUrl: $e");
+        print("Mirror candidate fetch failed for $resolverUrl: $e");
         lastError = e.toString();
       }
     }
 
-    throw Exception(lastError ?? "No playable stream mirror found on 4KHDHub");
+    if (allCandidates.isEmpty) {
+      throw Exception(lastError ?? "No candidate mirrors found on 4KHDHub");
+    }
+
+    // Sort candidates according to MovieBox-TUI v0.1.21 prioritization
+    allCandidates.sort((a, b) {
+      final scoreA = _scoreCandidate(a["url"] ?? "", a["label"] ?? "", isPlayback: isPlayback);
+      final scoreB = _scoreCandidate(b["url"] ?? "", b["label"] ?? "", isPlayback: isPlayback);
+      return scoreA.compareTo(scoreB);
+    });
+
+    // Deduplicate candidate URLs
+    final List<Map<String, String>> uniqueCandidates = [];
+    final Set<String> seenUrls = {};
+    for (final c in allCandidates) {
+      final url = c["url"] ?? "";
+      if (url.isNotEmpty && seenUrls.add(url)) {
+        uniqueCandidates.add(c);
+      }
+    }
+
+    for (final candidate in uniqueCandidates) {
+      final url = candidate["url"]!;
+      final label = candidate["label"]!;
+
+      final Map<String, String> streamHeaders = {
+        "User-Agent": BROWSER_UA,
+        "Referer": baseUrl,
+      };
+
+      // Preflight stream probe (MovieBox-TUI v0.1.21 range probe & dead stream detection)
+      final playable = await _probeStreamUrl(url, streamHeaders);
+      if (playable != null) {
+        print("4KHDHub resolved playable stream: $playable ($label)");
+        return {
+          "mediaUrl": playable,
+          "headers": streamHeaders,
+          "sourceLabel": label,
+        };
+      }
+    }
+
+    throw Exception(lastError ?? "Mirrors for this release are dead or expired on 4KHDHub.");
+  }
+
+  /// Checks if URL belongs to an intermediate mediator domain
+  bool _isMediatorUrl(String url) {
+    final lower = url.toLowerCase();
+    return lower.contains("greenmotors.") ||
+        lower.contains("greenmountmotors.") ||
+        lower.contains("homelander") ||
+        lower.contains("bonus") ||
+        (!lower.contains("hubcloud") && !lower.contains("hubdrive") && lower.contains("?id="));
+  }
+
+  /// Resolve greenmotors / intermediate mediator redirector (MovieBox-TUI v0.1.21)
+  Future<List<Map<String, String>>> _resolveGreenMotors(
+    String mediatorUrl, {
+    bool isPlayback = true,
+  }) async {
+    final response = await _client
+        .get(Uri.parse(mediatorUrl), headers: _headers)
+        .timeout(const Duration(seconds: 10));
+
+    if (response.statusCode != 200) {
+      throw Exception("Mediator redirector returned status ${response.statusCode}");
+    }
+
+    final targetUrl = _unpackGreenMotorsUrl(response.body);
+    if (targetUrl == null || targetUrl.isEmpty) {
+      throw Exception("Failed to decode mediator redirect target");
+    }
+
+    if (targetUrl.contains("hubcloud.")) {
+      return _resolveHubCloud(targetUrl, isPlayback: isPlayback);
+    } else if (targetUrl.contains("hubdrive.")) {
+      return _resolveHubDrive(targetUrl, isPlayback: isPlayback);
+    } else {
+      final validated = _validatePlaybackUrl(targetUrl);
+      if (validated != null) {
+        return [
+          {"url": validated, "label": "Direct"}
+        ];
+      }
+      return [];
+    }
+  }
+
+  /// Multi-stage unpacking pipeline: Base64 -> Base64 -> ROT13 -> Base64 -> JSON -> Base64
+  String? _unpackGreenMotorsUrl(String html) {
+    final payload = _extractGreenMotorsPayload(html);
+    if (payload == null || payload.isEmpty) return null;
+    return _decodeGreenMotorsPayload(payload);
+  }
+
+  String? _extractGreenMotorsPayload(String html) {
+    try {
+      final match = RegExp(r"""s\(\s*['"]o['"]\s*,\s*['"]([^'"]+)['"]""").firstMatch(html);
+      if (match != null) {
+        return match.group(1);
+      }
+    } catch (e) {
+      print("Error extracting mediator payload: $e");
+    }
+    return null;
+  }
+
+  String _rot13(String input) {
+    final buffer = StringBuffer();
+    for (int i = 0; i < input.length; i++) {
+      final code = input.codeUnitAt(i);
+      if (code >= 65 && code <= 90) {
+        buffer.writeCharCode((code - 65 + 13) % 26 + 65);
+      } else if (code >= 97 && code <= 122) {
+        buffer.writeCharCode((code - 97 + 13) % 26 + 97);
+      } else {
+        buffer.writeCharCode(code);
+      }
+    }
+    return buffer.toString();
+  }
+
+  String? _decodeGreenMotorsPayload(String payload) {
+    try {
+      // 1. Base64 decode
+      final s1 = utf8.decode(base64.decode(payload));
+      // 2. Base64 decode
+      final s2 = utf8.decode(base64.decode(s1));
+      // 3. ROT13
+      final s3 = _rot13(s2);
+      // 4. Base64 decode
+      final s4 = utf8.decode(base64.decode(s3));
+      // 5. JSON parse
+      final Map<String, dynamic> data = jsonDecode(s4);
+      final oVal = data['o']?.toString();
+      if (oVal != null && oVal.isNotEmpty) {
+        // 6. Base64 decode target downstream URL
+        return utf8.decode(base64.decode(oVal));
+      }
+    } catch (e) {
+      print("Error decoding mediator token: $e");
+    }
+    return null;
+  }
+
+  /// Unwrap base64 Watch Online redirector e.g. vdplay.pages.dev/?u=...
+  String? _unwrapWatchOnlineUrl(String raw) {
+    final uri = Uri.tryParse(raw);
+    if (uri == null || !uri.host.contains("pages.dev")) return null;
+
+    final uParam = uri.queryParameters['u'];
+    if (uParam == null || uParam.isEmpty) return null;
+
+    try {
+      final decoded = utf8.decode(base64.decode(uParam));
+      if (decoded.startsWith("https://")) {
+        return decoded;
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// Resolve HubDrive link -> returns HubCloud link candidates
-  Future<List<Map<String, String>>> _resolveHubDrive(String driveUrl) async {
+  Future<List<Map<String, String>>> _resolveHubDrive(
+    String driveUrl, {
+    bool isPlayback = true,
+  }) async {
     final response = await _client
         .get(Uri.parse(driveUrl), headers: _headers)
         .timeout(const Duration(seconds: 10));
@@ -436,14 +591,17 @@ class FourKHdHubApiService {
       if (uri != null &&
           uri.host.contains("hubcloud.") &&
           uri.path.startsWith("/drive/")) {
-        return _resolveHubCloud(href);
+        return _resolveHubCloud(href, isPlayback: isPlayback);
       }
     }
     throw Exception("HubDrive HubCloud mirror missing");
   }
 
-  /// Resolve HubCloud link -> returns direct candidates (PixelDrain / CDN)
-  Future<List<Map<String, String>>> _resolveHubCloud(String hubCloudUrl) async {
+  /// Resolve HubCloud link -> returns direct candidates (PixelDrain / CDN / Seekable Stream)
+  Future<List<Map<String, String>>> _resolveHubCloud(
+    String hubCloudUrl, {
+    bool isPlayback = true,
+  }) async {
     final driveRes = await _client
         .get(Uri.parse(hubCloudUrl), headers: _headers)
         .timeout(const Duration(seconds: 10));
@@ -452,8 +610,19 @@ class FourKHdHubApiService {
       throw Exception("HubCloud drive page status ${driveRes.statusCode}");
     }
 
+    // Check if intermediate shortener payload s('o', ...) is inside HubCloud response
+    if (driveRes.body.contains("s('o'") || driveRes.body.contains('s("o"')) {
+      final unpacked = _unpackGreenMotorsUrl(driveRes.body);
+      if (unpacked != null && unpacked.isNotEmpty && unpacked != hubCloudUrl) {
+        return _resolveHubCloud(unpacked, isPlayback: isPlayback);
+      }
+    }
+
     final driveDoc = html_parser.parse(driveRes.body);
-    final downloadAnchor = driveDoc.querySelector("a#download");
+    // Expanded button selector matching MovieBox-TUI v0.1.21
+    final downloadAnchor = driveDoc.querySelector(
+      "a#download, a.btn-primary, a.btn-success, a.btn[href*='/download/'], a[href*='/download/'], a[href*='gamerxyt.com'], a[href*='hubcloud.php']",
+    );
     final resolverUrl = downloadAnchor?.attributes['href'];
 
     if (resolverUrl == null || !resolverUrl.startsWith("https://")) {
@@ -461,7 +630,10 @@ class FourKHdHubApiService {
     }
 
     final resolverRes = await _client
-        .get(Uri.parse(resolverUrl), headers: _headers)
+        .get(Uri.parse(resolverUrl), headers: {
+          ..._headers,
+          "Referer": hubCloudUrl,
+        })
         .timeout(const Duration(seconds: 10));
 
     if (resolverRes.statusCode != 200) {
@@ -471,7 +643,7 @@ class FourKHdHubApiService {
     final htmlBody = resolverRes.body;
     final List<Map<String, String>> candidates = [];
 
-    // Extract PixelDrain URLs from script / text
+    // 1. Extract PixelDrain URLs from script / text
     final pixelDrainUrls = _extractPixelDrainUrls(htmlBody);
     for (final pUrl in pixelDrainUrls) {
       candidates.add({
@@ -480,24 +652,52 @@ class FourKHdHubApiService {
       });
     }
 
-    // Extract anchor links
+    // 2. Extract anchor links & unwrap Watch Online links
     final resolverDoc = html_parser.parse(htmlBody);
     final linkEls = resolverDoc.querySelectorAll("a[href]");
     for (final link in linkEls) {
       final href = link.attributes['href'] ?? "";
       final label = link.text.trim();
 
-      if (href.startsWith("https://") &&
-          !href.endsWith(".zip") &&
-          !href.contains("login") &&
-          !href.contains("logout")) {
-        final pApiUrl = _transformPixelDrainUrl(href) ?? href;
-        if (!candidates.any((c) => c["url"] == pApiUrl)) {
+      if (!href.startsWith("https://") ||
+          href.endsWith(".zip") ||
+          href.contains("login") ||
+          href.contains("logout")) {
+        continue;
+      }
+
+      // Check Watch Online unwrapper
+      final unwrapped = _unwrapWatchOnlineUrl(href);
+      if (unwrapped != null) {
+        final validated = _validatePlaybackUrl(unwrapped);
+        if (validated != null && !candidates.any((c) => c["url"] == validated)) {
           candidates.add({
-            "url": pApiUrl,
-            "label": label.isNotEmpty ? label : "Direct CDN",
+            "url": validated,
+            "label": "Watch Online",
           });
         }
+        continue;
+      }
+
+      // Pixel redirect links e.g. pixel.hubcloud.cx / pixel.hubcloud.ist
+      if (href.contains("pixel.hubcloud.") || href.contains("/pixel.")) {
+        final resolvedPixel = await _resolvePixelRedirect(href);
+        if (resolvedPixel != null && !candidates.any((c) => c["url"] == resolvedPixel)) {
+          candidates.add({
+            "url": resolvedPixel,
+            "label": label.isNotEmpty ? label : "Google Video CDN",
+          });
+        }
+        continue;
+      }
+
+      final pApiUrl = _transformPixelDrainUrl(href) ?? href;
+      final validated = _validatePlaybackUrl(pApiUrl);
+      if (validated != null && !candidates.any((c) => c["url"] == validated)) {
+        candidates.add({
+          "url": validated,
+          "label": label.isNotEmpty ? label : "Direct CDN",
+        });
       }
     }
 
@@ -506,6 +706,124 @@ class FourKHdHubApiService {
     }
 
     return candidates;
+  }
+
+  /// Follows pixel.hubcloud.* 302 redirects to direct Google Video CDN / R2 URL
+  Future<String?> _resolvePixelRedirect(String pixelUrl) async {
+    try {
+      String targetUrl = pixelUrl;
+      for (int i = 0; i < 5; i++) {
+        final req = http.Request("GET", Uri.parse(targetUrl))
+          ..headers.addAll(_headers)
+          ..followRedirects = false;
+
+        final streamed = await _client.send(req).timeout(const Duration(seconds: 8));
+        final location = streamed.headers['location'];
+
+        final uriToCheck = location != null ? Uri.tryParse(location) : Uri.tryParse(targetUrl);
+        if (uriToCheck != null) {
+          final linkParam = uriToCheck.queryParameters['link'];
+          if (linkParam != null && linkParam.startsWith("https://")) {
+            return _validatePlaybackUrl(linkParam);
+          }
+        }
+
+        if (streamed.statusCode >= 300 && streamed.statusCode < 400 && location != null && location.isNotEmpty) {
+          targetUrl = location;
+          if (targetUrl.startsWith("https://video-downloads.googleusercontent.com") ||
+              targetUrl.contains("storage.googleapis.com") ||
+              targetUrl.contains("cloudflarestorage.com")) {
+            return _validatePlaybackUrl(targetUrl);
+          }
+          continue;
+        }
+
+        if (targetUrl.startsWith("https://video-downloads.googleusercontent.com") ||
+            targetUrl.contains("storage.googleapis.com") ||
+            targetUrl.contains("cloudflarestorage.com")) {
+          return _validatePlaybackUrl(targetUrl);
+        }
+        break;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Score candidates matching MovieBox-TUI v0.1.21 prioritization
+  int _scoreCandidate(String url, String label, {bool isPlayback = true}) {
+    final value = "$url $label".toLowerCase();
+    if (isPlayback) {
+      // For playback: prioritize seekable multi-connection CDNs; deprioritize workers.dev to avoid 403 token burn
+      if (value.contains("pixel.hubcloud.") ||
+          value.contains("googleusercontent.com") ||
+          value.contains("googlevideo.com") ||
+          value.contains("cloudflarestorage.com") ||
+          value.contains("r2.cloudflarestorage.com") ||
+          value.contains("fsl server") ||
+          value.contains("r2.dev") ||
+          value.contains("watch online")) {
+        return 0;
+      } else if (value.contains("storage.googleapis.com") ||
+          value.contains("hubcloud.cx/re/") ||
+          value.contains("hubcloud.fans/re/")) {
+        return 1;
+      } else if (value.contains("pixeldrain.com") ||
+          value.contains("pixeldrain.dev") ||
+          value.contains("pixeldrain")) {
+        return 2;
+      } else if (value.contains("testzip.php") ||
+          value.contains("vcloud.php") ||
+          value.contains("drive.php") ||
+          value.contains("gpdl.")) {
+        return 3;
+      } else {
+        // workers.dev and unknown mirrors are scored 4 for playback
+        return 4;
+      }
+    } else {
+      // For download: workers.dev is allowed for high speed
+      if (value.contains("pixel.hubcloud.") ||
+          value.contains("googleusercontent.com") ||
+          value.contains("cloudflarestorage.com") ||
+          value.contains("r2.cloudflarestorage.com") ||
+          value.contains("fsl server") ||
+          value.contains("r2.dev") ||
+          value.contains("workers.dev") ||
+          value.contains("watch online")) {
+        return 0;
+      } else if (value.contains("storage.googleapis.com") ||
+          value.contains("hubcloud.cx/re/") ||
+          value.contains("hubcloud.fans/re/")) {
+        return 1;
+      } else if (value.contains("pixeldrain.com") ||
+          value.contains("pixeldrain.dev") ||
+          value.contains("pixeldrain")) {
+        return 2;
+      } else {
+        return 3;
+      }
+    }
+  }
+
+  /// Normalizes playback URL and encodes spaces/special characters
+  String? _validatePlaybackUrl(String raw) {
+    final uri = Uri.tryParse(raw);
+    if (uri == null || uri.scheme != "https" || uri.host.isEmpty) return null;
+
+    final host = uri.host.toLowerCase();
+    final path = uri.path.toLowerCase();
+
+    if (host == "localhost" ||
+        host.endsWith(".local") ||
+        path.endsWith(".zip") ||
+        path.contains("login.php") ||
+        path.contains("logout") ||
+        host.contains("greenmotors.") ||
+        host.contains("greenmountmotors.")) {
+      return null;
+    }
+
+    return uri.toString();
   }
 
   /// Extract PixelDrain URLs from page HTML text
@@ -547,19 +865,20 @@ class FourKHdHubApiService {
     return null;
   }
 
-  /// Probe stream URL with byte range check
+  /// Probe stream URL with byte range check & fail-fast dead stream detection (MovieBox-TUI v0.1.21)
   Future<String?> _probeStreamUrl(String url, Map<String, String> headers) async {
     try {
       final req = http.Request("GET", Uri.parse(url));
       req.headers.addAll(headers);
-      req.headers["Range"] = "bytes=0-";
+      req.headers["Range"] = "bytes=0-8191";
 
       final streamedRes = await _client.send(req).timeout(const Duration(seconds: 8));
 
       if (streamedRes.statusCode == 200 || streamedRes.statusCode == 206) {
-        final contentType = streamedRes.headers['content-type'] ?? "";
+        final contentType = (streamedRes.headers['content-type'] ?? "").toLowerCase();
         final finalUrl = streamedRes.headers['location'] ?? url;
 
+        // Follow link= wrapper if present
         if (contentType.contains("text/html") && finalUrl.contains("link=")) {
           final uri = Uri.tryParse(finalUrl);
           final wrapped = uri?.queryParameters['link'];
@@ -569,9 +888,33 @@ class FourKHdHubApiService {
           return null;
         }
 
-        if (!contentType.contains("text/html") && !contentType.contains("application/zip")) {
-          return url;
+        // If response is HTML or plain text, inspect body for expired mirror error markers
+        if (contentType.contains("text/html") ||
+            contentType.contains("text/plain") ||
+            contentType.contains("application/json") ||
+            contentType.contains("application/zip")) {
+          final bodyBytes = await streamedRes.stream.toBytes();
+          final bodyLower = utf8.decode(bodyBytes, allowMalformed: true).toLowerCase();
+
+          if (bodyLower.contains("failed to extract link") ||
+              bodyLower.contains("token expired") ||
+              bodyLower.contains("file not found") ||
+              bodyLower.contains("404 not found") ||
+              bodyLower.contains("link has expired") ||
+              bodyLower.contains("expired") ||
+              bodyLower.contains("access denied") ||
+              bodyLower.contains("downloadquotaexceeded") ||
+              bodyLower.contains("generate link again")) {
+            print("4KHDHub preflight rejected dead/expired stream: $url");
+            return null;
+          }
+
+          if (contentType.contains("application/zip")) {
+            return null;
+          }
         }
+
+        return url;
       }
     } catch (e) {
       print("Probe error for $url: $e");
