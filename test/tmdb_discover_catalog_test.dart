@@ -87,5 +87,12 @@ void main() {
       expect(normalized['provider'], equals('tmdb'));
       expect(normalized['subjectType'], equals(2));
     });
+
+    test('TmdbService.includeAdult can be toggled to control adult content', () {
+      TmdbService.includeAdult = true;
+      expect(TmdbService.includeAdult, isTrue);
+      TmdbService.includeAdult = false;
+      expect(TmdbService.includeAdult, isFalse);
+    });
   });
 }

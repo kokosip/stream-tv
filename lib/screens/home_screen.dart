@@ -74,10 +74,15 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isFiltering = false;
   bool _isLoadingFilters = false;
   List<dynamic> _filteredResults = [];
+  int _filterCurrentPage = 1;
+  bool _isLoadingMoreFilters = false;
+  bool _filterHasMore = true;
+  late final ScrollController _filterScrollController;
 
   @override
   void initState() {
     super.initState();
+    _filterScrollController = ScrollController()..addListener(_onFilterScroll);
     _nsfwFocusNode = FocusNode();
     _langFocusNode = FocusNode();
 
@@ -212,6 +217,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       setState(() {
         _nsfwFilter = prefs.getBool('nsfw_filter_enabled') ?? false;
+        TmdbService.includeAdult = !_nsfwFilter;
+        if (_nsfwFilter && _selectedRating == "Adult") {
+          _selectedRating = "Semua";
+        }
       });
     }
   }
@@ -219,9 +228,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _toggleNsfwFilter(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('nsfw_filter_enabled', enabled);
+    TmdbService.includeAdult = !enabled;
     if (mounted) {
       setState(() {
         _nsfwFilter = enabled;
+        if (enabled && _selectedRating == "Adult") {
+          _selectedRating = "Semua";
+        }
         _applySearchFilter();
         if (_isFiltering) {
           _applyCustomFilters();
@@ -855,6 +868,91 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _onFilterScroll() {
+    if (!_isFiltering) return;
+    if (_filterScrollController.hasClients &&
+        _filterScrollController.position.pixels >= _filterScrollController.position.maxScrollExtent - 400 &&
+        !_isLoadingFilters &&
+        !_isLoadingMoreFilters &&
+        _filterHasMore) {
+      _loadMoreFilteredItems();
+    }
+  }
+
+  Future<void> _loadMoreFilteredItems() async {
+    if (_isLoadingMoreFilters || !_filterHasMore || !_isFiltering) return;
+
+    setState(() {
+      _isLoadingMoreFilters = true;
+    });
+
+    try {
+      final nextPage = _filterCurrentPage + 1;
+      final typeParam = _selectedType == "Movies"
+          ? "movie"
+          : (_selectedType == "TV Series" ? "tv" : "all");
+
+      final rawResults = await _tmdb.discoverCatalog(
+        type: typeParam,
+        language: _selectedLanguage,
+        genre: _selectedGenre,
+        rating: _selectedRating,
+        includeAdult: !_nsfwFilter,
+        sortBy: _selectedLanguage != "Semua" ? "newest" : "popularity",
+        page: nextPage,
+      );
+
+      final List<dynamic> newItems = rawResults.where((item) {
+        if (_nsfwFilter) {
+          final restrictKid = item['restrictKid'];
+          final genre = (item['genre'] ?? "").toString().toLowerCase();
+          if (restrictKid == 1 || restrictKid == '1' || genre.contains('erotic')) {
+            return false;
+          }
+        }
+
+        if (AppContentFilterService.filterHindi.value && _selectedLanguage != "India") {
+          if (AppContentFilterService.isItemHindiDub(item)) {
+            return false;
+          }
+        }
+
+        return true;
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _filterCurrentPage = nextPage;
+          if (newItems.isEmpty) {
+            _filterHasMore = false;
+          } else {
+            final existingIds = _filteredResults
+                .map((e) => (e['subjectId'] ?? e['id'] ?? '').toString())
+                .toSet();
+            final uniqueNew = newItems.where((e) {
+              final id = (e['subjectId'] ?? e['id'] ?? '').toString();
+              return id.isNotEmpty && !existingIds.contains(id);
+            }).toList();
+
+            if (uniqueNew.isEmpty) {
+              _filterHasMore = false;
+            } else {
+              _filteredResults.addAll(uniqueNew);
+            }
+          }
+          _isLoadingMoreFilters = false;
+        });
+      }
+    } catch (e) {
+      print("Load More Filtered Items Error: $e");
+      if (mounted) {
+        setState(() {
+          _isLoadingMoreFilters = false;
+        });
+      }
+    }
+  }
+
   Future<void> _applyCustomFilters() async {
     if (_selectedLanguage == "Semua" &&
         _selectedGenre == "Semua" &&
@@ -863,6 +961,9 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _isFiltering = false;
         _filteredResults = [];
+        _filterCurrentPage = 1;
+        _filterHasMore = true;
+        _isLoadingMoreFilters = false;
       });
       _loadAllHomeData();
       return;
@@ -871,12 +972,19 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _isFiltering = true;
       _isLoadingFilters = true;
+      _isLoadingMoreFilters = false;
+      _filterCurrentPage = 1;
+      _filterHasMore = true;
       _errorMessage = "";
       _searchController.clear();
       _hasSearched = false;
       _searchResults = [];
       _rawSearchResults = [];
     });
+
+    if (_filterScrollController.hasClients) {
+      _filterScrollController.jumpTo(0);
+    }
 
     try {
       final typeParam = _selectedType == "Movies"
@@ -889,7 +997,9 @@ class _HomeScreenState extends State<HomeScreen> {
         language: _selectedLanguage,
         genre: _selectedGenre,
         rating: _selectedRating,
+        includeAdult: !_nsfwFilter,
         sortBy: _selectedLanguage != "Semua" ? "newest" : "popularity",
+        page: 1,
       );
 
       final List<dynamic> filtered = rawResults.where((item) {
@@ -912,6 +1022,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       setState(() {
         _filteredResults = filtered;
+        _filterHasMore = filtered.isNotEmpty;
       });
     } catch (e) {
       print("Apply Filters Error: $e");
@@ -976,7 +1087,16 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildFilterDropdown(
             label: AppLanguageService.tr(en: "Rating", id: "Rating"),
             value: _selectedRating,
-            items: ["Semua", "G", "PG", "PG-13", "R", "NC-17", "TV-G", "TV-PG", "TV-14", "TV-MA"],
+            items: [
+              "Semua",
+              "G",
+              "PG",
+              "PG-13",
+              "TV-G",
+              "TV-PG",
+              "TV-14",
+              if (!_nsfwFilter) "Adult",
+            ],
             onChanged: (val) {
               if (val != null) {
                 setState(() {
@@ -997,6 +1117,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   _selectedRating = "Semua";
                   _isFiltering = false;
                   _filteredResults = [];
+                  _filterCurrentPage = 1;
+                  _filterHasMore = true;
+                  _isLoadingMoreFilters = false;
                 });
                 _loadAllHomeData();
               },
@@ -1067,6 +1190,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 String labelText = item;
                 if (item == "Semua") {
                   labelText = AppLanguageService.tr(en: "All", id: "Semua");
+                } else if (item == "Adult") {
+                  labelText = AppLanguageService.tr(en: "Adult (18+)", id: "Dewasa / Adult (18+)");
                 } else if (item == "Indonesia") {
                   labelText = AppLanguageService.tr(en: "Indonesian", id: "Indonesia");
                 } else if (item == "English") {
@@ -1128,15 +1253,29 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    final extraLoadingCount = _isLoadingMoreFilters ? (isTv ? 6 : 3) : 0;
+
     return GridView.builder(
+      controller: _filterScrollController,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: isTv ? 6 : 3,
         childAspectRatio: 0.7,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
       ),
-      itemCount: _filteredResults.length,
+      itemCount: _filteredResults.length + extraLoadingCount,
       itemBuilder: (context, index) {
+        if (index >= _filteredResults.length) {
+          return Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E1E),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Center(
+              child: SpinKitRing(color: Colors.redAccent, size: 28),
+            ),
+          );
+        }
         final item = _filteredResults[index];
         final title = item['title'] ?? item['subjectTitle'] ?? "Untitled";
         final coverUrl = item['cover']?['url'] ?? "";
@@ -1457,6 +1596,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _filterScrollController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
     _nsfwFocusNode.dispose();

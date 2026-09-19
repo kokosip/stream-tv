@@ -33,6 +33,9 @@ class TmdbService {
   static const String imageBaseW1280 = "https://image.tmdb.org/t/p/w1280";
   static const String imageBaseOriginal = "https://image.tmdb.org/t/p/original";
 
+  /// When true, TMDB API includes adult/18+ content (active when NSFW filter is disabled)
+  static bool includeAdult = false;
+
   // In-memory cache with TTL (15 minutes)
   final Map<String, _CacheEntry> _cache = {};
   static const Duration cacheTtl = Duration(minutes: 15);
@@ -53,7 +56,7 @@ class TmdbService {
   Future<Map<String, dynamic>> _get(String path, {Map<String, String>? params}) async {
     final queryParams = {
       "api_key": apiKey,
-      "include_adult": "false",
+      "include_adult": includeAdult ? "true" : "false",
       ...?params,
     };
 
@@ -251,11 +254,14 @@ class TmdbService {
     String type = 'all', // 'all', 'movie', 'tv'
     String language = 'Semua', // 'Semua', 'English', 'Indonesia', 'Korea', 'Japan', 'China', 'India', 'Thailand'
     String genre = 'Semua', // 'Semua', 'Action', 'Comedy', 'Drama', 'Romantic', 'Horror', 'Anime'
-    String rating = 'Semua', // 'Semua', 'G', 'PG', 'PG-13', 'R', 'NC-17', 'TV-G', 'TV-PG', 'TV-14', 'TV-MA'
+    String rating = 'Semua', // 'Semua', 'G', 'PG', 'PG-13', 'TV-G', 'TV-PG', 'TV-14', 'Adult'
+    bool? includeAdult,
     String sortBy = 'auto', // 'auto', 'newest', 'popularity'
     int page = 1,
   }) async {
     try {
+      final bool resolvedIncludeAdult = includeAdult ?? TmdbService.includeAdult;
+
       // 1. Map Language to ISO 639-1 (with_original_language) & origin country
       String? langParam;
       String? countryParam;
@@ -305,8 +311,13 @@ class TmdbService {
 
       // 3. Map Rating / Certification
       String? movieCertParam;
+      String? movieCertGteParam;
       String? tvCertParam;
-      if (rating != 'Semua') {
+      if (rating == 'Adult') {
+        // Adult encompasses R, NC-17 (US movies), and TV-MA (US TV shows)
+        movieCertGteParam = 'R';
+        tvCertParam = 'TV-MA';
+      } else if (rating != 'Semua') {
         if (['G', 'PG', 'PG-13', 'R', 'NC-17'].contains(rating)) {
           movieCertParam = rating;
         }
@@ -322,6 +333,7 @@ class TmdbService {
       Future<List<Map<String, dynamic>>> fetchMovies(int p) async {
         final params = <String, String>{
           "page": p.toString(),
+          "include_adult": resolvedIncludeAdult ? "true" : "false",
         };
         if (isSortByNewest) {
           params["sort_by"] = "primary_release_date.desc";
@@ -333,7 +345,10 @@ class TmdbService {
         if (langParam != null) params["with_original_language"] = langParam;
         if (countryParam != null) params["with_origin_country"] = countryParam;
         if (movieGenreParam != null) params["with_genres"] = movieGenreParam;
-        if (movieCertParam != null) {
+        if (movieCertGteParam != null) {
+          params["certification_country"] = "US";
+          params["certification.gte"] = movieCertGteParam;
+        } else if (movieCertParam != null) {
           params["certification_country"] = "US";
           params["certification"] = movieCertParam;
         }
@@ -348,6 +363,7 @@ class TmdbService {
       Future<List<Map<String, dynamic>>> fetchTv(int p) async {
         final params = <String, String>{
           "page": p.toString(),
+          "include_adult": resolvedIncludeAdult ? "true" : "false",
         };
         if (isSortByNewest) {
           params["sort_by"] = "first_air_date.desc";
@@ -375,33 +391,29 @@ class TmdbService {
 
       final resolvedType = type.toLowerCase();
       if (resolvedType == 'movies' || resolvedType == 'movie') {
-        // Fetch 4 pages to give plenty of catalog items (up to 80 items)
+        // Fetch 2 pages per batch without overlap (up to 40 items)
+        final startPage = (page - 1) * 2 + 1;
         final results = await Future.wait([
-          fetchMovies(page),
-          fetchMovies(page + 1),
-          fetchMovies(page + 2),
-          fetchMovies(page + 3),
+          fetchMovies(startPage),
+          fetchMovies(startPage + 1),
         ]);
-        combined = [...results[0], ...results[1], ...results[2], ...results[3]];
+        combined = [...results[0], ...results[1]];
       } else if (resolvedType == 'tv series' || resolvedType == 'tv') {
-        // Fetch 4 pages to give plenty of catalog items (up to 80 items)
+        // Fetch 2 pages per batch without overlap (up to 40 items)
+        final startPage = (page - 1) * 2 + 1;
         final results = await Future.wait([
-          fetchTv(page),
-          fetchTv(page + 1),
-          fetchTv(page + 2),
-          fetchTv(page + 3),
+          fetchTv(startPage),
+          fetchTv(startPage + 1),
         ]);
-        combined = [...results[0], ...results[1], ...results[2], ...results[3]];
+        combined = [...results[0], ...results[1]];
       } else {
-        // All: Fetch both movies and tv concurrently (up to 80 items)
+        // All: Fetch 1 page of movie + 1 page of tv per batch (up to 40 items)
         final results = await Future.wait([
           fetchMovies(page),
-          fetchMovies(page + 1),
           fetchTv(page),
-          fetchTv(page + 1),
         ]);
-        final movies = [...results[0], ...results[1]];
-        final tv = [...results[2], ...results[3]];
+        final movies = results[0];
+        final tv = results[1];
         final maxLen = movies.length > tv.length ? movies.length : tv.length;
         for (int i = 0; i < maxLen; i++) {
           if (i < movies.length) combined.add(movies[i]);
