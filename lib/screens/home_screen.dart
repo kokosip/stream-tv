@@ -3102,7 +3102,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 builder: (context) => DetailScreen(
                   subjectId: subjectId,
                   provider: prov,
-                  tmdbData: prov == 'tmdb' ? (banner['rawTmdb'] ?? banner) : null,
+                  tmdbData: prov == 'tmdb' ? banner : null,
                 ),
               ),
             ).then((_) {
@@ -3678,7 +3678,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         builder: (context) => DetailScreen(
                           subjectId: subjectId,
                           provider: prov,
-                          tmdbData: prov == 'tmdb' ? (subject['rawTmdb'] ?? subject) : null,
+                          tmdbData: prov == 'tmdb' ? subject : null,
                         ),
                       ),
                     ).then((_) {

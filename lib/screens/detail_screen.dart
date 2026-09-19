@@ -353,16 +353,48 @@ class _DetailScreenState extends State<DetailScreen> {
       final rawIdStr = widget.subjectId.replaceFirst('tmdb_', '');
       final int tmdbId = int.tryParse(rawIdStr) ?? 0;
 
-      final isTvInitial = initialMap?['subjectType'] == 2 ||
-          initialMap?['media_type'] == 'tv' ||
+      final rawTmdb = initialMap?['rawTmdb'] is Map ? (initialMap!['rawTmdb'] as Map) : null;
+      final typeVal = initialMap?['subjectType'] ?? initialMap?['subject_type'] ?? rawTmdb?['subjectType'] ?? rawTmdb?['subject_type'];
+      final mediaTypeStr = (initialMap?['media_type'] ?? rawTmdb?['media_type'] ?? '').toString().toLowerCase();
+
+      bool isTvInitial = typeVal == 2 ||
+          typeVal?.toString() == '2' ||
+          typeVal?.toString().toLowerCase() == 'tv' ||
+          mediaTypeStr == 'tv' ||
+          initialMap?['first_air_date'] != null ||
+          rawTmdb?['first_air_date'] != null ||
+          (initialMap?['name'] != null && initialMap?['title'] == null) ||
+          (rawTmdb?['name'] != null && rawTmdb?['title'] == null) ||
           widget.initialSeason != null;
 
       if (tmdbId > 0 && (initialMap == null || (initialMap['description'] ?? '').isEmpty)) {
-        final tmdbFull = isTvInitial
-            ? await _tmdbApi.getTvDetails(tmdbId)
-            : await _tmdbApi.getMovieDetails(tmdbId);
-        if (tmdbFull != null) {
-          initialMap = _tmdbApi.normalizeItem(tmdbFull, mediaType: isTvInitial ? 'tv' : 'movie');
+        if (initialMap == null && !isTvInitial) {
+          // If no hint is available, probe TV first then fallback to movie
+          final tvProbe = await _tmdbApi.getTvDetails(tmdbId);
+          if (tvProbe != null && tvProbe['name'] != null) {
+            isTvInitial = true;
+            initialMap = _tmdbApi.normalizeItem(tvProbe, mediaType: 'tv');
+          } else {
+            final movieProbe = await _tmdbApi.getMovieDetails(tmdbId);
+            if (movieProbe != null) {
+              isTvInitial = false;
+              initialMap = _tmdbApi.normalizeItem(movieProbe, mediaType: 'movie');
+            }
+          }
+        } else {
+          final tmdbFull = isTvInitial
+              ? await _tmdbApi.getTvDetails(tmdbId)
+              : await _tmdbApi.getMovieDetails(tmdbId);
+          if (tmdbFull != null) {
+            initialMap = _tmdbApi.normalizeItem(tmdbFull, mediaType: isTvInitial ? 'tv' : 'movie');
+          } else if (!isTvInitial) {
+            // Safety fallback: if movie returned null, try TV
+            final tvFallback = await _tmdbApi.getTvDetails(tmdbId);
+            if (tvFallback != null) {
+              isTvInitial = true;
+              initialMap = _tmdbApi.normalizeItem(tvFallback, mediaType: 'tv');
+            }
+          }
         }
       }
 
@@ -374,6 +406,11 @@ class _DetailScreenState extends State<DetailScreen> {
           });
         }
         return;
+      }
+
+      // Ensure item is normalized with proper subjectType if it arrived in raw format
+      if (initialMap['subjectType'] == null || initialMap['description'] == null) {
+        initialMap = _tmdbApi.normalizeItem(initialMap, mediaType: isTvInitial ? 'tv' : 'movie');
       }
 
       if (mounted) {
@@ -646,6 +683,11 @@ class _DetailScreenState extends State<DetailScreen> {
           _seasons = seasonsList;
           _episodesCount = initialEpisodesCount;
         });
+      }
+
+      if (_isTvShow) {
+        final seriesTitle = (_details?['title'] ?? _details?['name'] ?? _details?['subjectTitle'] ?? '').toString();
+        _fetchTvMazeEpisodes(seriesTitle);
       }
 
       _loadStreams();
@@ -1191,26 +1233,10 @@ class _DetailScreenState extends State<DetailScreen> {
     }
 
     if (_is4kHub) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          backgroundColor: const Color(0xFF1E1E1E),
-          content: Row(
-            children: [
-              const SpinKitRing(color: Colors.cyanAccent, size: 36.0),
-              const SizedBox(width: 20),
-              Expanded(
-                child: Text(
-                  AppLanguageService.tr(
-                    en: "Loading 4KHDHub releases...",
-                    id: "Memuat daftar rilis 4KHDHub...",
-                  ),
-                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
-                ),
-              ),
-            ],
-          ),
+      _showCompactLoadingDialog(
+        AppLanguageService.tr(
+          en: "Loading 4KHDHub releases...",
+          id: "Memuat daftar rilis 4KHDHub...",
         ),
       );
 
@@ -1377,26 +1403,10 @@ class _DetailScreenState extends State<DetailScreen> {
       return;
     }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        content: Row(
-          children: [
-            const SpinKitRing(color: Colors.cyanAccent, size: 36.0),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Text(
-                AppLanguageService.tr(
-                  en: "Loading 4KHDHub releases...",
-                  id: "Memuat daftar rilis 4KHDHub...",
-                ),
-                style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
-              ),
-            ),
-          ],
-        ),
+    _showCompactLoadingDialog(
+      AppLanguageService.tr(
+        en: "Loading 4KHDHub releases...",
+        id: "Memuat daftar rilis 4KHDHub...",
       ),
     );
 
@@ -1699,28 +1709,59 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
+  void _showCompactLoadingDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 320),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C1C1E),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  blurRadius: 20,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SpinKitRing(color: Colors.cyanAccent, size: 28.0, lineWidth: 2.8),
+                const SizedBox(width: 16),
+                Flexible(
+                  child: Text(
+                    message,
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   void _playStream(Map<String, dynamic> stream) async {
     if (_is4kHub) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          backgroundColor: const Color(0xFF1E1E1E),
-          content: Row(
-            children: [
-              const SpinKitRing(color: Colors.cyanAccent, size: 36.0),
-              const SizedBox(width: 20),
-              Expanded(
-                child: Text(
-                  AppLanguageService.tr(
-                    en: "Resolving 4KHDHub CDN mirror...",
-                    id: "Menghubungkan ke mirror 4KHDHub...",
-                  ),
-                  style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
-                ),
-              ),
-            ],
-          ),
+      _showCompactLoadingDialog(
+        AppLanguageService.tr(
+          en: "Resolving 4KHDHub CDN mirror...",
+          id: "Menghubungkan ke mirror 4KHDHub...",
         ),
       );
 
@@ -2120,26 +2161,10 @@ class _DetailScreenState extends State<DetailScreen> {
       if (_streams.isNotEmpty && (!isTv || (_selectedSeasonNumber == se && _selectedEpisodeNumber == ep))) {
         releases = _streams;
       } else {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: const Color(0xFF1E1E1E),
-            content: Row(
-              children: [
-                const SpinKitRing(color: Colors.cyanAccent, size: 36.0),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Text(
-                    AppLanguageService.tr(
-                      en: "Fetching download links...",
-                      id: "Mengambil daftar link unduhan...",
-                    ),
-                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
-                  ),
-                ),
-              ],
-            ),
+        _showCompactLoadingDialog(
+          AppLanguageService.tr(
+            en: "Fetching download links...",
+            id: "Mengambil daftar link unduhan...",
           ),
         );
 
@@ -2243,26 +2268,10 @@ class _DetailScreenState extends State<DetailScreen> {
                               onTap: () async {
                                 Navigator.pop(dialogContext);
 
-                                showDialog(
-                                  context: context,
-                                  barrierDismissible: false,
-                                  builder: (_) => AlertDialog(
-                                    backgroundColor: const Color(0xFF1E1E1E),
-                                    content: Row(
-                                      children: [
-                                        const SpinKitRing(color: Colors.cyanAccent, size: 36.0),
-                                        const SizedBox(width: 20),
-                                        Expanded(
-                                          child: Text(
-                                            AppLanguageService.tr(
-                                              en: "Connecting to 4KHDHub download mirror...",
-                                              id: "Menghubungkan ke mirror download 4KHDHub...",
-                                            ),
-                                            style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                                _showCompactLoadingDialog(
+                                  AppLanguageService.tr(
+                                    en: "Connecting to 4KHDHub download mirror...",
+                                    id: "Menghubungkan ke mirror download 4KHDHub...",
                                   ),
                                 );
 

@@ -381,34 +381,51 @@ class TmdbService {
 
   /// Normalize TMDB item to the Stream TV standard format
   Map<String, dynamic> normalizeItem(Map<String, dynamic> item, {String? mediaType}) {
-    final isTv = mediaType == 'tv' || item['media_type'] == 'tv' || item['first_air_date'] != null;
-    final id = item['id'];
-    final title = item['title'] ?? item['name'] ?? item['original_title'] ?? item['original_name'] ?? "Untitled";
-    final posterPath = item['poster_path'];
-    final backdropPath = item['backdrop_path'];
-    final voteAvg = item['vote_average'];
-    final releaseDate = item['release_date'] ?? item['first_air_date'] ?? "";
-    final overview = item['overview'] ?? "";
+    final rawTmdb = item['rawTmdb'] is Map ? (item['rawTmdb'] as Map) : null;
+    final typeVal = item['subjectType'] ?? item['subject_type'] ?? rawTmdb?['subjectType'] ?? rawTmdb?['subject_type'];
+    final mediaTypeStr = (mediaType ?? item['media_type'] ?? rawTmdb?['media_type'] ?? '').toString().toLowerCase();
+
+    final isTv = mediaTypeStr == 'tv' ||
+        typeVal == 2 ||
+        typeVal?.toString() == '2' ||
+        item['first_air_date'] != null ||
+        rawTmdb?['first_air_date'] != null ||
+        (item['name'] != null && item['title'] == null) ||
+        (rawTmdb?['name'] != null && rawTmdb?['title'] == null);
+
+    final id = item['id'] ?? item['tmdbId'] ?? rawTmdb?['id'];
+    final title = item['title'] ?? item['name'] ?? item['subjectTitle'] ?? item['original_title'] ?? item['original_name'] ?? rawTmdb?['name'] ?? rawTmdb?['title'] ?? "Untitled";
+    final posterPath = item['poster_path'] ?? (item['cover'] is Map ? item['cover']['url'] : null) ?? rawTmdb?['poster_path'];
+    final backdropPath = item['backdrop_path'] ?? (item['backdrop'] is Map ? item['backdrop']['url'] : null) ?? rawTmdb?['backdrop_path'];
+    final voteAvg = item['vote_average'] ?? item['imdbRate'] ?? rawTmdb?['vote_average'];
+    final releaseDate = item['release_date'] ?? item['first_air_date'] ?? item['releaseDate'] ?? rawTmdb?['first_air_date'] ?? rawTmdb?['release_date'] ?? "";
+    final overview = item['overview'] ?? item['description'] ?? rawTmdb?['overview'] ?? "";
 
     String ratingStr = "";
     if (voteAvg is num && voteAvg > 0) {
       ratingStr = voteAvg.toStringAsFixed(1);
+    } else if (voteAvg != null && voteAvg.toString().isNotEmpty) {
+      ratingStr = voteAvg.toString();
     }
 
     String coverUrl = "";
     if (posterPath != null && posterPath.toString().isNotEmpty) {
-      coverUrl = "$imageBaseW500$posterPath";
+      final p = posterPath.toString();
+      coverUrl = p.startsWith('http') ? p : "$imageBaseW500$p";
     }
 
     String backdropUrl = "";
     if (backdropPath != null && backdropPath.toString().isNotEmpty) {
-      backdropUrl = "$imageBaseW1280$backdropPath";
+      final b = backdropPath.toString();
+      backdropUrl = b.startsWith('http') ? b : "$imageBaseW1280$b";
     }
 
     // Genre extraction
     String genreStr = "";
     if (item['genres'] is List) {
       genreStr = (item['genres'] as List).map((g) => g['name'] ?? '').where((s) => s.isNotEmpty).join(', ');
+    } else if (item['genre'] is String) {
+      genreStr = item['genre'] as String;
     }
 
     return {
@@ -429,13 +446,13 @@ class TmdbService {
       "content": title,
       "imdbRate": ratingStr,
       "imdbRatingValue": ratingStr,
-      "voteCount": item['vote_count'] ?? 0,
+      "voteCount": item['vote_count'] ?? rawTmdb?['vote_count'] ?? 0,
       "releaseDate": releaseDate,
       "genre": genreStr,
       "description": overview,
       "subjectType": isTv ? 2 : 1,
       "provider": "tmdb",
-      "rawTmdb": item,
+      "rawTmdb": rawTmdb ?? item,
     };
   }
 }

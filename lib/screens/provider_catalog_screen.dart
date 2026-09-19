@@ -764,7 +764,7 @@ class _ProviderCatalogScreenState extends State<ProviderCatalogScreen> {
             builder: (context) => DetailScreen(
               subjectId: item['subjectId'] ?? "",
               provider: 'tmdb',
-              tmdbData: item['rawTmdb'] ?? item,
+              tmdbData: item,
             ),
           ),
         );
