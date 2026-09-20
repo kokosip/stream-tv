@@ -783,7 +783,16 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      if (_selectedSearchProvider == '4khdhub') {
+      if (_selectedSearchProvider == 'tmdb') {
+        final tmdbResults = await _tmdb.search(query);
+        setState(() {
+          _rawSearchResults = tmdbResults;
+          _searchResults = tmdbResults;
+          if (_searchResults.isEmpty) {
+            _errorMessage = "Tidak ada hasil di TMDB untuk '$query'";
+          }
+        });
+      } else if (_selectedSearchProvider == '4khdhub') {
         final hubResults = await _fourkApi.search(query);
         final mapped = hubResults.map((item) => {
           ...item,
@@ -814,23 +823,23 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         });
       } else {
-        // 'all': Search both concurrently
+        // 'all': Search TMDB, 4KHDHub, and MovieBox concurrently
         final results = await Future.wait([
-          _api.search(query: query).catchError((e) {
-            print("MovieBox search error in All: $e");
-            return <String, dynamic>{'items': []};
+          _tmdb.search(query).catchError((e) {
+            print("TMDB search error in All: $e");
+            return <Map<String, dynamic>>[];
           }),
           _fourkApi.search(query).catchError((e) {
             print("4KHDHub search error in All: $e");
             return <Map<String, dynamic>>[];
           }),
+          _api.search(query: query).catchError((e) {
+            print("MovieBox search error in All: $e");
+            return <String, dynamic>{'items': []};
+          }),
         ]);
 
-        final mbRaw = (results[0] as Map<String, dynamic>)['items'] ?? [];
-        final List<dynamic> mbList = (mbRaw as List<dynamic>).map((item) => {
-          ...item,
-          'provider': 'moviebox',
-        }).toList();
+        final List<dynamic> tmdbList = results[0] as List<dynamic>;
 
         final hubRaw = results[1] as List<Map<String, dynamic>>;
         final List<dynamic> hubList = hubRaw.map((item) => {
@@ -840,10 +849,17 @@ class _HomeScreenState extends State<HomeScreen> {
           'cover': {'url': item['coverUrl']},
         }).toList();
 
-        // Interleave results so user gets a mix of MovieBox and 4KHDHub
+        final mbRaw = (results[2] as Map<String, dynamic>)['items'] ?? [];
+        final List<dynamic> mbList = (mbRaw as List<dynamic>).map((item) => {
+          ...item,
+          'provider': 'moviebox',
+        }).toList();
+
+        // Interleave results (TMDB + 4KHDHub + MovieBox) to give a reliable, rich mix
         final List<dynamic> combined = [];
-        int maxLen = mbList.length > hubList.length ? mbList.length : hubList.length;
+        final maxLen = [tmdbList.length, hubList.length, mbList.length].reduce((a, b) => a > b ? a : b);
         for (int i = 0; i < maxLen; i++) {
+          if (i < tmdbList.length) combined.add(tmdbList[i]);
           if (i < hubList.length) combined.add(hubList[i]);
           if (i < mbList.length) combined.add(mbList[i]);
         }
@@ -1731,10 +1747,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(width: 8),
           _buildProviderFilterChip(
-            id: 'moviebox',
-            label: "MovieBox",
-            icon: Icons.movie_rounded,
-            color: Colors.redAccent,
+            id: 'tmdb',
+            label: "TMDB",
+            icon: Icons.movie_filter_outlined,
+            color: Colors.amber,
           ),
           const SizedBox(width: 8),
           _buildProviderFilterChip(
@@ -1742,6 +1758,13 @@ class _HomeScreenState extends State<HomeScreen> {
             label: "4KHDHub (4K UHD)",
             icon: Icons.hd_rounded,
             color: Colors.cyanAccent,
+          ),
+          const SizedBox(width: 8),
+          _buildProviderFilterChip(
+            id: 'moviebox',
+            label: "MovieBox",
+            icon: Icons.movie_rounded,
+            color: Colors.redAccent,
           ),
         ],
       ),
@@ -1952,16 +1975,26 @@ class _HomeScreenState extends State<HomeScreen> {
                     final item = popularItems[index];
                     final title = item['title'] ?? item['name'] ?? "Untitled";
                     final coverUrl = item['cover']?['url'] ?? item['coverUrl'] ?? "";
-                    final subjectId = item['subjectId'] ?? item['id'] ?? "";
+                    final subjectId = (item['subjectId'] ?? item['id'] ?? "").toString();
+                    final provider = (item['provider'] ??
+                        (subjectId.startsWith('tmdb_')
+                            ? 'tmdb'
+                            : (subjectId.startsWith('/') ? '4khdhub' : 'moviebox'))).toString();
                     final rating = item['imdbRate'] ?? item['imdbRatingValue'] ?? "";
 
                     return TvFocusableCard(
                       onTap: () {
-                        if (subjectId.toString().isNotEmpty) {
+                        if (subjectId.isNotEmpty) {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => DetailScreen(subjectId: subjectId.toString()),
+                              builder: (context) => DetailScreen(
+                                subjectId: subjectId,
+                                provider: provider,
+                                tmdbData: provider == 'tmdb'
+                                    ? (item['rawTmdb'] ?? item)
+                                    : (item is Map<String, dynamic> ? item : Map<String, dynamic>.from(item as Map)),
+                              ),
                             ),
                           ).then((_) {
                             _loadFavoritesAndProgress();
@@ -3043,8 +3076,13 @@ class _HomeScreenState extends State<HomeScreen> {
         final item = _searchResults[index];
         final title = item['title'] ?? item['subjectTitle'] ?? "Untitled";
         final coverUrl = item['cover']?['url'] ?? item['coverUrl'] ?? "";
-        final subjectId = item['subjectId'] ?? item['id']?.toString() ?? "";
-        final provider = item['provider'] ?? (subjectId.toString().startsWith('/') ? '4khdhub' : 'moviebox');
+        final subjectId = (item['subjectId'] ?? item['id'] ?? "").toString();
+        final provider = (item['provider'] ??
+            (subjectId.startsWith('tmdb_')
+                ? 'tmdb'
+                : (subjectId.startsWith('/') ? '4khdhub' : 'moviebox'))).toString();
+        final is4k = provider == '4khdhub';
+        final isTmdb = provider == 'tmdb';
         final rating = item['imdbRate'] ?? item['imdbRatingValue'] ?? "";
 
         return TvFocusableCard(
@@ -3055,6 +3093,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 builder: (context) => DetailScreen(
                   subjectId: subjectId,
                   provider: provider,
+                  tmdbData: provider == 'tmdb'
+                      ? (item['rawTmdb'] ?? item)
+                      : (item is Map<String, dynamic> ? item : Map<String, dynamic>.from(item as Map)),
                 ),
               ),
             ).then((_) {
@@ -3089,21 +3130,27 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: provider == '4khdhub'
+                    color: is4k
                         ? Colors.cyan.shade900.withValues(alpha: 0.85)
-                        : Colors.red.shade900.withValues(alpha: 0.85),
+                        : (isTmdb
+                            ? Colors.amber.shade900.withValues(alpha: 0.85)
+                            : Colors.red.shade900.withValues(alpha: 0.85)),
                     borderRadius: BorderRadius.circular(4),
                     border: Border.all(
-                      color: provider == '4khdhub'
+                      color: is4k
                           ? Colors.cyanAccent.withValues(alpha: 0.5)
-                          : Colors.redAccent.withValues(alpha: 0.3),
+                          : (isTmdb
+                              ? Colors.amberAccent.withValues(alpha: 0.5)
+                              : Colors.redAccent.withValues(alpha: 0.3)),
                       width: 0.8,
                     ),
                   ),
                   child: Text(
-                    provider == '4khdhub' ? "4KHDHub" : "MovieBox",
+                    is4k ? "4KHDHub" : (isTmdb ? "TMDB" : "MovieBox"),
                     style: GoogleFonts.outfit(
-                      color: provider == '4khdhub' ? Colors.cyanAccent : Colors.white,
+                      color: is4k
+                          ? Colors.cyanAccent
+                          : (isTmdb ? Colors.amberAccent : Colors.white),
                       fontSize: 8,
                       fontWeight: FontWeight.bold,
                     ),

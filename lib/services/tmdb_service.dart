@@ -447,6 +447,37 @@ class TmdbService {
     }
   }
 
+  /// Search movies and TV shows across TMDB
+  Future<List<Map<String, dynamic>>> search(String query, {int page = 1}) async {
+    final cleanQuery = query.trim();
+    if (cleanQuery.isEmpty) return [];
+
+    final cacheKey = "tmdb_search_${cleanQuery.toLowerCase()}_$page";
+    final cached = _getFromCache(cacheKey);
+    if (cached != null) return List<Map<String, dynamic>>.from(cached);
+
+    try {
+      final res = await _get("/search/multi", params: {
+        "query": cleanQuery,
+        "page": page.toString(),
+      });
+      final rawResults = (res['results'] as List? ?? [])
+          .where((r) => r is Map && (r['media_type'] == 'movie' || r['media_type'] == 'tv'))
+          .toList();
+
+      final list = rawResults.map((item) {
+        final mediaType = (item['media_type'] ?? 'movie').toString();
+        return normalizeItem(Map<String, dynamic>.from(item as Map), mediaType: mediaType);
+      }).toList();
+
+      _putInCache(cacheKey, list);
+      return list;
+    } catch (e) {
+      print("TMDB multi search error: $e");
+      return [];
+    }
+  }
+
   /// Search movies and TV Shows available on a specific streaming platform
   Future<List<Map<String, dynamic>>> searchByPlatform({
     required StreamingPlatformInfo platform,

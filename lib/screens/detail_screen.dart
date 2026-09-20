@@ -43,7 +43,7 @@ class _DetailScreenState extends State<DetailScreen> {
   
   late String _activeProvider;
   bool get _is4kHub => _activeProvider.toLowerCase() == '4khdhub';
-  bool get _isTmdb => widget.provider.toLowerCase() == 'tmdb';
+  bool get _isTmdb => _activeProvider.toLowerCase() == 'tmdb' || widget.subjectId.startsWith('tmdb_');
 
   bool _isResolvingSources = false;
   List<Map<String, dynamic>> _resolvedSources = [];
@@ -77,7 +77,8 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   void initState() {
     super.initState();
-    _activeProvider = widget.provider;
+    final String initialProv = widget.provider.isNotEmpty ? widget.provider : (widget.subjectId.startsWith('tmdb_') ? 'tmdb' : 'moviebox');
+    _activeProvider = widget.subjectId.startsWith('tmdb_') ? 'tmdb' : initialProv;
     _selectedSubjectId = widget.subjectId;
     _loadDetails();
     _checkFavorite();
@@ -355,6 +356,31 @@ class _DetailScreenState extends State<DetailScreen> {
       );
 
     } catch (e) {
+      // If subjectId is a TMDB ID, directly load TMDB details
+      if (widget.subjectId.startsWith('tmdb_')) {
+        final parsedTmdbId = int.tryParse(widget.subjectId.replaceFirst('tmdb_', ''));
+        if (parsedTmdbId != null && parsedTmdbId > 0) {
+          _activeProvider = 'tmdb';
+          _loadTmdbDetails(overrideTmdbId: parsedTmdbId);
+          return;
+        }
+      }
+
+      // Automatic fallback: If MovieBox API fails due to network or DNS block, attempt TMDB resolution
+      final fallbackTitle = (widget.tmdbData?['title'] ?? 
+                             widget.tmdbData?['subjectTitle'] ?? 
+                             widget.tmdbData?['name'] ?? '').toString().trim();
+      if (fallbackTitle.isNotEmpty) {
+        try {
+          final resolvedTmdbId = await _tmdbApi.findTmdbId(title: fallbackTitle, isTv: _isTvShow);
+          if (resolvedTmdbId != null && resolvedTmdbId > 0) {
+            _activeProvider = 'tmdb';
+            _loadTmdbDetails(overrideTmdbId: resolvedTmdbId);
+            return;
+          }
+        } catch (_) {}
+      }
+
       setState(() {
         _errorMessage = e is RateLimitException 
             ? "Server membatasi request (Rate Limited). Silakan tekan Coba Lagi."
@@ -366,14 +392,14 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  void _loadTmdbDetails() async {
+  void _loadTmdbDetails({int? overrideTmdbId}) async {
     try {
       Map<String, dynamic>? initialMap = widget.tmdbData != null
           ? Map<String, dynamic>.from(widget.tmdbData!)
           : null;
 
       final rawIdStr = widget.subjectId.replaceFirst('tmdb_', '');
-      final int tmdbId = int.tryParse(rawIdStr) ?? 0;
+      final int tmdbId = overrideTmdbId ?? int.tryParse(rawIdStr) ?? 0;
 
       final rawTmdb = initialMap?['rawTmdb'] is Map ? (initialMap!['rawTmdb'] as Map) : null;
       final typeVal = initialMap?['subjectType'] ?? initialMap?['subject_type'] ?? rawTmdb?['subjectType'] ?? rawTmdb?['subject_type'];
