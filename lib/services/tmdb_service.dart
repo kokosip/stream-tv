@@ -693,6 +693,70 @@ class TmdbService {
     }
   }
 
+  /// Get Person / Actor profile details from TMDB
+  Future<Map<String, dynamic>?> getPersonDetails(int personId) async {
+    final cacheKey = "person_$personId";
+    final cached = _getFromCache(cacheKey);
+    if (cached != null) return cached as Map<String, dynamic>;
+
+    try {
+      final res = await _get("/person/$personId");
+      _putInCache(cacheKey, res);
+      return res;
+    } catch (e) {
+      print("Error fetching TMDB person details for ID $personId: $e");
+      return null;
+    }
+  }
+
+  /// Get all Movie & TV Show credits for an Actor / Person from TMDB
+  Future<List<Map<String, dynamic>>> getPersonCredits(int personId) async {
+    final cacheKey = "person_credits_$personId";
+    final cached = _getFromCache(cacheKey);
+    if (cached != null) return List<Map<String, dynamic>>.from(cached);
+
+    try {
+      final res = await _get("/person/$personId/combined_credits");
+      final rawCast = res['cast'] as List? ?? [];
+
+      final List<Map<String, dynamic>> normalizedCredits = [];
+      final Set<String> seenIds = {};
+
+      for (final item in rawCast) {
+        if (item is Map) {
+          final mediaType = (item['media_type'] ?? 'movie').toString();
+          if (mediaType != 'movie' && mediaType != 'tv') continue;
+
+          final id = item['id'];
+          if (id == null) continue;
+          final uniqueKey = "${mediaType}_$id";
+          if (seenIds.contains(uniqueKey)) continue;
+          seenIds.add(uniqueKey);
+
+          final itemMap = Map<String, dynamic>.from(item);
+          final norm = normalizeItem(itemMap, mediaType: mediaType);
+          norm['character'] = item['character'] ?? '';
+          norm['popularity'] = item['popularity'] ?? 0.0;
+          norm['voteCount'] = item['vote_count'] ?? 0;
+          normalizedCredits.add(norm);
+        }
+      }
+
+      // Default sort by popularity descending
+      normalizedCredits.sort((a, b) {
+        final popA = (a['popularity'] is num) ? (a['popularity'] as num).toDouble() : 0.0;
+        final popB = (b['popularity'] is num) ? (b['popularity'] as num).toDouble() : 0.0;
+        return popB.compareTo(popA);
+      });
+
+      _putInCache(cacheKey, normalizedCredits);
+      return normalizedCredits;
+    } catch (e) {
+      print("Error fetching person credits for ID $personId: $e");
+      return [];
+    }
+  }
+
   /// Normalize TMDB item to the Stream TV standard format
   Map<String, dynamic> normalizeItem(Map<String, dynamic> item, {String? mediaType}) {
     final rawTmdb = item['rawTmdb'] is Map ? (item['rawTmdb'] as Map) : null;

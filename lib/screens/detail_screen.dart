@@ -13,6 +13,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../services/download_service.dart';
 import 'player_screen.dart';
 import 'search_screen.dart';
+import 'cast_screen.dart';
 
 class DetailScreen extends StatefulWidget {
   final String subjectId;
@@ -866,10 +867,10 @@ class _DetailScreenState extends State<DetailScreen> {
                       ? CachedNetworkImage(
                           imageUrl: profileUrl,
                           fit: BoxFit.cover,
-                          placeholder: (_, __) => const Center(
+                          placeholder: (_, _) => const Center(
                             child: Icon(Icons.person, color: Colors.white24, size: 50),
                           ),
-                          errorWidget: (_, __, ___) => const Center(
+                          errorWidget: (_, _, _) => const Center(
                             child: Icon(Icons.person, color: Colors.white24, size: 50),
                           ),
                         )
@@ -904,9 +905,55 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
               ],
               const SizedBox(height: 24),
-              Row(
-                mainAxisSize: MainAxisSize.min,
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 10,
+                runSpacing: 10,
                 children: [
+                  if (cast['id'] != null)
+                    TvFocusableCard(
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => CastScreen(
+                              personId: cast['id'] is int ? cast['id'] : int.tryParse(cast['id'].toString()) ?? 0,
+                              personName: name,
+                              profileUrl: profileUrl,
+                            ),
+                          ),
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFE50914), Color(0xFFB81D24)],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.movie_filter_rounded, color: Colors.white, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              AppLanguageService.tr(
+                                en: "View Filmography",
+                                id: "Lihat Semua Film & Series",
+                              ),
+                              style: GoogleFonts.outfit(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: isTv ? 14 : 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   TvFocusableCard(
                     onTap: () {
                       Navigator.pop(ctx);
@@ -919,25 +966,24 @@ class _DetailScreenState extends State<DetailScreen> {
                     },
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFE50914), Color(0xFFB81D24)],
-                        ),
+                        color: const Color(0xFF262626),
                         borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white12),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.search_rounded, color: Colors.white, size: 18),
+                          const Icon(Icons.search_rounded, color: Colors.white70, size: 18),
                           const SizedBox(width: 8),
                           Text(
                             AppLanguageService.tr(
-                              en: "Find Titles with $name",
-                              id: "Cari Film & Series $name",
+                              en: "Search",
+                              id: "Cari",
                             ),
                             style: GoogleFonts.outfit(
-                              color: Colors.white,
+                              color: Colors.white70,
                               fontWeight: FontWeight.bold,
                               fontSize: isTv ? 14 : 12,
                             ),
@@ -946,20 +992,19 @@ class _DetailScreenState extends State<DetailScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
                   TvFocusableCard(
                     onTap: () => Navigator.pop(ctx),
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF2A2A2A),
+                        color: const Color(0xFF1E1E1E),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
                         AppLanguageService.tr(en: "Close", id: "Tutup"),
                         style: GoogleFonts.outfit(
-                          color: Colors.white70,
+                          color: Colors.grey.shade400,
                           fontWeight: FontWeight.w600,
                           fontSize: isTv ? 14 : 12,
                         ),
@@ -1038,7 +1083,7 @@ class _DetailScreenState extends State<DetailScreen> {
               padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
               scrollDirection: Axis.horizontal,
               itemCount: _castList.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
               itemBuilder: (context, index) {
                 final cast = _castList[index];
                 final name = (cast['name'] ?? 'Unknown').toString();
@@ -1049,7 +1094,23 @@ class _DetailScreenState extends State<DetailScreen> {
                 final imageSize = isTv ? 85.0 : 70.0;
 
                 return TvFocusableCard(
-                  onTap: () => _showCastDetailDialog(cast),
+                  onTap: () {
+                    final pId = cast['id'] is int ? cast['id'] as int : int.tryParse(cast['id']?.toString() ?? '');
+                    if (pId != null && pId > 0) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CastScreen(
+                            personId: pId,
+                            personName: name,
+                            profileUrl: profileUrl,
+                          ),
+                        ),
+                      );
+                    } else {
+                      _showCastDetailDialog(cast);
+                    }
+                  },
                   borderRadius: BorderRadius.circular(12),
                   scaleFactor: 1.06,
                   child: Container(
@@ -1073,10 +1134,10 @@ class _DetailScreenState extends State<DetailScreen> {
                                 ? CachedNetworkImage(
                                     imageUrl: profileUrl,
                                     fit: BoxFit.cover,
-                                    placeholder: (_, __) => const Center(
+                                    placeholder: (_, _) => const Center(
                                       child: Icon(Icons.person, color: Colors.white24, size: 32),
                                     ),
-                                    errorWidget: (_, __, ___) => const Center(
+                                    errorWidget: (_, _, _) => const Center(
                                       child: Icon(Icons.person, color: Colors.white24, size: 32),
                                     ),
                                   )
