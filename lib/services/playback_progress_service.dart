@@ -1,6 +1,33 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class EpisodeProgress {
+  final int positionMs;
+  final int durationMs;
+  final bool isFinished;
+
+  const EpisodeProgress({
+    this.positionMs = 0,
+    this.durationMs = 0,
+    this.isFinished = false,
+  });
+
+  double get ratio {
+    if (isFinished) return 1.0;
+    if (durationMs <= 0 || positionMs <= 0) return 0.0;
+    final r = positionMs / durationMs;
+    return r.clamp(0.04, 0.96);
+  }
+
+  bool get hasProgress => isFinished || positionMs > 0;
+
+  String get positionFormatted {
+    final minutes = positionMs ~/ 60000;
+    if (minutes < 1) return "< 1m";
+    return "${minutes}m";
+  }
+}
+
 class PlaybackProgressService {
   static const String _recentPlaysKey = 'recent_plays_list';
 
@@ -16,6 +43,91 @@ class PlaybackProgressService {
     final prefs = await SharedPreferences.getInstance();
     final key = _getKey(subjectId, season, episode);
     return prefs.getInt(key) ?? 0;
+  }
+
+  // Get detailed progress (position, duration, completion) for an episode
+  static Future<EpisodeProgress> getEpisodeProgress(
+    String subjectId,
+    int season,
+    int episode,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = _getKey(subjectId, season, episode);
+    final pos = prefs.getInt(key) ?? 0;
+    final dur = prefs.getInt('${key}_dur') ?? 0;
+    final fin = prefs.getBool('${key}_fin') ?? false;
+    return EpisodeProgress(
+      positionMs: pos,
+      durationMs: dur,
+      isFinished: fin,
+    );
+  }
+
+  // Get progress for multiple episodes in batch for fast UI rendering
+  static Future<Map<int, EpisodeProgress>> getSeasonProgress(
+    String subjectId,
+    int season,
+    List<int> episodeNumbers,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final Map<int, EpisodeProgress> result = {};
+
+    // Discover all episode numbers from stored keys for this subject and season
+    final prefix = 'playback_progress_${subjectId}_s${season}_e';
+    final Set<int> allEps = Set<int>.from(episodeNumbers);
+    for (final k in prefs.getKeys()) {
+      if (k.startsWith(prefix)) {
+        final rest = k.substring(prefix.length);
+        final epStr = rest.split('_').first;
+        final ep = int.tryParse(epStr);
+        if (ep != null) {
+          allEps.add(ep);
+        }
+      }
+    }
+
+    // Check recent plays for fallback duration/position if newly added
+    Map<String, dynamic>? matchingRecent;
+    try {
+      final recents = await getRecentPlays();
+      for (final r in recents) {
+        if (r['subjectId']?.toString() == subjectId &&
+            ((r['originalSeason'] ?? r['season']) == season)) {
+          matchingRecent = r;
+          final rEp = (matchingRecent['originalEpisode'] ?? matchingRecent['episode']) as int?;
+          if (rEp != null && rEp > 0) allEps.add(rEp);
+          break;
+        }
+      }
+    } catch (_) {}
+
+    for (final ep in allEps) {
+      final key = _getKey(subjectId, season, ep);
+      int pos = prefs.getInt(key) ?? 0;
+      int dur = prefs.getInt('${key}_dur') ?? 0;
+      bool fin = prefs.getBool('${key}_fin') ?? false;
+
+      if (matchingRecent != null && (dur <= 0 || (pos <= 0 && !fin))) {
+        final rEp = matchingRecent['originalEpisode'] ?? matchingRecent['episode'];
+        if (rEp == ep) {
+          if (dur <= 0) {
+            dur = (matchingRecent['durationMs'] as num?)?.toInt() ?? 0;
+          }
+          if (pos <= 0 && !fin) {
+            pos = (matchingRecent['positionMs'] as num?)?.toInt() ?? 0;
+          }
+        }
+      }
+
+      if (fin || pos > 0) {
+        result[ep] = EpisodeProgress(
+          positionMs: pos,
+          durationMs: dur > 0 ? dur : 2700000,
+          isFinished: fin,
+        );
+      }
+    }
+    return result;
   }
 
   // Get list of recent plays
@@ -56,16 +168,27 @@ class PlaybackProgressService {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final key = _getKey(subjectId, season, episode);
+    final durKey = '${key}_dur';
+    final finKey = '${key}_fin';
     
     // An episode is finished if >= 90% watched or within last 30s
     bool isFinished = durationMs > 0 && (positionMs >= durationMs * 0.90 || (durationMs - positionMs) <= 30000);
     bool isNegligible = positionMs < 5000;
 
-    // If progress is completed or negligible, clear the direct position key
-    if (isFinished || isNegligible) {
+    if (durationMs > 0) {
+      await prefs.setInt(durKey, durationMs);
+    }
+
+    // If progress is completed or negligible, handle position & finished keys
+    if (isFinished) {
+      await prefs.remove(key); // Resume from beginning next time
+      await prefs.setBool(finKey, true);
+    } else if (isNegligible) {
       await prefs.remove(key);
+      await prefs.remove(finKey);
     } else {
       await prefs.setInt(key, positionMs);
+      await prefs.setBool(finKey, false);
     }
 
     // Update the recent plays list if metadata is supplied
@@ -125,6 +248,8 @@ class PlaybackProgressService {
     final prefs = await SharedPreferences.getInstance();
     final key = _getKey(subjectId, season, episode);
     await prefs.remove(key);
+    await prefs.remove('${key}_dur');
+    await prefs.remove('${key}_fin');
     
     // Also remove from recent plays list
     try {

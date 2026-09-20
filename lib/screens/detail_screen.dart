@@ -65,6 +65,7 @@ class _DetailScreenState extends State<DetailScreen> {
   String _errorMessage = "";
   bool _isFavorite = false;
   int _savedProgressMs = 0;
+  Map<int, EpisodeProgress> _episodesProgress = {};
   Map<String, TvMazeEpisode> _tvMazeEpisodes = {};
   List<Map<String, dynamic>> _castList = [];
   bool _isLoadingCast = false;
@@ -100,6 +101,56 @@ class _DetailScreenState extends State<DetailScreen> {
     if (mounted) {
       setState(() {
         _savedProgressMs = pos;
+      });
+      if (_isTvShow) {
+        _loadEpisodesProgress();
+      }
+    }
+  }
+
+  void _loadEpisodesProgress() async {
+    final type = _details?['subjectType'] ?? _details?['subject_type'];
+    final isTv = type == 2 ||
+        type?.toString() == '2' ||
+        type?.toString().toLowerCase() == 'tv' ||
+        _seasons.isNotEmpty ||
+        widget.initialSeason != null ||
+        widget.subjectId.contains('-series-');
+    if (!isTv) return;
+
+    List<int> epNums = [];
+    for (final s in _seasons) {
+      if (s is Map && (s['se'] ?? 1) == _selectedSeasonNumber) {
+        final episodes = s['episodes'] as List? ?? [];
+        if (episodes.isNotEmpty) {
+          for (int i = 0; i < episodes.length; i++) {
+            final ep = episodes[i];
+            final n = ep is Map ? (ep['ep'] ?? (i + 1)) : (i + 1);
+            if (n is int) epNums.add(n);
+          }
+        } else {
+          final maxEp = (s['maxEp'] ?? _episodesCount) as int;
+          for (int i = 1; i <= maxEp; i++) {
+            epNums.add(i);
+          }
+        }
+        break;
+      }
+    }
+
+    if (epNums.isEmpty && _episodesCount > 0) {
+      epNums = List.generate(_episodesCount, (i) => i + 1);
+    }
+
+    final progressMap = await PlaybackProgressService.getSeasonProgress(
+      widget.subjectId,
+      _selectedSeasonNumber,
+      epNums,
+    );
+
+    if (mounted) {
+      setState(() {
+        _episodesProgress = progressMap;
       });
     }
   }
@@ -219,6 +270,7 @@ class _DetailScreenState extends State<DetailScreen> {
           _isLoadingDetails = false;
         });
 
+        _checkProgress();
         _loadStreams();
         _loadCastForDetails(
           title: (detailsRes['title'] ?? detailsRes['subjectTitle'] ?? '').toString(),
@@ -334,6 +386,8 @@ class _DetailScreenState extends State<DetailScreen> {
         _episodesCount = initialEpisodesCount;
         _isLoadingDetails = false;
       });
+
+      _checkProgress();
 
       if (_isTvShow) {
         final seriesTitle = (detailsRes['title'] ?? detailsRes['subjectTitle'] ?? detailsRes['name'] ?? '').toString();
@@ -638,6 +692,7 @@ class _DetailScreenState extends State<DetailScreen> {
           _seasons = seasonsList;
           _episodesCount = initialEpisodesCount;
         });
+        _checkProgress();
       }
 
       _loadStreams();
@@ -736,6 +791,7 @@ class _DetailScreenState extends State<DetailScreen> {
           _seasons = seasonsList;
           _episodesCount = initialEpisodesCount;
         });
+        _checkProgress();
       }
 
       if (_isTvShow) {
@@ -2481,6 +2537,7 @@ class _DetailScreenState extends State<DetailScreen> {
             });
           }
         }
+        _checkProgress();
         _loadStreams();
       }
     }
@@ -3819,6 +3876,13 @@ class _DetailScreenState extends State<DetailScreen> {
   Widget _buildEpisodesSection({required bool isTv}) {
     if (!_isTvShow) return const SizedBox.shrink();
 
+    // Ensure episode progress is immediately loaded without needing to click any item
+    if (_episodesProgress.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadEpisodesProgress();
+      });
+    }
+
     Map<String, dynamic>? currentSeasonData;
     for (final s in _seasons) {
       if (s is Map && (s['se'] ?? 1) == _selectedSeasonNumber) {
@@ -3940,6 +4004,11 @@ class _DetailScreenState extends State<DetailScreen> {
             final isSelected = _selectedEpisodeNumber == epNum;
             final isExpanded = _expandedEpisodeNumber == epNum;
 
+            final epProgress = _episodesProgress[epNum];
+            final progressRatio = epProgress?.ratio ?? 0.0;
+            final isEpFinished = epProgress?.isFinished ?? false;
+            final hasProgress = epProgress?.hasProgress ?? false;
+
             // Check TVMaze metadata for official title, synopsis, still image, and rating
             final mazeKey = 'S${_selectedSeasonNumber}E$epNum';
             final mazeData = _tvMazeEpisodes[mazeKey];
@@ -4029,6 +4098,23 @@ class _DetailScreenState extends State<DetailScreen> {
                                         ),
                                       ),
                                     ),
+                                    // Netflix Center Play Icon
+                                    Center(
+                                      child: Container(
+                                        width: isTv ? 34 : 26,
+                                        height: isTv ? 34 : 26,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: Colors.black.withValues(alpha: 0.55),
+                                          border: Border.all(color: Colors.white70, width: 1.2),
+                                        ),
+                                        child: Icon(
+                                          Icons.play_arrow_rounded,
+                                          color: Colors.white,
+                                          size: isTv ? 22 : 17,
+                                        ),
+                                      ),
+                                    ),
                                     // Badge EP number
                                     Positioned(
                                       top: 4,
@@ -4049,6 +4135,24 @@ class _DetailScreenState extends State<DetailScreen> {
                                         ),
                                       ),
                                     ),
+                                    // Netflix Red Playback Progress Bar (at bottom edge of thumbnail)
+                                    if (progressRatio > 0.0)
+                                      Positioned(
+                                        left: 0,
+                                        right: 0,
+                                        bottom: 0,
+                                        child: Container(
+                                          height: isTv ? 3.8 : 2.8,
+                                          color: Colors.white.withValues(alpha: 0.28),
+                                          alignment: Alignment.centerLeft,
+                                          child: FractionallySizedBox(
+                                            widthFactor: progressRatio,
+                                            child: Container(
+                                              color: const Color(0xFFE50914),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ),
@@ -4103,6 +4207,44 @@ class _DetailScreenState extends State<DetailScreen> {
                                       ],
                                     ],
                                   ),
+                                  if (hasProgress) ...[
+                                    const SizedBox(height: 2),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (isEpFinished) ...[
+                                          const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 11),
+                                          const SizedBox(width: 3),
+                                          Text(
+                                            AppLanguageService.tr(en: "Watched", id: "Selesai ditonton"),
+                                            style: GoogleFonts.outfit(
+                                              color: Colors.greenAccent,
+                                              fontSize: 10.5,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ] else ...[
+                                          Container(
+                                            width: 5.5,
+                                            height: 5.5,
+                                            decoration: const BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: Color(0xFFE50914),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            "${AppLanguageService.tr(en: "Played to", id: "Ditonton s/d")} ${epProgress!.positionFormatted}",
+                                            style: GoogleFonts.outfit(
+                                              color: const Color(0xFFFF7B7B),
+                                              fontSize: 10.5,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ],
                                   if (epTitle.isNotEmpty && epTitle != "Episode $epNum") ...[
                                     const SizedBox(height: 2),
                                     Text(
