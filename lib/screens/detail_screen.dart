@@ -9,8 +9,10 @@ import '../services/app_language_service.dart';
 import '../services/playback_progress_service.dart';
 import '../services/tvmaze_service.dart';
 import '../widgets/tv_focusable_card.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../services/download_service.dart';
 import 'player_screen.dart';
+import 'search_screen.dart';
 
 class DetailScreen extends StatefulWidget {
   final String subjectId;
@@ -63,6 +65,8 @@ class _DetailScreenState extends State<DetailScreen> {
   bool _isFavorite = false;
   int _savedProgressMs = 0;
   Map<String, TvMazeEpisode> _tvMazeEpisodes = {};
+  List<Map<String, dynamic>> _castList = [];
+  bool _isLoadingCast = false;
 
   bool get _isTvShow {
     final type = _details?['subjectType'] ?? _details?['subject_type'];
@@ -214,6 +218,11 @@ class _DetailScreenState extends State<DetailScreen> {
         });
 
         _loadStreams();
+        _loadCastForDetails(
+          title: (detailsRes['title'] ?? detailsRes['subjectTitle'] ?? '').toString(),
+          year: int.tryParse((detailsRes['year'] ?? '').toString()),
+          isTv: isTvShow,
+        );
       } catch (e) {
         setState(() {
           _errorMessage = "Gagal memuat detail 4KHDHub: $e";
@@ -332,6 +341,18 @@ class _DetailScreenState extends State<DetailScreen> {
       // Load available streams for the initial selection
       _loadStreams();
 
+      final relDate = (detailsRes['releaseDate'] ?? detailsRes['release_date'] ?? '').toString();
+      int? relYear;
+      if (relDate.isNotEmpty) {
+        final parts = relDate.split('-');
+        if (parts.isNotEmpty) relYear = int.tryParse(parts[0]);
+      }
+      _loadCastForDetails(
+        title: (detailsRes['title'] ?? detailsRes['subjectTitle'] ?? detailsRes['name'] ?? '').toString(),
+        year: relYear,
+        isTv: isTvShow,
+      );
+
     } catch (e) {
       setState(() {
         _errorMessage = e is RateLimitException 
@@ -418,6 +439,11 @@ class _DetailScreenState extends State<DetailScreen> {
           _details = initialMap;
           _isLoadingDetails = false;
         });
+        _loadCastForDetails(
+          tmdbId: tmdbId > 0 ? tmdbId : null,
+          title: (initialMap['title'] ?? initialMap['name'] ?? '').toString(),
+          isTv: isTvInitial,
+        );
       }
 
       await _resolveStreamingSources();
@@ -741,6 +767,361 @@ class _DetailScreenState extends State<DetailScreen> {
         });
       }
     } catch (_) {}
+  }
+
+  void _loadCastForDetails({
+    int? tmdbId,
+    String? title,
+    int? year,
+    required bool isTv,
+  }) async {
+    // 1. Check if rawTmdb credits cast already exists in _details
+    final rawTmdb = _details?['rawTmdb'] is Map ? (_details!['rawTmdb'] as Map) : null;
+    final rawCast = (rawTmdb?['credits'] is Map ? rawTmdb!['credits']['cast'] : null) ??
+        (_details?['credits'] is Map ? _details!['credits']['cast'] : null);
+
+    if (rawCast is List && rawCast.isNotEmpty) {
+      final parsed = <Map<String, dynamic>>[];
+      for (final item in rawCast) {
+        if (item is Map) {
+          final profilePath = item['profile_path'];
+          String profileUrl = "";
+          if (profilePath != null && profilePath.toString().isNotEmpty) {
+            final p = profilePath.toString();
+            profileUrl = p.startsWith('http') ? p : "${TmdbService.imageBaseW500}$p";
+          }
+          parsed.add({
+            'id': item['id'],
+            'name': item['name'] ?? item['original_name'] ?? 'Unknown',
+            'character': item['character'] ?? '',
+            'profileUrl': profileUrl,
+            'order': item['order'] ?? 999,
+          });
+        }
+      }
+      if (parsed.isNotEmpty) {
+        parsed.sort((a, b) => (a['order'] as int).compareTo(b['order'] as int));
+        if (mounted) {
+          setState(() {
+            _castList = parsed;
+            _isLoadingCast = false;
+          });
+        }
+        return;
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _isLoadingCast = true;
+    });
+
+    try {
+      final cast = await _tmdbApi.getCredits(
+        tmdbId: tmdbId,
+        title: title,
+        year: year,
+        isTv: isTv,
+      );
+      if (mounted) {
+        setState(() {
+          _castList = cast;
+          _isLoadingCast = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingCast = false;
+        });
+      }
+    }
+  }
+
+  void _showCastDetailDialog(Map<String, dynamic> cast) {
+    final name = (cast['name'] ?? 'Unknown').toString();
+    final character = (cast['character'] ?? '').toString();
+    final profileUrl = (cast['profileUrl'] ?? '').toString();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final size = MediaQuery.of(ctx).size;
+        final isTv = size.width > 800;
+
+        return AlertDialog(
+          backgroundColor: const Color(0xFF181818),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          contentPadding: EdgeInsets.all(isTv ? 28 : 20),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  width: isTv ? 140 : 110,
+                  height: isTv ? 180 : 145,
+                  color: const Color(0xFF262626),
+                  child: profileUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: profileUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) => const Center(
+                            child: Icon(Icons.person, color: Colors.white24, size: 50),
+                          ),
+                          errorWidget: (_, __, ___) => const Center(
+                            child: Icon(Icons.person, color: Colors.white24, size: 50),
+                          ),
+                        )
+                      : const Center(
+                          child: Icon(Icons.person, color: Colors.white24, size: 50),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                name,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: isTv ? 20 : 17,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              if (character.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  AppLanguageService.tr(
+                    en: "as $character",
+                    id: "sebagai $character",
+                  ),
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.outfit(
+                    color: Colors.amberAccent,
+                    fontSize: isTv ? 15 : 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TvFocusableCard(
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SearchScreen(initialQuery: name),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFE50914), Color(0xFFB81D24)],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.search_rounded, color: Colors.white, size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            AppLanguageService.tr(
+                              en: "Find Titles with $name",
+                              id: "Cari Film & Series $name",
+                            ),
+                            style: GoogleFonts.outfit(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: isTv ? 14 : 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  TvFocusableCard(
+                    onTap: () => Navigator.pop(ctx),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2A2A2A),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        AppLanguageService.tr(en: "Close", id: "Tutup"),
+                        style: GoogleFonts.outfit(
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w600,
+                          fontSize: isTv ? 14 : 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCastSection({required bool isTv}) {
+    if (_castList.isEmpty && !_isLoadingCast) {
+      return const SizedBox.shrink();
+    }
+
+    final horizontalPadding = isTv ? 32.0 : 20.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: Row(
+            children: [
+              Container(
+                width: 4,
+                height: isTv ? 22 : 18,
+                decoration: BoxDecoration(
+                  color: Colors.amberAccent,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                AppLanguageService.tr(en: "Top Cast", id: "Pemeran Utama"),
+                style: GoogleFonts.outfit(
+                  fontSize: isTv ? 22 : 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              if (_isLoadingCast) ...[
+                const SizedBox(width: 12),
+                const SpinKitRing(color: Colors.amberAccent, size: 14),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (_castList.isEmpty && _isLoadingCast)
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 16),
+            child: Row(
+              children: [
+                const SpinKitThreeBounce(color: Colors.amberAccent, size: 18),
+                const SizedBox(width: 12),
+                Text(
+                  AppLanguageService.tr(
+                    en: "Loading cast information...",
+                    id: "Memuat informasi pemeran...",
+                  ),
+                  style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 13),
+                ),
+              ],
+            ),
+          )
+        else
+          SizedBox(
+            height: isTv ? 210 : 180,
+            child: ListView.separated(
+              padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+              scrollDirection: Axis.horizontal,
+              itemCount: _castList.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final cast = _castList[index];
+                final name = (cast['name'] ?? 'Unknown').toString();
+                final character = (cast['character'] ?? '').toString();
+                final profileUrl = (cast['profileUrl'] ?? '').toString();
+
+                final cardWidth = isTv ? 115.0 : 95.0;
+                final imageSize = isTv ? 85.0 : 70.0;
+
+                return TvFocusableCard(
+                  onTap: () => _showCastDetailDialog(cast),
+                  borderRadius: BorderRadius.circular(12),
+                  scaleFactor: 1.06,
+                  child: Container(
+                    width: cardWidth,
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF161616),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Profile Photo
+                        ClipOval(
+                          child: Container(
+                            width: imageSize,
+                            height: imageSize,
+                            color: const Color(0xFF242424),
+                            child: profileUrl.isNotEmpty
+                                ? CachedNetworkImage(
+                                    imageUrl: profileUrl,
+                                    fit: BoxFit.cover,
+                                    placeholder: (_, __) => const Center(
+                                      child: Icon(Icons.person, color: Colors.white24, size: 32),
+                                    ),
+                                    errorWidget: (_, __, ___) => const Center(
+                                      child: Icon(Icons.person, color: Colors.white24, size: 32),
+                                    ),
+                                  )
+                                : const Center(
+                                    child: Icon(Icons.person, color: Colors.white24, size: 32),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        // Actor Name
+                        Text(
+                          name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: isTv ? 12 : 11,
+                            height: 1.2,
+                          ),
+                        ),
+                        if (character.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          // Character Role
+                          Text(
+                            character,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.outfit(
+                              color: Colors.grey.shade400,
+                              fontSize: isTv ? 11 : 10,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+      ],
+    );
   }
 
   void _loadStreams() async {
@@ -3789,9 +4170,16 @@ class _DetailScreenState extends State<DetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildHeaderSection(isTv: isTv),
-          const Divider(color: Color(0xFF222222), height: 1),
+
+          if (_castList.isNotEmpty || _isLoadingCast) ...[
+            const Divider(color: Color(0xFF222222), height: 1),
+            const SizedBox(height: 20),
+            _buildCastSection(isTv: isTv),
+            const SizedBox(height: 20),
+          ],
           
           if (_isTvShow) ...[
+            const Divider(color: Color(0xFF222222), height: 1),
             const SizedBox(height: 12),
             _buildEpisodesSection(isTv: isTv),
           ],

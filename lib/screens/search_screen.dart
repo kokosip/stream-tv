@@ -12,7 +12,9 @@ import '../widgets/tv_focusable_card.dart';
 import 'detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({super.key});
+  final String? initialQuery;
+
+  const SearchScreen({super.key, this.initialQuery});
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -35,6 +37,12 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     _loadSearchHistory();
+    if (widget.initialQuery != null && widget.initialQuery!.trim().isNotEmpty) {
+      _searchController.text = widget.initialQuery!.trim();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _performSearch();
+      });
+    }
   }
 
   Future<void> _loadSearchHistory() async {

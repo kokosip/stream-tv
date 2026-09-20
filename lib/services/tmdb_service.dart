@@ -580,6 +580,119 @@ class TmdbService {
     }
   }
 
+  /// Search for a movie or TV show by title and optional year to find its TMDB ID
+  Future<int?> findTmdbId({
+    required String title,
+    int? year,
+    bool isTv = false,
+  }) async {
+    final cleanTitle = title
+        .replaceAll(RegExp(r'\s*\(\d{4}\).*$'), '')
+        .replaceAll(RegExp(r'\s+-\s+Season\s+\d+.*$', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\[.*?\]'), '')
+        .trim();
+    if (cleanTitle.isEmpty) return null;
+
+    final cacheKey = "find_id_${isTv ? 'tv' : 'movie'}_${cleanTitle.toLowerCase()}_$year";
+    final cached = _getFromCache(cacheKey);
+    if (cached != null) return cached as int?;
+
+    try {
+      final endpoint = isTv ? "/search/tv" : "/search/movie";
+      final params = <String, String>{
+        "query": cleanTitle,
+      };
+      if (year != null && year > 1900) {
+        if (isTv) {
+          params["first_air_date_year"] = year.toString();
+        } else {
+          params["year"] = year.toString();
+        }
+      }
+
+      var res = await _get(endpoint, params: params);
+      var results = (res['results'] as List? ?? []);
+
+      // If no result with year, retry without year
+      if (results.isEmpty && year != null) {
+        res = await _get(endpoint, params: {"query": cleanTitle});
+        results = (res['results'] as List? ?? []);
+      }
+
+      // If still empty, try multi search
+      if (results.isEmpty) {
+        res = await _get("/search/multi", params: {"query": cleanTitle});
+        results = (res['results'] as List? ?? [])
+            .where((r) => isTv ? r['media_type'] == 'tv' : r['media_type'] == 'movie')
+            .toList();
+      }
+
+      if (results.isNotEmpty) {
+        final id = results[0]['id'] as int?;
+        if (id != null) {
+          _putInCache(cacheKey, id);
+          return id;
+        }
+      }
+    } catch (e) {
+      print("Error finding TMDB ID for '$cleanTitle': $e");
+    }
+    return null;
+  }
+
+  /// Get cast members for a movie or TV show
+  Future<List<Map<String, dynamic>>> getCredits({
+    int? tmdbId,
+    String? title,
+    int? year,
+    bool isTv = false,
+  }) async {
+    int? resolvedId = tmdbId;
+    if (resolvedId == null && title != null && title.trim().isNotEmpty) {
+      resolvedId = await findTmdbId(title: title, year: year, isTv: isTv);
+    }
+
+    if (resolvedId == null || resolvedId <= 0) return [];
+
+    final cacheKey = "credits_${isTv ? 'tv' : 'movie'}_$resolvedId";
+    final cached = _getFromCache(cacheKey);
+    if (cached != null) return List<Map<String, dynamic>>.from(cached);
+
+    try {
+      final endpoint = isTv ? "/tv/$resolvedId/credits" : "/movie/$resolvedId/credits";
+      final res = await _get(endpoint);
+      final rawCast = res['cast'] as List? ?? [];
+
+      final List<Map<String, dynamic>> castList = [];
+      for (final item in rawCast) {
+        if (item is Map) {
+          final profilePath = item['profile_path'];
+          String profileUrl = "";
+          if (profilePath != null && profilePath.toString().isNotEmpty) {
+            final p = profilePath.toString();
+            profileUrl = p.startsWith('http') ? p : "$imageBaseW500$p";
+          }
+
+          castList.add({
+            'id': item['id'],
+            'name': item['name'] ?? item['original_name'] ?? 'Unknown',
+            'character': item['character'] ?? '',
+            'profileUrl': profileUrl,
+            'order': item['order'] ?? 999,
+          });
+        }
+      }
+
+      castList.sort((a, b) => (a['order'] as int).compareTo(b['order'] as int));
+
+      _putInCache(cacheKey, castList);
+      return castList;
+    } catch (e) {
+      print("Error fetching TMDB credits for ID $resolvedId: $e");
+      return [];
+    }
+  }
+
   /// Normalize TMDB item to the Stream TV standard format
   Map<String, dynamic> normalizeItem(Map<String, dynamic> item, {String? mediaType}) {
     final rawTmdb = item['rawTmdb'] is Map ? (item['rawTmdb'] as Map) : null;
