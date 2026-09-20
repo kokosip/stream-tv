@@ -478,6 +478,82 @@ class TmdbService {
     }
   }
 
+  /// Search actors, actresses, and directors across TMDB
+  Future<List<Map<String, dynamic>>> searchPeople(String query, {int page = 1}) async {
+    final cleanQuery = query.trim();
+    if (cleanQuery.isEmpty) return [];
+
+    final cacheKey = "tmdb_search_people_${cleanQuery.toLowerCase()}_$page";
+    final cached = _getFromCache(cacheKey);
+    if (cached != null) return List<Map<String, dynamic>>.from(cached);
+
+    try {
+      final res = await _get("/search/person", params: {
+        "query": cleanQuery,
+        "page": page.toString(),
+      });
+      final rawResults = (res['results'] as List? ?? []);
+
+      final List<Map<String, dynamic>> people = [];
+      final Set<String> seenNameAndDept = {};
+
+      for (final item in rawResults) {
+        if (item is Map) {
+          final id = item['id'];
+          final name = (item['name'] ?? '').toString().trim();
+          if (name.isEmpty) continue;
+
+          final profilePath = item['profile_path'];
+          final profileUrl = (profilePath != null && profilePath.toString().isNotEmpty)
+              ? "$imageBaseW500$profilePath"
+              : "";
+          final department = (item['known_for_department'] ?? 'Acting').toString();
+          final popularity = (item['popularity'] is num) ? (item['popularity'] as num).toDouble() : 0.0;
+
+          final knownForRaw = (item['known_for'] as List? ?? []);
+          final List<Map<String, dynamic>> knownFor = [];
+          for (final k in knownForRaw) {
+            if (k is Map) {
+              final mediaType = (k['media_type'] ?? 'movie').toString();
+              knownFor.add(normalizeItem(Map<String, dynamic>.from(k), mediaType: mediaType));
+            }
+          }
+
+          // Discard ghost entries (no profile photo AND no known works AND low popularity)
+          final hasPhoto = profileUrl.isNotEmpty;
+          final hasKnownWorks = knownFor.isNotEmpty;
+          final isPopular = popularity >= 2.0;
+          if (!hasPhoto && !hasKnownWorks && !isPopular) {
+            continue;
+          }
+
+          // Deduplicate identical name & department (keeps the most prominent entry)
+          final nameDeptKey = "${name.toLowerCase()}_${department.toLowerCase()}";
+          if (seenNameAndDept.contains(nameDeptKey)) {
+            continue;
+          }
+          seenNameAndDept.add(nameDeptKey);
+
+          people.add({
+            'id': id,
+            'name': name,
+            'profilePath': profilePath,
+            'profileUrl': profileUrl,
+            'department': department,
+            'popularity': popularity,
+            'knownFor': knownFor,
+          });
+        }
+      }
+
+      _putInCache(cacheKey, people);
+      return people;
+    } catch (e) {
+      print("TMDB search people error: $e");
+      return [];
+    }
+  }
+
   /// Search movies and TV Shows available on a specific streaming platform
   Future<List<Map<String, dynamic>>> searchByPlatform({
     required StreamingPlatformInfo platform,
@@ -773,8 +849,17 @@ class TmdbService {
         }
       }
 
-      // Default sort by popularity descending
+      // Sort narrative acting roles before talk-show / cameo appearances, then by popularity
       normalizedCredits.sort((a, b) {
+        final charA = (a['character'] ?? '').toString().toLowerCase();
+        final charB = (b['character'] ?? '').toString().toLowerCase();
+        final isSelfA = charA.startsWith('self') || charA == 'himself' || charA == 'herself';
+        final isSelfB = charB.startsWith('self') || charB == 'himself' || charB == 'herself';
+
+        if (isSelfA != isSelfB) {
+          return isSelfA ? 1 : -1;
+        }
+
         final popA = (a['popularity'] is num) ? (a['popularity'] as num).toDouble() : 0.0;
         final popB = (b['popularity'] is num) ? (b['popularity'] as num).toDouble() : 0.0;
         return popB.compareTo(popA);

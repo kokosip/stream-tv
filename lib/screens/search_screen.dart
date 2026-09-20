@@ -11,6 +11,7 @@ import '../services/search_history_service.dart';
 import '../services/analytics_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import 'detail_screen.dart';
+import 'cast_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   final String? initialQuery;
@@ -31,6 +32,9 @@ class _SearchScreenState extends State<SearchScreen> {
 
   String _selectedProvider = 'all'; // 'all', 'moviebox', '4khdhub'
   List<dynamic> _results = [];
+  List<Map<String, dynamic>> _matchedPeople = [];
+  Map<String, dynamic>? _activeMatchedPerson;
+  int _matchedPersonCreditsCount = 0;
   List<String> _searchHistory = [];
   bool _isLoading = false;
   String _errorMessage = "";
@@ -191,13 +195,23 @@ class _SearchScreenState extends State<SearchScreen> {
       _isLoading = true;
       _errorMessage = "";
       _results = [];
+      _matchedPeople = [];
+      _activeMatchedPerson = null;
+      _matchedPersonCreditsCount = 0;
     });
 
     try {
+      final cleanQuery = query.toLowerCase();
+      final peopleFuture = _tmdbApi.searchPeople(query).catchError((_) => <Map<String, dynamic>>[]);
+
       List<dynamic> combined = [];
 
       if (_selectedProvider == 'moviebox') {
-        final res = await _api.search(query: query);
+        final results = await Future.wait([
+          _api.search(query: query).catchError((_) => <String, dynamic>{'items': []}),
+          peopleFuture,
+        ]);
+        final res = results[0] as Map<String, dynamic>;
         final list = (res['items'] as List<dynamic>?) ?? (res['list'] as List<dynamic>?) ?? [];
         for (final item in list) {
           if (item is Map) {
@@ -206,17 +220,24 @@ class _SearchScreenState extends State<SearchScreen> {
           }
         }
       } else if (_selectedProvider == '4khdhub') {
-        final res = await _fourkApi.search(query);
-        combined.addAll(res);
+        final results = await Future.wait([
+          _fourkApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
+          peopleFuture,
+        ]);
+        combined.addAll(results[0] as List<dynamic>);
       } else if (_selectedProvider == 'tmdb') {
-        final res = await _tmdbApi.search(query);
-        combined.addAll(res);
+        final results = await Future.wait([
+          _tmdbApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
+          peopleFuture,
+        ]);
+        combined.addAll(results[0] as List<dynamic>);
       } else {
-        // Search all 3 in parallel: TMDB, 4KHDHub, and MovieBox
+        // Search all in parallel: TMDB, 4KHDHub, MovieBox, and People
         final results = await Future.wait([
           _tmdbApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
           _fourkApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
           _api.search(query: query).catchError((e) => <String, dynamic>{'items': [], 'list': []}),
+          peopleFuture,
         ]);
 
         final tmdbList = results[0] as List<dynamic>;
@@ -238,12 +259,69 @@ class _SearchScreenState extends State<SearchScreen> {
         }
       }
 
+      final people = await peopleFuture;
+      final validPeople = people.where((p) {
+        final pop = (p['popularity'] is num) ? (p['popularity'] as num).toDouble() : 0.0;
+        final nameLower = (p['name'] ?? '').toString().toLowerCase();
+        return pop >= 1.0 || nameLower.contains(cleanQuery) || (p['knownFor'] as List).isNotEmpty;
+      }).toList();
+
+      List<Map<String, dynamic>> personCredits = [];
+      Map<String, dynamic>? topPerson;
+      if (validPeople.isNotEmpty) {
+        topPerson = validPeople.first;
+        try {
+          personCredits = await _tmdbApi.getPersonCredits(topPerson['id']);
+        } catch (_) {}
+      }
+
+      final seenIds = <String>{};
+      final List<dynamic> finalResults = [];
+
+      void addUnique(dynamic item) {
+        if (item is! Map) return;
+        final id = (item['id'] ?? item['subjectId'] ?? item['pathId'] ?? '').toString();
+        final title = (item['title'] ?? item['subjectTitle'] ?? item['name'] ?? '').toString().toLowerCase();
+        final key = "${item['provider'] ?? 'tmdb'}_$id";
+        final titleKey = "${title}_${item['releaseDate'] ?? ''}";
+        if (!seenIds.contains(key) && !seenIds.contains(titleKey)) {
+          seenIds.add(key);
+          seenIds.add(titleKey);
+          finalResults.add(item);
+        }
+      }
+
+      final isActorQuery = topPerson != null &&
+          (topPerson['name'].toString().toLowerCase().contains(cleanQuery) ||
+              cleanQuery.contains(topPerson['name'].toString().toLowerCase()));
+
+      if (isActorQuery) {
+        // Put actor filmography credits prominently first
+        for (final c in personCredits) {
+          addUnique(c);
+        }
+        for (final item in combined) {
+          addUnique(item);
+        }
+      } else {
+        for (final item in combined) {
+          addUnique(item);
+        }
+        for (final c in personCredits) {
+          addUnique(c);
+        }
+      }
+
+      List<dynamic> processed = finalResults;
       if (AppContentFilterService.filterHindi.value) {
-        combined = AppContentFilterService.filterList(combined);
+        processed = AppContentFilterService.filterList(processed);
       }
 
       setState(() {
-        _results = combined;
+        _matchedPeople = validPeople;
+        _activeMatchedPerson = topPerson;
+        _matchedPersonCreditsCount = personCredits.length;
+        _results = processed;
         if (_results.isEmpty) {
           _errorMessage = AppLanguageService.tr(
             en: "No results found for '$query'",
@@ -263,6 +341,281 @@ class _SearchScreenState extends State<SearchScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  Widget _buildActorBanner(bool isTv) {
+    if (_activeMatchedPerson == null) return const SizedBox.shrink();
+
+    final person = _activeMatchedPerson!;
+    final name = (person['name'] ?? '').toString();
+    final profileUrl = (person['profileUrl'] ?? '').toString();
+    final department = (person['department'] ?? 'Acting').toString();
+    final deptLabel = department == 'Directing'
+        ? AppLanguageService.tr(en: "Director", id: "Sutradara")
+        : AppLanguageService.tr(en: "Cast / Actor", id: "Pemeran / Aktor");
+
+    final otherPeople = _matchedPeople
+        .where((p) => p['id'] != person['id'])
+        .take(5)
+        .toList();
+
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isWide = isTv || screenWidth > 800;
+
+    final viewButton = TvFocusableCard(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CastScreen(
+              personId: person['id'],
+              personName: name,
+              profileUrl: profileUrl,
+            ),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      scaleFactor: 1.05,
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: isWide ? 16 : 12,
+          vertical: isWide ? 10 : 8,
+        ),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFE50914), Color(0xFFB81D24)],
+          ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.redAccent.withValues(alpha: 0.3),
+              blurRadius: 8,
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.movie_filter_rounded, color: Colors.white, size: 16),
+            const SizedBox(width: 6),
+            Text(
+              AppLanguageService.tr(
+                en: "View Filmography",
+                id: "Lihat Semua Filmografi",
+              ),
+              style: GoogleFonts.outfit(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: isWide ? 13 : 11,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white70, size: 11),
+          ],
+        ),
+      ),
+    );
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF241515), Color(0xFF141414)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.redAccent.withValues(alpha: 0.35), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.redAccent.withValues(alpha: 0.08),
+            blurRadius: 16,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      padding: EdgeInsets.symmetric(horizontal: isWide ? 20 : 14, vertical: isWide ? 16 : 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Avatar
+              ClipRRect(
+                borderRadius: BorderRadius.circular(36),
+                child: Container(
+                  width: isWide ? 64 : 52,
+                  height: isWide ? 64 : 52,
+                  color: const Color(0xFF2A2A2A),
+                  child: profileUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: profileUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (_, _) => const Center(
+                            child: Icon(Icons.person, color: Colors.white30, size: 28),
+                          ),
+                          errorWidget: (_, _, _) => const Center(
+                            child: Icon(Icons.person, color: Colors.white30, size: 28),
+                          ),
+                        )
+                      : const Center(
+                          child: Icon(Icons.person, color: Colors.white30, size: 28),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 16),
+
+              // Info
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.redAccent.withValues(alpha: 0.6), width: 0.8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.stars_rounded, color: Colors.amberAccent, size: 12),
+                              const SizedBox(width: 4),
+                              Text(
+                                deptLabel,
+                                style: GoogleFonts.outfit(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (_matchedPersonCreditsCount > 0)
+                          Text(
+                            "•  $_matchedPersonCreditsCount ${AppLanguageService.tr(en: "Titles in Filmography", id: "Judul Filmografi")}",
+                            style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 11),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      name,
+                      style: GoogleFonts.outfit(
+                        color: Colors.white,
+                        fontSize: isWide ? 20 : 17,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+
+              if (isWide) ...[
+                const SizedBox(width: 14),
+                viewButton,
+              ],
+            ],
+          ),
+
+          if (!isWide) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: viewButton,
+            ),
+          ],
+
+          // If there are other matched people
+          if (otherPeople.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  Text(
+                    AppLanguageService.tr(en: "Other people:", id: "Pemeran lain:"),
+                    style: GoogleFonts.outfit(color: Colors.grey.shade500, fontSize: 11),
+                  ),
+                  const SizedBox(width: 8),
+                  for (final p in otherPeople) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: TvFocusableCard(
+                        onTap: () async {
+                          setState(() {
+                            _activeMatchedPerson = p;
+                            _isLoading = true;
+                          });
+                          try {
+                            final credits = await _tmdbApi.getPersonCredits(p['id']);
+                            if (mounted) {
+                              setState(() {
+                                _matchedPersonCreditsCount = credits.length;
+                                _results = credits;
+                                _isLoading = false;
+                              });
+                            }
+                          } catch (_) {
+                            if (mounted) setState(() => _isLoading = false);
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF262626),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.person, color: Colors.white60, size: 12),
+                              const SizedBox(width: 4),
+                              Builder(builder: (context) {
+                                final pName = (p['name'] ?? '').toString();
+                                final pDept = (p['department'] ?? '').toString();
+                                final isSameName = pName.trim().toLowerCase() == name.trim().toLowerCase();
+                                final String label;
+                                if (isSameName && pDept.isNotEmpty) {
+                                  final deptText = pDept == 'Directing'
+                                      ? AppLanguageService.tr(en: "Director", id: "Sutradara")
+                                      : pDept == 'Writing'
+                                          ? AppLanguageService.tr(en: "Writer", id: "Penulis")
+                                          : AppLanguageService.tr(en: "Cast", id: "Pemeran");
+                                  label = "$pName ($deptText)";
+                                } else {
+                                  label = pName;
+                                }
+                                return Text(
+                                  label,
+                                  style: GoogleFonts.outfit(color: Colors.white70, fontSize: 11),
+                                );
+                              }),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Widget _buildSearchHistorySection() {
@@ -477,6 +830,9 @@ class _SearchScreenState extends State<SearchScreen> {
                                     _searchController.clear();
                                     _results = [];
                                     _errorMessage = "";
+                                    _matchedPeople = [];
+                                    _activeMatchedPerson = null;
+                                    _matchedPersonCreditsCount = 0;
                                   });
                                   _loadSearchHistory();
                                 },
@@ -573,129 +929,156 @@ class _SearchScreenState extends State<SearchScreen> {
                                         ),
                                       ),
                               )
-                            : GridView.builder(
-                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: isTv ? 6 : 3,
-                              childAspectRatio: 0.7,
-                              crossAxisSpacing: 16,
-                              mainAxisSpacing: 16,
-                            ),
-                            itemCount: _results.length,
-                            itemBuilder: (context, index) {
-                              final item = _results[index];
-                              final title = item['title'] ?? item['subjectTitle'] ?? item['name'] ?? "Untitled";
-                              final coverUrl = item['cover']?['url'] ?? item['coverUrl'] ?? "";
-                              final subjectId = (item['subjectId'] ?? item['id'] ?? "").toString();
-                              final provider = (item['provider'] ??
-                                  (subjectId.startsWith('tmdb_')
-                                      ? 'tmdb'
-                                      : (subjectId.startsWith('/') ? '4khdhub' : 'moviebox'))).toString();
-                              final is4k = provider == '4khdhub';
-                              final isTmdb = provider == 'tmdb';
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (_activeMatchedPerson != null) _buildActorBanner(isTv),
+                                  Expanded(
+                                    child: GridView.builder(
+                                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                        crossAxisCount: isTv ? 6 : 3,
+                                        childAspectRatio: 0.65,
+                                        crossAxisSpacing: 16,
+                                        mainAxisSpacing: 16,
+                                      ),
+                                      itemCount: _results.length,
+                                      itemBuilder: (context, index) {
+                                        final item = _results[index];
+                                        final title = item['title'] ?? item['subjectTitle'] ?? item['name'] ?? "Untitled";
+                                        final coverUrl = item['cover']?['url'] ?? item['coverUrl'] ?? "";
+                                        final subjectId = (item['subjectId'] ?? item['id'] ?? "").toString();
+                                        final provider = (item['provider'] ??
+                                            (subjectId.startsWith('tmdb_')
+                                                ? 'tmdb'
+                                                : (subjectId.startsWith('/') ? '4khdhub' : 'moviebox'))).toString();
+                                        final is4k = provider == '4khdhub';
+                                        final isTmdb = provider == 'tmdb';
 
-                              return TvFocusableCard(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => DetailScreen(
-                                        subjectId: subjectId,
-                                        provider: provider,
-                                        tmdbData: item is Map<String, dynamic>
-                                            ? item
-                                            : Map<String, dynamic>.from(item as Map),
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    CachedNetworkImage(
-                                      imageUrl: coverUrl,
-                                      memCacheWidth: 320,
-                                      memCacheHeight: 480,
-                                      fit: BoxFit.cover,
-                                      placeholder: (context, url) => Container(
-                                        color: const Color(0xFF1E1E1E),
-                                        child: const Center(
-                                          child: SpinKitRing(
-                                            color: Colors.redAccent,
-                                            size: 30.0,
-                                          ),
-                                        ),
-                                      ),
-                                      errorWidget: (context, url, error) => Container(
-                                        color: const Color(0xFF1E1E1E),
-                                        child: const Icon(Icons.movie, size: 40, color: Colors.grey),
-                                      ),
-                                    ),
+                                        return TvFocusableCard(
+                                          onTap: () {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) => DetailScreen(
+                                                  subjectId: subjectId,
+                                                  provider: provider,
+                                                  tmdbData: item is Map<String, dynamic>
+                                                      ? item
+                                                      : Map<String, dynamic>.from(item as Map),
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                          child: Stack(
+                                            fit: StackFit.expand,
+                                            children: [
+                                              CachedNetworkImage(
+                                                imageUrl: coverUrl,
+                                                memCacheWidth: 320,
+                                                memCacheHeight: 480,
+                                                fit: BoxFit.cover,
+                                                placeholder: (context, url) => Container(
+                                                  color: const Color(0xFF1E1E1E),
+                                                  child: const Center(
+                                                    child: SpinKitRing(
+                                                      color: Colors.redAccent,
+                                                      size: 30.0,
+                                                    ),
+                                                  ),
+                                                ),
+                                                errorWidget: (context, url, error) => Container(
+                                                  color: const Color(0xFF1E1E1E),
+                                                  child: const Icon(Icons.movie, size: 40, color: Colors.grey),
+                                                ),
+                                              ),
 
-                                    // Provider Badge (Top-Left)
-                                    Positioned(
-                                      top: 8,
-                                      left: 8,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: is4k
-                                              ? const Color(0xDD004D40)
-                                              : (isTmdb
-                                                  ? Colors.amber.shade900.withOpacity(0.9)
-                                                  : Colors.redAccent.shade700.withOpacity(0.9)),
-                                          borderRadius: BorderRadius.circular(4),
-                                          border: Border.all(
-                                            color: is4k
-                                                ? Colors.cyanAccent
-                                                : (isTmdb ? Colors.amberAccent : Colors.redAccent),
-                                            width: 0.8,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          is4k ? "4KHDHub" : (isTmdb ? "TMDB" : "MovieBox"),
-                                          style: GoogleFonts.outfit(
-                                            color: Colors.white,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
+                                              // Provider Badge (Top-Left)
+                                              Positioned(
+                                                top: 8,
+                                                left: 8,
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: is4k
+                                                        ? const Color(0xDD004D40)
+                                                        : (isTmdb
+                                                            ? Colors.amber.shade900.withValues(alpha: 0.9)
+                                                            : Colors.redAccent.shade700.withValues(alpha: 0.9)),
+                                                    borderRadius: BorderRadius.circular(4),
+                                                    border: Border.all(
+                                                      color: is4k
+                                                          ? Colors.cyanAccent
+                                                          : (isTmdb ? Colors.amberAccent : Colors.redAccent),
+                                                      width: 0.8,
+                                                    ),
+                                                  ),
+                                                  child: Text(
+                                                    is4k ? "4KHDHub" : (isTmdb ? "TMDB" : "MovieBox"),
+                                                    style: GoogleFonts.outfit(
+                                                      color: Colors.white,
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
 
-                                    // Gradient Overlay & Title (Bottom)
-                                    Positioned(
-                                      bottom: 0,
-                                      left: 0,
-                                      right: 0,
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          gradient: LinearGradient(
-                                            begin: Alignment.topCenter,
-                                            end: Alignment.bottomCenter,
-                                            colors: [
-                                              Colors.transparent,
-                                              Colors.black.withOpacity(0.9),
+                                              // Gradient Overlay & Title (Bottom)
+                                              Positioned(
+                                                bottom: 0,
+                                                left: 0,
+                                                right: 0,
+                                                child: Container(
+                                                  decoration: BoxDecoration(
+                                                    gradient: LinearGradient(
+                                                      begin: Alignment.topCenter,
+                                                      end: Alignment.bottomCenter,
+                                                      colors: [
+                                                        Colors.transparent,
+                                                        Colors.black.withValues(alpha: 0.9),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  padding: const EdgeInsets.all(8.0),
+                                                  child: Column(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(
+                                                        title,
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow.ellipsis,
+                                                        style: GoogleFonts.outfit(
+                                                          color: Colors.white,
+                                                          fontWeight: FontWeight.w600,
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                      if ((item['character'] ?? '').toString().isNotEmpty) ...[
+                                                        const SizedBox(height: 2),
+                                                        Text(
+                                                          "as ${item['character']}",
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow.ellipsis,
+                                                          style: GoogleFonts.outfit(
+                                                            color: Colors.amberAccent.shade100,
+                                                            fontSize: 10,
+                                                            fontWeight: FontWeight.w500,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
                                             ],
                                           ),
-                                        ),
-                                        padding: const EdgeInsets.all(8.0),
-                                        child: Text(
-                                          title,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: GoogleFonts.outfit(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ),
+                                        );
+                                      },
                                     ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
+                                  ),
+                                ],
+                              ),
               ),
             ),
           ],
@@ -704,3 +1087,4 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 }
+

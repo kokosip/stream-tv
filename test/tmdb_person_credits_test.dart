@@ -26,5 +26,32 @@ void main() {
       final first = credits.first;
       print('Top credit: ${first['title']} (${first['releaseDate']}) as ${first['character']} [Rating: ${first['imdbRate']}]');
     });
+    test('searchPerson for Tom Holland and verify credits', () async {
+      final people = await tmdb.searchPeople('Tom Holland');
+      expect(people, isNotEmpty);
+      // Check deduplication: only 1 Tom Holland for Acting
+      final actingTomHollands = people.where((p) => p['name'] == 'Tom Holland' && p['department'] == 'Acting').toList();
+      expect(actingTomHollands.length, equals(1));
+      final person = people.first;
+      print('Found person: ${person['name']}, ID: ${person['id']}');
+
+      final credits = await tmdb.getPersonCredits(person['id']);
+      print('Total credits for ${person['name']}: ${credits.length}');
+      final titles = credits.take(5).map((c) => "${c['title']} as ${c['character']}").toList();
+      expect(credits, isNotEmpty);
+      final titlesLower = credits.map((c) => (c['title'] ?? '').toString().toLowerCase()).toList();
+      expect(titlesLower.any((t) => t.contains('spider-man')), isTrue);
+
+      final spiderManCredit = credits.firstWhere((c) => (c['title'] ?? '').toString().toLowerCase().contains('spider-man'));
+      expect(spiderManCredit['character'], isNotNull);
+      expect((spiderManCredit['character'] as String).toLowerCase(), contains('peter parker'));
+    });
+
+    test('searchPerson for non-actor query', () async {
+      final people = await tmdb.searchPeople('Inception');
+      print('Inception people: ${people.map((p) => p['name']).toList()}');
+      final spiderman = await tmdb.searchPeople('Spider-Man');
+      print('Spider-Man people: ${spiderman.map((p) => "${p['name']} (pop: ${p['popularity']})").toList()}');
+    });
   });
 }
