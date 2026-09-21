@@ -4,5 +4,6 @@ import 'package:MovieBox/main.dart';
 void main() {
   testWidgets('Smoke test', (WidgetTester tester) async {
     await tester.pumpWidget(const MovieBoxTvApp());
+    await tester.pump(const Duration(seconds: 5));
   });
 }

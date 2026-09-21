@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'remote_config_service.dart';
 
 class RateLimitException implements Exception {
   final String message;
@@ -37,17 +38,14 @@ class ApiException implements Exception {
 class MovieBoxApiService {
   static final Random _rng = Random();
 
-  static const List<String> HOST_POOL = [
-    "https://api6.aoneroom.com",
-    "https://api5.aoneroom.com",
-    "https://api4.aoneroom.com",
-    "https://api4sg.aoneroom.com",
-    "https://api3.aoneroom.com",
-    "https://api6sg.aoneroom.com",
-    "https://api.inmoviebox.com",
-  ];
+  static List<String> get hostPool => RemoteConfigService.instance.movieboxHostPool;
+  static String get streamReferer => RemoteConfigService.instance.movieboxStreamReferer;
 
-  static const String STREAM_REFERER = "https://sportslive.wine";
+  static const List<String> DEFAULT_HOST_POOL = RemoteConfigService.defaultMovieBoxHostPool;
+  static const List<String> HOST_POOL = DEFAULT_HOST_POOL;
+
+  static const String DEFAULT_STREAM_REFERER = RemoteConfigService.defaultMovieBoxStreamReferer;
+  static const String STREAM_REFERER = DEFAULT_STREAM_REFERER;
 
   static const String SECRET_KEY_DEFAULT = "76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O";
   static const String SECRET_KEY_ALT = "Xqn2nnO41/L92o1iuXhSLHTbXvY4Z5ZZ62m8mSLA";
@@ -61,7 +59,7 @@ class MovieBoxApiService {
   static String? _globalRuntimeToken;
 
   // Active base host which we rotate on failure
-  String _activeBase = HOST_POOL[0];
+  String _activeBase = RemoteConfigService.instance.movieboxHostPool.first;
 
   String? get _runtimeToken => _globalRuntimeToken;
   set _runtimeToken(String? val) => _globalRuntimeToken = val;
@@ -437,6 +435,7 @@ class MovieBoxApiService {
     String method,
     String pathAndQuery, {
     Map<String, dynamic>? body,
+    bool isRetryAfterRefresh = false,
   }) async {
     final isAuthExempt = pathAndQuery.contains("tab-operating") || pathAndQuery.contains("visitor-login");
     if (_runtimeToken == null && !isAuthExempt) {
@@ -446,9 +445,10 @@ class MovieBoxApiService {
     Object? lastError;
     
     // Order hosts starting with the active base
+    final pool = hostPool;
     final orderedHosts = [
       _activeBase,
-      ...HOST_POOL.where((element) => element != _activeBase)
+      ...pool.where((element) => element != _activeBase)
     ];
  
     for (final base in orderedHosts) {
@@ -592,6 +592,25 @@ class MovieBoxApiService {
         }
       }
     }
+    // If all hosts in the pool failed and we haven't retried yet,
+    // trigger on-demand Remote Config refresh to get updated host pool
+    if (!isRetryAfterRefresh) {
+      final refreshed = await RemoteConfigService.instance
+          .refreshConfigOnFailure(reason: 'moviebox_hosts_exhausted');
+      if (refreshed) {
+        final newPool = hostPool;
+        if (newPool.isNotEmpty) {
+          _activeBase = newPool.first;
+          return _request(
+            method,
+            pathAndQuery,
+            body: body,
+            isRetryAfterRefresh: true,
+          );
+        }
+      }
+    }
+
     throw lastError ?? NetworkConnectionException("Semua host server gagal merespons. Periksa koneksi internet Anda.");
   }
 
@@ -902,7 +921,7 @@ class MovieBoxApiService {
 
       final headers = <String, String>{
         "User-Agent": _userAgent,
-        "Referer": STREAM_REFERER,
+        "Referer": streamReferer,
       };
       final cleanCookie = signCookie
           .split(';')

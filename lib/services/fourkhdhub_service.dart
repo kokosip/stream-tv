@@ -3,20 +3,22 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as dom;
+import 'remote_config_service.dart';
 
 class FourKHdHubService {
-  static const String defaultBaseUrl = 'https://4khdhub.one/';
+  static const String defaultBaseUrl = RemoteConfigService.defaultFourKHdHubBaseUrl;
   static const String browserUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
   final http.Client _client;
-  final String _baseUrl;
+  final String? _explicitBaseUrl;
+  String get _baseUrl => _explicitBaseUrl != null
+      ? (_explicitBaseUrl!.endsWith('/') ? _explicitBaseUrl! : '$_explicitBaseUrl/')
+      : RemoteConfigService.instance.fourKHdHubBaseUrl;
 
   FourKHdHubService({http.Client? client, String? baseUrl})
       : _client = client ?? http.Client(),
-        _baseUrl = (baseUrl ?? defaultBaseUrl).endsWith('/')
-            ? (baseUrl ?? defaultBaseUrl)
-            : '${baseUrl ?? defaultBaseUrl}/';
+        _explicitBaseUrl = baseUrl;
 
   Map<String, String> get _headers => {
         'User-Agent': browserUserAgent,

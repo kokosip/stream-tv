@@ -2,21 +2,52 @@ import 'dart:convert';
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as html_dom;
 import 'package:http/http.dart' as http;
+import 'remote_config_service.dart';
 
 class FourKHdHubApiService {
-  static const String DEFAULT_BASE_URL = "https://4khdhub.one/";
+  static const String DEFAULT_BASE_URL = RemoteConfigService.defaultFourKHdHubBaseUrl;
   static const String BROWSER_UA =
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-  final String baseUrl;
+  final String? _explicitBaseUrl;
+  String get baseUrl => _explicitBaseUrl ?? RemoteConfigService.instance.fourKHdHubBaseUrl;
+
   final http.Client _client = http.Client();
 
-  FourKHdHubApiService({this.baseUrl = DEFAULT_BASE_URL});
+  FourKHdHubApiService({String? baseUrl})
+      : _explicitBaseUrl = baseUrl;
 
   Map<String, String> get _headers => {
         "User-Agent": BROWSER_UA,
         "Referer": baseUrl,
       };
+
+  Future<http.Response> _getSafe(Uri uri) async {
+    try {
+      final response = await _client
+          .get(uri, headers: _headers)
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode >= 400 && response.statusCode != 429) {
+        throw Exception("Server returned HTTP ${response.statusCode}");
+      }
+      return response;
+    } catch (e) {
+      if (_explicitBaseUrl == null) {
+        final refreshed = await RemoteConfigService.instance
+            .refreshConfigOnFailure(reason: '4khdhub_error: $e');
+        if (refreshed) {
+          final newBase = Uri.parse(baseUrl);
+          final newUri = newBase.resolve(uri.path).replace(
+            queryParameters: uri.queryParameters.isNotEmpty ? uri.queryParameters : null,
+          );
+          return await _client
+              .get(newUri, headers: _headers)
+              .timeout(const Duration(seconds: 12));
+        }
+      }
+      rethrow;
+    }
+  }
 
   /// Clean path to relative subjectId
   String _normalizeSubjectId(String href) {
@@ -38,9 +69,7 @@ class FourKHdHubApiService {
     );
 
     try {
-      final response = await _client
-          .get(searchUrl, headers: _headers)
-          .timeout(const Duration(seconds: 12));
+      final response = await _getSafe(searchUrl);
 
       if (response.statusCode != 200) {
         throw Exception("4KHDHub search server error: ${response.statusCode}");
@@ -102,9 +131,7 @@ class FourKHdHubApiService {
   /// Get Homepage items from 4KHDHub latest posts
   Future<Map<String, dynamic>> getHomepage({int page = 1, int tabId = 0}) async {
     try {
-      final response = await _client
-          .get(Uri.parse(baseUrl), headers: _headers)
-          .timeout(const Duration(seconds: 12));
+      final response = await _getSafe(Uri.parse(baseUrl));
 
       if (response.statusCode != 200) {
         throw Exception("4KHDHub home server error: ${response.statusCode}");
@@ -182,9 +209,7 @@ class FourKHdHubApiService {
     final detailUrl = Uri.parse(baseUrl).resolve(cleanPath);
 
     try {
-      final response = await _client
-          .get(detailUrl, headers: _headers)
-          .timeout(const Duration(seconds: 12));
+      final response = await _getSafe(detailUrl);
 
       if (response.statusCode != 200) {
         throw Exception("4KHDHub detail server error: ${response.statusCode}");
@@ -287,9 +312,7 @@ class FourKHdHubApiService {
     final detailUrl = Uri.parse(baseUrl).resolve(cleanPath);
 
     try {
-      final response = await _client
-          .get(detailUrl, headers: _headers)
-          .timeout(const Duration(seconds: 12));
+      final response = await _getSafe(detailUrl);
 
       if (response.statusCode != 200) {
         throw Exception("4KHDHub resource fetch error: ${response.statusCode}");

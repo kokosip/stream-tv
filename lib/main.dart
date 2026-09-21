@@ -7,6 +7,7 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'services/app_language_service.dart';
 import 'services/app_content_filter_service.dart';
 import 'services/analytics_service.dart';
+import 'services/remote_config_service.dart';
 import 'screens/home_screen.dart';
 
 void main() async {
@@ -42,6 +43,9 @@ void main() async {
 
     // Initialize unique device user ID and attach to Analytics & Crashlytics
     await AnalyticsService.initDeviceUser();
+
+    // Initialize Firebase Remote Config for dynamic provider URLs
+    await RemoteConfigService.init();
   } catch (e) {
     debugPrint('Firebase initialization failed: $e');
   }

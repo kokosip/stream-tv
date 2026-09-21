@@ -1,14 +1,37 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'remote_config_service.dart';
 
 class DramachiApiService {
-  static const String DEFAULT_BASE_URL = "https://api.nodeobjects.com/";
-  static const String IMAGE_CDN_BASE = "https://static.nodeobjects.com/thumbnail/";
+  static const String DEFAULT_BASE_URL = RemoteConfigService.defaultDramachiBaseUrl;
+  static const String DEFAULT_IMAGE_CDN_BASE = RemoteConfigService.defaultDramachiImageCdn;
+  static String get IMAGE_CDN_BASE => RemoteConfigService.instance.dramachiImageCdn;
 
-  final String baseUrl;
+  final String? _explicitBaseUrl;
+  String get baseUrl => _explicitBaseUrl ?? RemoteConfigService.instance.dramachiBaseUrl;
   final http.Client _client = http.Client();
 
-  DramachiApiService({this.baseUrl = DEFAULT_BASE_URL});
+  DramachiApiService({String? baseUrl})
+      : _explicitBaseUrl = baseUrl;
+
+  Future<http.Response> _getSafe(Uri Function(String currentBase) uriBuilder) async {
+    try {
+      final res = await _client.get(uriBuilder(baseUrl)).timeout(const Duration(seconds: 12));
+      if (res.statusCode >= 400 && res.statusCode != 429) {
+        throw Exception("Dramachi server error (${res.statusCode})");
+      }
+      return res;
+    } catch (e) {
+      if (_explicitBaseUrl == null) {
+        final refreshed = await RemoteConfigService.instance
+            .refreshConfigOnFailure(reason: 'dramachi_error: $e');
+        if (refreshed) {
+          return await _client.get(uriBuilder(baseUrl)).timeout(const Duration(seconds: 12));
+        }
+      }
+      rethrow;
+    }
+  }
 
   static int? extractLeadingSeasonNumber(String name) {
     final lower = name.toLowerCase();
@@ -92,11 +115,9 @@ class DramachiApiService {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return [];
 
-    final uri = Uri.parse(
-      "$baseUrl?interface=search&q=${Uri.encodeComponent(trimmed)}&filter=all&page=${page > 0 ? page : 1}",
-    );
-
-    final response = await _client.get(uri);
+    final response = await _getSafe((base) => Uri.parse(
+      "$base?interface=search&q=${Uri.encodeComponent(trimmed)}&filter=all&page=${page > 0 ? page : 1}",
+    ));
     if (response.statusCode != 200) {
       throw Exception("Dramachi search failed (${response.statusCode})");
     }
@@ -164,8 +185,8 @@ class DramachiApiService {
       throw Exception("Invalid Dramachi subjectId");
     }
 
-    final uri = Uri.parse("$baseUrl?interface=title_v2&id=${Uri.encodeComponent(titleId)}");
-    final response = await _client.get(uri);
+    final response = await _getSafe((base) =>
+        Uri.parse("$base?interface=title_v2&id=${Uri.encodeComponent(titleId)}"));
     if (response.statusCode != 200) {
       throw Exception("Failed to load Dramachi details (${response.statusCode})");
     }
@@ -342,10 +363,9 @@ class DramachiApiService {
   /// Fetch episode list for a specific title and rip/season
   Future<List<Map<String, dynamic>>> fetchEpisodes(String titleId, String rip) async {
     try {
-      final uri = Uri.parse(
-        "$baseUrl?interface=eplist&season=${Uri.encodeComponent(rip)}&id=${Uri.encodeComponent(titleId)}",
-      );
-      final response = await _client.get(uri);
+      final response = await _getSafe((base) => Uri.parse(
+        "$base?interface=eplist&season=${Uri.encodeComponent(rip)}&id=${Uri.encodeComponent(titleId)}",
+      ));
       if (response.statusCode != 200) return [];
       final Map<String, dynamic> data = jsonDecode(response.body);
       final list = (data['episode_list'] as List<dynamic>?) ?? [];
@@ -358,10 +378,9 @@ class DramachiApiService {
   /// Resolve direct HTTP byte-range stream from fid and disk index
   Future<Map<String, dynamic>?> fetchFileStream(String fid, String disk) async {
     try {
-      final uri = Uri.parse(
-        "$baseUrl?interface=getFile&fid=${Uri.encodeComponent(fid)}&findex=${Uri.encodeComponent(disk)}",
-      );
-      final response = await _client.get(uri);
+      final response = await _getSafe((base) => Uri.parse(
+        "$base?interface=getFile&fid=${Uri.encodeComponent(fid)}&findex=${Uri.encodeComponent(disk)}",
+      ));
       if (response.statusCode != 200) return null;
 
       final Map<String, dynamic> data = jsonDecode(response.body);

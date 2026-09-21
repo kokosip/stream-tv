@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'remote_config_service.dart';
 
 class IptvChannel {
   final String id;
@@ -97,7 +98,8 @@ class IptvService {
   static const String _prefPlaylistsKey = 'iptv_playlists';
   static const String _prefActivePlaylistIdKey = 'iptv_active_playlist_id';
   static const String _prefFavoritesKey = 'iptv_favorites';
-  static const String _defaultIndonesiaUrl = 'https://iptv-org.github.io/iptv/countries/id.m3u';
+  static String get defaultIndonesiaUrl => RemoteConfigService.instance.iptvDefaultIndonesiaUrl;
+  static const String _defaultIndonesiaUrlFallback = RemoteConfigService.defaultIptvUrl;
 
   List<IptvPlaylist> _playlists = [];
   String _activePlaylistId = 'default_id';
@@ -194,18 +196,32 @@ class IptvService {
       }
     }
 
-    // Ensure default Indonesia playlist exists
-    final hasDefault = _playlists.any((p) => p.isDefault || p.id == 'default_id');
-    if (!hasDefault) {
+    // Ensure default Indonesia playlist exists and sync with Remote Config
+    final defaultIndex = _playlists.indexWhere((p) => p.isDefault || p.id == 'default_id');
+    if (defaultIndex == -1) {
       final defaultPlaylist = IptvPlaylist(
         id: 'default_id',
         name: 'IPTV Indonesia (Default)',
-        url: _defaultIndonesiaUrl,
+        url: defaultIndonesiaUrl,
         isDefault: true,
         channelCount: _builtInIndonesiaChannels.length,
       );
       _playlists.insert(0, defaultPlaylist);
       await _savePlaylists();
+    } else {
+      final currentDef = _playlists[defaultIndex];
+      if (currentDef.url == null || currentDef.url!.contains('iptv-org.github.io') || currentDef.url == _defaultIndonesiaUrlFallback) {
+        if (currentDef.url != defaultIndonesiaUrl) {
+          _playlists[defaultIndex] = IptvPlaylist(
+            id: currentDef.id,
+            name: currentDef.name,
+            url: defaultIndonesiaUrl,
+            isDefault: true,
+            channelCount: currentDef.channelCount,
+          );
+          await _savePlaylists();
+        }
+      }
     }
 
     // Load active playlist ID
@@ -320,9 +336,25 @@ class IptvService {
 
         if (res.statusCode == 200) {
           fetchedChannels = parseM3u(res.body);
+        } else if (playlist.isDefault) {
+          throw Exception("Default IPTV playlist HTTP ${res.statusCode}");
         }
-      } catch (_) {
-        // Fallback to offline built-ins if network fails on default playlist
+      } catch (e) {
+        if (playlist.isDefault) {
+          final refreshed = await RemoteConfigService.instance
+              .refreshConfigOnFailure(reason: 'iptv_playlist_error: $e');
+          if (refreshed) {
+            try {
+              final retryRes = await http.get(Uri.parse(defaultIndonesiaUrl), headers: {
+                'User-Agent': 'Mozilla/5.0 (Linux; Android TV) AppleWebKit/537.36 StreamTV/1.0',
+                'Accept': '*/*',
+              }).timeout(const Duration(seconds: 12));
+              if (retryRes.statusCode == 200) {
+                fetchedChannels = parseM3u(retryRes.body);
+              }
+            } catch (_) {}
+          }
+        }
       }
     }
 
