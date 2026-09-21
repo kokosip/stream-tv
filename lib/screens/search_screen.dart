@@ -5,6 +5,7 @@ import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/moviebox_api_service.dart';
 import '../services/fourkhdhub_service.dart';
 import '../services/tmdb_service.dart';
+import '../services/dramachi_api_service.dart';
 import '../services/app_language_service.dart';
 import '../services/app_content_filter_service.dart';
 import '../services/search_history_service.dart';
@@ -26,6 +27,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final MovieBoxApiService _api = MovieBoxApiService();
   final FourKHdHubService _fourkApi = FourKHdHubService();
   final TmdbService _tmdbApi = TmdbService();
+  final DramachiApiService _dramachiApi = DramachiApiService();
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _inputFocusNode = FocusNode();
@@ -225,6 +227,12 @@ class _SearchScreenState extends State<SearchScreen> {
           peopleFuture,
         ]);
         combined.addAll(results[0] as List<dynamic>);
+      } else if (_selectedProvider == 'dramachi') {
+        final results = await Future.wait([
+          _dramachiApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
+          peopleFuture,
+        ]);
+        combined.addAll(results[0] as List<dynamic>);
       } else if (_selectedProvider == 'tmdb') {
         final results = await Future.wait([
           _tmdbApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
@@ -232,17 +240,19 @@ class _SearchScreenState extends State<SearchScreen> {
         ]);
         combined.addAll(results[0] as List<dynamic>);
       } else {
-        // Search all in parallel: TMDB, 4KHDHub, MovieBox, and People
+        // Search all in parallel: TMDB, 4KHDHub, Dramachi, MovieBox, and People
         final results = await Future.wait([
           _tmdbApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
           _fourkApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
+          _dramachiApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
           _api.search(query: query).catchError((e) => <String, dynamic>{'items': [], 'list': []}),
           peopleFuture,
         ]);
 
         final tmdbList = results[0] as List<dynamic>;
         final fourkList = results[1] as List<dynamic>;
-        final mbRes = results[2] is Map ? (results[2] as Map) : null;
+        final dramachiList = results[2] as List<dynamic>;
+        final mbRes = results[3] is Map ? (results[3] as Map) : null;
         final mbList = ((mbRes?['items'] ?? mbRes?['list']) as List<dynamic>?) ?? [];
         for (final item in mbList) {
           if (item is Map) {
@@ -250,11 +260,13 @@ class _SearchScreenState extends State<SearchScreen> {
           }
         }
 
-        // Interleave results (TMDB + 4KHDHub + MovieBox) to provide the richest, most reliable mix
-        final maxLen = [tmdbList.length, fourkList.length, mbList.length].reduce((a, b) => a > b ? a : b);
+        // Interleave results (TMDB + 4KHDHub + Dramachi + MovieBox) to provide the richest mix
+        final maxLen = [tmdbList.length, fourkList.length, dramachiList.length, mbList.length]
+            .reduce((a, b) => a > b ? a : b);
         for (int i = 0; i < maxLen; i++) {
           if (i < tmdbList.length) combined.add(tmdbList[i]);
           if (i < fourkList.length) combined.add(fourkList[i]);
+          if (i < dramachiList.length) combined.add(dramachiList[i]);
           if (i < mbList.length) combined.add(mbList[i]);
         }
       }
@@ -888,6 +900,8 @@ class _SearchScreenState extends State<SearchScreen> {
                   const SizedBox(width: 10),
                   _buildProviderChip('4khdhub', "4KHDHub (4K UHD)", isTv),
                   const SizedBox(width: 10),
+                  _buildProviderChip('dramachi', "Dramachi (Asian Drama & Anime)", isTv),
+                  const SizedBox(width: 10),
                   _buildProviderChip('moviebox', "MovieBox", isTv),
                 ],
               ),
@@ -950,9 +964,12 @@ class _SearchScreenState extends State<SearchScreen> {
                                         final provider = (item['provider'] ??
                                             (subjectId.startsWith('tmdb_')
                                                 ? 'tmdb'
-                                                : (subjectId.startsWith('/') ? '4khdhub' : 'moviebox'))).toString();
+                                                : (subjectId.startsWith('dramachi_') || subjectId.contains('::')
+                                                    ? 'dramachi'
+                                                    : (subjectId.startsWith('/') ? '4khdhub' : 'moviebox')))).toString();
                                         final is4k = provider == '4khdhub';
                                         final isTmdb = provider == 'tmdb';
+                                        final isDramachi = provider == 'dramachi';
 
                                         return TvFocusableCard(
                                           onTap: () {
@@ -999,21 +1016,25 @@ class _SearchScreenState extends State<SearchScreen> {
                                                 child: Container(
                                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                   decoration: BoxDecoration(
-                                                    color: is4k
-                                                        ? const Color(0xDD004D40)
-                                                        : (isTmdb
-                                                            ? Colors.amber.shade900.withValues(alpha: 0.9)
-                                                            : Colors.redAccent.shade700.withValues(alpha: 0.9)),
+                                                    color: isDramachi
+                                                        ? const Color(0xDD4A148C)
+                                                        : (is4k
+                                                            ? const Color(0xDD004D40)
+                                                            : (isTmdb
+                                                                ? Colors.amber.shade900.withValues(alpha: 0.9)
+                                                                : Colors.redAccent.shade700.withValues(alpha: 0.9))),
                                                     borderRadius: BorderRadius.circular(4),
                                                     border: Border.all(
-                                                      color: is4k
-                                                          ? Colors.cyanAccent
-                                                          : (isTmdb ? Colors.amberAccent : Colors.redAccent),
+                                                      color: isDramachi
+                                                          ? Colors.purpleAccent
+                                                          : (is4k
+                                                              ? Colors.cyanAccent
+                                                              : (isTmdb ? Colors.amberAccent : Colors.redAccent)),
                                                       width: 0.8,
                                                     ),
                                                   ),
                                                   child: Text(
-                                                    is4k ? "4KHDHub" : (isTmdb ? "TMDB" : "MovieBox"),
+                                                    isDramachi ? "Dramachi" : (is4k ? "4KHDHub" : (isTmdb ? "TMDB" : "MovieBox")),
                                                     style: GoogleFonts.outfit(
                                                       color: Colors.white,
                                                       fontSize: 10,

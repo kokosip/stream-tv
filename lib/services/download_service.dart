@@ -293,6 +293,9 @@ class DownloadService {
         request.headers['User-Agent'] =
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
         request.headers['Referer'] = 'https://4khdhub.one/';
+      } else if (item.provider.toLowerCase() == 'dramachi') {
+        request.headers['User-Agent'] =
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
       } else {
         // Use media player User-Agent (ExoPlayer) which MovieBox CDN accepts (browser UAs return 428 Forbidden)
         request.headers['User-Agent'] = 'ExoPlayer/2.18.1 (Linux; Android 11)';

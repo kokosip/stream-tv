@@ -605,11 +605,39 @@ class MovieBoxApiService {
     );
   }
 
-  /// Decode CloudFront-Policy from signed cookie string to obtain MPEG-DASH manifest URL
+  /// Decode CloudFront-Policy or Edge-Cache-Cookie from signed cookie string to obtain MPEG-DASH manifest URL
   static String? resolveDashManifestFromPolicy(String signCookie) {
     if (signCookie.isEmpty) return null;
     for (final part in signCookie.split(';')) {
       final trimmed = part.trim();
+
+      // MovieBox-TUI v0.1.22: Edge-Cache-Cookie urlprefix decoding
+      if (trimmed.contains('urlprefix=')) {
+        final idx = trimmed.indexOf('urlprefix=');
+        final prefixPart = trimmed.substring(idx + 'urlprefix='.length);
+        final b64Token = prefixPart.split(':').first.trim();
+        var normalized = b64Token
+            .replaceAll('-', '+')
+            .replaceAll('_', '/');
+        final pad = (4 - (normalized.length % 4)) % 4;
+        if (pad > 0 && pad < 4) {
+          normalized += '=' * pad;
+        }
+        try {
+          final decodedBytes = base64.decode(normalized);
+          final urlStr = utf8.decode(decodedBytes);
+          var baseResource = urlStr.trim();
+          while (baseResource.endsWith('*') || baseResource.endsWith('/')) {
+            baseResource = baseResource.substring(0, baseResource.length - 1).trim();
+          }
+          if (baseResource.isNotEmpty &&
+              (baseResource.startsWith('http://') || baseResource.startsWith('https://'))) {
+            return '$baseResource/index.mpd';
+          }
+        } catch (_) {}
+      }
+
+      // CloudFront-Policy decoding
       if (trimmed.startsWith('CloudFront-Policy=')) {
         final raw = trimmed.substring('CloudFront-Policy='.length).trim();
         String normalized = raw
@@ -617,7 +645,7 @@ class MovieBoxApiService {
             .replaceAll('_', '=')
             .replaceAll('~', '/');
         final pad = (4 - (normalized.length % 4)) % 4;
-        if (pad > 0) {
+        if (pad > 0 && pad < 4) {
           normalized += '=' * pad;
         }
         try {
@@ -933,26 +961,59 @@ class MovieBoxApiService {
       }
     }
 
-    if (adaptedStreams.isNotEmpty) {
-      return {
-        'code': 0,
-        'message': 'ok',
-        'list': adaptedStreams,
-        'data': {'list': adaptedStreams},
-      };
+    // MovieBox-TUI v0.1.22: Concurrently merge play-info/v2 DASH streams and
+    // high-bitrate server files, deduplicate links, and sort numerically by resolution & size.
+    final Set<String> seenBaseUrls = {};
+    final List<Map<String, dynamic>> combinedReleases = [];
+
+    for (final st in adaptedStreams) {
+      final link = (st['resourceLink'] ?? st['resource_link'] ?? st['url'] ?? '').toString();
+      final base = link.split('?').first.trim();
+      if (base.isNotEmpty) {
+        seenBaseUrls.add(base);
+      }
+      combinedReleases.add(st);
     }
 
-    // Fallback: If play-info has no streams, return filtered legacy items (excluding notice URLs)
-    final filteredLegacy = rawList.where((item) {
-      if (item is! Map) return false;
-      final link = (item['resourceLink'] ?? item['resource_link'] ?? '').toString();
-      return !isDeprecationNoticeUrl(link);
-    }).toList();
+    for (final item in rawList) {
+      if (item is! Map) continue;
+      final rawMap = Map<String, dynamic>.from(item);
+      final link = (rawMap['resourceLink'] ?? rawMap['resource_link'] ?? rawMap['url'] ?? '').toString();
+      if (link.isEmpty || isDeprecationNoticeUrl(link)) continue;
+
+      final itemSe = int.tryParse(rawMap['se']?.toString() ?? '') ?? 0;
+      final itemEp = int.tryParse(rawMap['ep']?.toString() ?? '') ?? 0;
+      final matchesEpisode = (se == 0 && ep == 0) ||
+          (itemSe == se && itemEp == ep) ||
+          (itemSe == 0 && itemEp == 0);
+      if (!matchesEpisode) continue;
+
+      final base = link.split('?').first.trim();
+      if (base.isNotEmpty && seenBaseUrls.contains(base)) continue;
+      if (base.isNotEmpty) seenBaseUrls.add(base);
+
+      // Ensure standard keys
+      rawMap['resourceLink'] ??= link;
+      rawMap['resource_link'] ??= link;
+      rawMap['url'] ??= link;
+      combinedReleases.add(rawMap);
+    }
+
+    // Sort by resolution descending (numeric), then size descending
+    combinedReleases.sort((a, b) {
+      final resA = int.tryParse(a['resolution']?.toString() ?? '') ?? 0;
+      final resB = int.tryParse(b['resolution']?.toString() ?? '') ?? 0;
+      if (resB != resA) return resB.compareTo(resA);
+      final sizeA = int.tryParse(a['size']?.toString() ?? '') ?? 0;
+      final sizeB = int.tryParse(b['size']?.toString() ?? '') ?? 0;
+      return sizeB.compareTo(sizeA);
+    });
 
     return {
       'code': 0,
-      'list': filteredLegacy,
-      'data': {'list': filteredLegacy},
+      'message': 'ok',
+      'list': combinedReleases,
+      'data': {'list': combinedReleases},
     };
   }
 

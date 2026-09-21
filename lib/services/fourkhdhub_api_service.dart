@@ -356,6 +356,16 @@ class FourKHdHubApiService {
         });
       }
 
+      // MovieBox-TUI v0.1.22: Sort numerically by resolution descending, then size
+      releases.sort((a, b) {
+        final resA = (a['resolution'] as int?) ?? 0;
+        final resB = (b['resolution'] as int?) ?? 0;
+        if (resB != resA) return resB.compareTo(resA);
+        final sizeA = a['size']?.toString() ?? '';
+        final sizeB = b['size']?.toString() ?? '';
+        return sizeB.compareTo(sizeA);
+      });
+
       return {
         "list": releases,
       };
@@ -982,12 +992,21 @@ class FourKHdHubApiService {
     return lower.endsWith(".zip") || lower.contains("complete season") || lower.contains("season pack");
   }
 
-  String? _detectQuality(String text) {
-    for (final q in ["2160p", "1080p", "720p", "480p"]) {
-      if (text.toLowerCase().contains(q)) return q;
+  static String? detectQuality(String text) {
+    final lower = text.toLowerCase();
+    if (lower.contains("2160p") || lower.contains("2160") || lower.contains("4k") || lower.contains("uhd")) {
+      return "2160p";
+    } else if (lower.contains("1080p") || lower.contains("1080") || lower.contains("fhd")) {
+      return "1080p";
+    } else if (lower.contains("720p") || lower.contains("720") || lower.contains("hd")) {
+      return "720p";
+    } else if (lower.contains("480p") || lower.contains("480") || lower.contains("sd")) {
+      return "480p";
     }
     return null;
   }
+
+  String? _detectQuality(String text) => detectQuality(text);
 
   String? _detectCodec(String text) {
     final lower = text.toLowerCase();

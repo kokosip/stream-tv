@@ -38,7 +38,10 @@ class FavoritesService {
       'coverUrl': item['cover']?['url'] ?? item['coverUrl'] ?? "",
       'subjectType': item['subjectType'] ?? item['subject_type'] ?? 1,
       'releaseDate': item['releaseDate'] ?? item['release_date'] ?? item['year']?.toString() ?? "",
-      'provider': item['provider'] ?? (subjectId.startsWith('/') ? '4khdhub' : 'moviebox'),
+      'provider': item['provider'] ??
+          (subjectId.startsWith('dramachi_') || subjectId.contains('::')
+              ? 'dramachi'
+              : (subjectId.startsWith('/') ? '4khdhub' : 'moviebox')),
     };
     
     list.insert(0, newFav); // Add to the top

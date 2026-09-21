@@ -24,22 +24,45 @@ class OnlineSubtitleItem {
     this.episode = 0,
   });
 
-  factory OnlineSubtitleItem.fromJson(Map<String, dynamic> json) {
+  factory OnlineSubtitleItem.fromJson(
+    Map<String, dynamic> json, {
+    String? mediaTitle,
+    int? defaultSeason,
+    int? defaultEpisode,
+  }) {
     final rawLang = (json['lang'] ?? '').toString().trim().toLowerCase();
     final langName = OnlineSubtitleService.normalizeLanguageCode(rawLang);
-    final fileName = (json['subtitleFileName'] ?? json['file'] ?? '').toString().trim();
+    final rawFileName = (json['subtitleFileName'] ?? json['file'] ?? '').toString().trim();
     final release = (json['movieReleaseName'] ?? json['release'] ?? json['releaseFormat'] ?? '').toString().trim();
     final url = (json['url'] ?? '').toString().trim();
     final id = (json['id'] ?? '').toString();
-    final season = json['season'] is int ? json['season'] as int : int.tryParse(json['season']?.toString() ?? '0') ?? 0;
-    final episode = json['episode'] is int ? json['episode'] as int : int.tryParse(json['episode']?.toString() ?? '0') ?? 0;
+    final season = json['season'] is int
+        ? json['season'] as int
+        : int.tryParse(json['season']?.toString() ?? '') ?? defaultSeason ?? 0;
+    final episode = json['episode'] is int
+        ? json['episode'] as int
+        : int.tryParse(json['episode']?.toString() ?? '') ?? defaultEpisode ?? 0;
+
+    // MovieBox-TUI v0.1.22 Clean Subtitles: Title - S01E01.srt
+    String cleanName = rawFileName;
+    if (mediaTitle != null && mediaTitle.trim().isNotEmpty) {
+      final title = mediaTitle.trim();
+      if (season > 0 && episode > 0) {
+        cleanName = "$title - S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}.srt";
+      } else if (!cleanName.toLowerCase().endsWith('.srt') && !cleanName.toLowerCase().endsWith('.vtt')) {
+        cleanName = "$title.srt";
+      }
+    }
+    if (cleanName.isEmpty) {
+      cleanName = "Subtitle_${rawLang.toUpperCase()}.srt";
+    }
 
     return OnlineSubtitleItem(
       id: id,
       lang: rawLang,
       languageName: langName,
-      fileName: fileName.isNotEmpty ? fileName : "Subtitle_${rawLang.toUpperCase()}",
-      releaseName: release.isNotEmpty ? release : (fileName.isNotEmpty ? fileName : "Standard"),
+      fileName: cleanName,
+      releaseName: release.isNotEmpty ? release : (rawFileName.isNotEmpty ? rawFileName : "Standard"),
       url: url,
       season: season,
       episode: episode,
@@ -301,7 +324,12 @@ class OnlineSubtitleService {
 
         for (final item in rawList) {
           if (item is Map<String, dynamic>) {
-            final subItem = OnlineSubtitleItem.fromJson(item);
+            final subItem = OnlineSubtitleItem.fromJson(
+              item,
+              mediaTitle: trimmed,
+              defaultSeason: season,
+              defaultEpisode: episode,
+            );
             if (subItem.url.isNotEmpty) {
               if (languageFilter == null || languageFilter.isEmpty || languageFilter.toLowerCase() == 'all') {
                 items.add(subItem);

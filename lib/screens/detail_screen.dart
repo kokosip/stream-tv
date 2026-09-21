@@ -4,6 +4,7 @@ import 'package:flutter_spinkit/flutter_spinkit.dart';
 import '../services/moviebox_api_service.dart';
 import '../services/fourkhdhub_service.dart';
 import '../services/tmdb_service.dart';
+import '../services/dramachi_api_service.dart';
 import '../services/favorites_service.dart';
 import '../services/app_language_service.dart';
 import '../services/playback_progress_service.dart';
@@ -39,11 +40,16 @@ class _DetailScreenState extends State<DetailScreen> {
   final MovieBoxApiService _api = MovieBoxApiService();
   final FourKHdHubService _fourkApi = FourKHdHubService();
   final TmdbService _tmdbApi = TmdbService();
+  final DramachiApiService _dramachiApi = DramachiApiService();
   final DownloadService _downloadService = DownloadService.instance;
   
   late String _activeProvider;
   bool get _is4kHub => _activeProvider.toLowerCase() == '4khdhub';
   bool get _isTmdb => _activeProvider.toLowerCase() == 'tmdb' || widget.subjectId.startsWith('tmdb_');
+  bool get _isDramachi =>
+      _activeProvider.toLowerCase() == 'dramachi' ||
+      widget.subjectId.startsWith('dramachi_') ||
+      widget.subjectId.contains('::');
 
   bool _isResolvingSources = false;
   List<Map<String, dynamic>> _resolvedSources = [];
@@ -78,7 +84,13 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   void initState() {
     super.initState();
-    final String initialProv = widget.provider.isNotEmpty ? widget.provider : (widget.subjectId.startsWith('tmdb_') ? 'tmdb' : 'moviebox');
+    final String initialProv = widget.provider.isNotEmpty
+        ? widget.provider
+        : (widget.subjectId.startsWith('tmdb_')
+            ? 'tmdb'
+            : (widget.subjectId.startsWith('dramachi_') || widget.subjectId.contains('::')
+                ? 'dramachi'
+                : (widget.subjectId.startsWith('/') ? '4khdhub' : 'moviebox')));
     _activeProvider = widget.subjectId.startsWith('tmdb_') ? 'tmdb' : initialProv;
     _selectedSubjectId = widget.subjectId;
     _loadDetails();
@@ -193,7 +205,10 @@ class _DetailScreenState extends State<DetailScreen> {
 
   String _formatDubLabel(dynamic dub) {
     if (dub is! Map) return "Original Audio";
-    final lanName = (dub['lanName'] ?? dub['language'] ?? dub['title'] ?? 'Original').toString().trim();
+    var lanName = (dub['lanName'] ?? dub['language'] ?? dub['title'] ?? 'Original').toString().trim();
+    if (lanName.toLowerCase() == 'dub') {
+      lanName = 'English Dub';
+    }
     final lanCode = (dub['lanCode'] ?? '').toString().trim().toUpperCase();
     final isOriginal = dub['original'] == true || lanName.toLowerCase().contains('original');
 
@@ -220,6 +235,78 @@ class _DetailScreenState extends State<DetailScreen> {
 
     if (_isTmdb) {
       _loadTmdbDetails();
+      return;
+    }
+
+    if (_isDramachi) {
+      try {
+        final detailsRes = await _dramachiApi.getDetails(subjectId: _selectedSubjectId);
+        final isTvShow = detailsRes['subjectType'] == 2;
+        final rawSeasons = detailsRes['seasons'] as List? ?? [];
+        final List<Map<String, dynamic>> seasonsList = rawSeasons
+            .map((s) => s is Map ? Map<String, dynamic>.from(s) : <String, dynamic>{})
+            .where((m) => m.isNotEmpty)
+            .toList();
+
+        final rawDubs = detailsRes['dubs'] as List? ?? [];
+        final List<Map<String, dynamic>> dubsList = rawDubs
+            .map((d) => d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{})
+            .where((m) => m.isNotEmpty)
+            .toList();
+
+        int initialEpisodesCount = 0;
+        int targetSeason = widget.initialSeason ?? 1;
+        int targetEpisode = widget.initialEpisode ?? 1;
+
+        if (widget.initialSeason == null || widget.initialEpisode == null) {
+          final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+          if (recentPlay != null) {
+            final recSeason = recentPlay['season'] as int? ?? 1;
+            final recEpisode = recentPlay['episode'] as int? ?? 1;
+            if (recSeason > 0) targetSeason = recSeason;
+            if (recEpisode > 0) targetEpisode = recEpisode;
+          }
+        }
+
+        if (isTvShow && seasonsList.isNotEmpty) {
+          dynamic matchingSeason;
+          for (final s in seasonsList) {
+            if (s is Map && (s['se'] ?? 1) == targetSeason) {
+              matchingSeason = s;
+              break;
+            }
+          }
+          matchingSeason ??= seasonsList.first;
+          _selectedSeasonNumber = (matchingSeason is Map ? matchingSeason['se'] : null) ?? 1;
+          initialEpisodesCount = (matchingSeason is Map ? (matchingSeason['maxEp'] ?? 1) : 1) as int;
+          _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
+        }
+
+        final defaultDub = dubsList.isNotEmpty ? dubsList.first : null;
+
+        setState(() {
+          _details = detailsRes;
+          _dubs = dubsList;
+          _selectedAudioName = defaultDub != null ? (defaultDub['label'] ?? defaultDub['lanName'] ?? "Original Audio") : "Original Audio";
+          _selectedSubjectId = defaultDub != null ? (defaultDub['subjectId'] ?? widget.subjectId) : widget.subjectId;
+          _seasons = seasonsList;
+          _episodesCount = initialEpisodesCount;
+          _isLoadingDetails = false;
+        });
+
+        _checkProgress();
+        _loadStreams();
+        _loadCastForDetails(
+          title: (detailsRes['title'] ?? detailsRes['subjectTitle'] ?? '').toString(),
+          year: int.tryParse((detailsRes['year'] ?? '').toString()),
+          isTv: isTvShow,
+        );
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail Dramachi: $e";
+          _isLoadingDetails = false;
+        });
+      }
       return;
     }
 
@@ -561,10 +648,12 @@ class _DetailScreenState extends State<DetailScreen> {
       final searchResults = await Future.wait([
         _api.search(query: title, subjectType: isTv ? 2 : 1, page: 1, perPage: 5).catchError((_) => <String, dynamic>{}),
         _fourkApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
+        _dramachiApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
       ]);
 
       final mbRes = searchResults[0] as Map<String, dynamic>;
       final fkRes = searchResults[1] as List<Map<String, dynamic>>;
+      final dmRes = searchResults[2] as List<Map<String, dynamic>>;
 
       final List<Map<String, dynamic>> foundSources = [];
 
@@ -597,6 +686,18 @@ class _DetailScreenState extends State<DetailScreen> {
         });
       }
 
+      // 3. Check Dramachi (Native Asian Drama & Anime)
+      if (dmRes.isNotEmpty) {
+        final bestDm = dmRes.first;
+        foundSources.add({
+          'provider': 'dramachi',
+          'label': 'Dramachi (Asian Drama & Anime)',
+          'badge': 'Dramachi',
+          'subjectId': bestDm['subjectId'],
+          'item': bestDm,
+        });
+      }
+
       if (!mounted) return;
 
       if (foundSources.isEmpty) {
@@ -613,7 +714,7 @@ class _DetailScreenState extends State<DetailScreen> {
         _noStreamingSourcesFound = false;
       });
 
-      // Prioritize MovieBox if available, otherwise 4KHDHub
+      // Prioritize MovieBox if available, otherwise Dramachi or 4KHDHub
       final defaultSource = foundSources.firstWhere(
         (s) => s['provider'] == 'moviebox',
         orElse: () => foundSources.first,
@@ -642,8 +743,70 @@ class _DetailScreenState extends State<DetailScreen> {
 
     if (prov == '4khdhub') {
       await _load4kHubProvider(sId);
+    } else if (prov == 'dramachi') {
+      await _loadDramachiProvider(sId);
     } else {
       await _loadMovieBoxProvider(sId);
+    }
+  }
+
+  Future<void> _loadDramachiProvider(String sId) async {
+    try {
+      final detailsRes = await _dramachiApi.getDetails(subjectId: sId);
+      final isTv = _isTvShow;
+      final rawSeasons = detailsRes['seasons'] as List? ?? [];
+      final List<Map<String, dynamic>> seasonsList = rawSeasons
+          .map((s) => s is Map ? Map<String, dynamic>.from(s) : <String, dynamic>{})
+          .where((m) => m.isNotEmpty)
+          .toList();
+      final rawDubs = detailsRes['dubs'] as List? ?? [];
+      final List<Map<String, dynamic>> dubsList = rawDubs
+          .map((d) => d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{})
+          .where((m) => m.isNotEmpty)
+          .toList();
+
+      int initialEpisodesCount = 0;
+      int targetSeason = widget.initialSeason ?? 1;
+      int targetEpisode = widget.initialEpisode ?? 1;
+
+      if (widget.initialSeason == null || widget.initialEpisode == null) {
+        final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+        if (recentPlay != null) {
+          final recSeason = recentPlay['season'] as int? ?? 1;
+          final recEpisode = recentPlay['episode'] as int? ?? 1;
+          if (recSeason > 0) targetSeason = recSeason;
+          if (recEpisode > 0) targetEpisode = recEpisode;
+        }
+      }
+
+      if (isTv && seasonsList.isNotEmpty) {
+        dynamic matchingSeason;
+        for (final s in seasonsList) {
+          if (s is Map && (s['se'] ?? 1) == targetSeason) {
+            matchingSeason = s;
+            break;
+          }
+        }
+        matchingSeason ??= seasonsList.first;
+        _selectedSeasonNumber = (matchingSeason is Map ? matchingSeason['se'] : null) ?? 1;
+        initialEpisodesCount = (matchingSeason is Map ? (matchingSeason['maxEp'] ?? 1) : 1) as int;
+        _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
+      }
+
+      final defaultDub = dubsList.isNotEmpty ? dubsList.first : null;
+
+      if (mounted) {
+        setState(() {
+          _seasons = seasonsList;
+          _dubs = dubsList;
+          _selectedAudioName = defaultDub != null ? (defaultDub['label'] ?? defaultDub['lanName'] ?? "Original Audio") : "Original Audio";
+          _selectedSubjectId = defaultDub != null ? (defaultDub['subjectId'] ?? sId) : sId;
+          _episodesCount = initialEpisodesCount;
+        });
+        _loadStreams();
+      }
+    } catch (e) {
+      print("Failed loading Dramachi provider details: $e");
     }
   }
 
@@ -1272,6 +1435,27 @@ class _DetailScreenState extends State<DetailScreen> {
       _streams = [];
     });
 
+    if (_isDramachi) {
+      try {
+        final res = await _dramachiApi.getResources(
+          subjectId: _selectedSubjectId,
+          se: _isTvShow ? _selectedSeasonNumber : 0,
+          ep: _isTvShow ? _selectedEpisodeNumber : 0,
+        );
+        final list = (res['list'] as List? ?? []);
+        setState(() {
+          _streams = list;
+        });
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal memuat rilis Dramachi: $e")),
+          );
+        }
+      }
+      return;
+    }
+
     if (_is4kHub) {
       try {
         final targetId = _isTmdb ? _selectedSubjectId : widget.subjectId;
@@ -1388,6 +1572,40 @@ class _DetailScreenState extends State<DetailScreen> {
   Future<PlayerSwitchAudioResult?> _handleSwitchAudioInPlayer(dynamic dub) async {
     final subId = dub['subjectId']?.toString() ?? widget.subjectId;
     final dubLabel = _formatDubLabel(dub);
+
+    if (_isDramachi) {
+      try {
+        final res = await _dramachiApi.getResources(
+          subjectId: subId,
+          se: _isTvShow ? _selectedSeasonNumber : 0,
+          ep: _isTvShow ? _selectedEpisodeNumber : 0,
+        );
+        final list = (res['list'] as List? ?? []);
+        if (list.isEmpty) return null;
+        final best = Map<String, dynamic>.from(list.first as Map);
+        final streamUrl = (best['resourceLink'] ?? best['url'] ?? '').toString();
+        if (streamUrl.isEmpty) return null;
+
+        if (mounted) {
+          setState(() {
+            _selectedAudioName = dubLabel;
+            _selectedSubjectId = subId;
+            _streams = list;
+          });
+        }
+
+        return PlayerSwitchAudioResult(
+          streamUrl: streamUrl,
+          audioName: dubLabel,
+          captions: [],
+          availableStreams: list.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+          currentStream: best,
+        );
+      } catch (e) {
+        print("Error switching audio on Dramachi: $e");
+        return null;
+      }
+    }
 
     try {
       final isTvShow = _isTvShow;
@@ -1517,12 +1735,67 @@ class _DetailScreenState extends State<DetailScreen> {
         return null;
       }
     } else {
-      final url = stream['resourceLink'] ?? stream['resource_link'];
+      final url = stream['resourceLink'] ?? stream['resource_link'] ?? stream['url'];
       return url?.toString();
     }
   }
 
   Future<PlayerNextEpisodeData?> _handleSelectEpisodeInPlayer(int season, int episode) async {
+    if (_isDramachi) {
+      try {
+        final res = await _dramachiApi.getResources(
+          subjectId: _selectedSubjectId,
+          se: season,
+          ep: episode,
+        );
+        final releases = (res['list'] as List? ?? []);
+        if (releases.isEmpty) return null;
+
+        final bestRelease = Map<String, dynamic>.from(releases.first as Map);
+        final streamUrl = (bestRelease['resourceLink'] ?? bestRelease['url'] ?? '').toString();
+        if (streamUrl.isEmpty) return null;
+        bestRelease['provider'] = 'dramachi';
+
+        int nextNextSeason = season;
+        int nextNextEpisode = episode + 1;
+        bool hasNextNext = false;
+        int maxEpOfSeason = 0;
+        for (final s in _seasons) {
+          if ((s['se'] ?? 0) == season) {
+            maxEpOfSeason = (s['maxEp'] ?? 0) as int;
+            break;
+          }
+        }
+
+        if (nextNextEpisode <= maxEpOfSeason) {
+          hasNextNext = true;
+        } else {
+          final followingSeason = _seasons.any((s) => (s['se'] ?? 0) == season + 1);
+          if (followingSeason) {
+            nextNextSeason = season + 1;
+            nextNextEpisode = 1;
+            hasNextNext = true;
+          }
+        }
+
+        return PlayerNextEpisodeData(
+          streamUrl: streamUrl,
+          title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
+          season: season,
+          episode: episode,
+          captions: const [],
+          availableStreams: releases.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+          currentStream: bestRelease,
+          hasNextEpisode: hasNextNext,
+          nextEpisodeLabel: hasNextNext ? "S$nextNextSeason:E$nextNextEpisode" : null,
+          currentAudioName: _selectedAudioName,
+        );
+      } catch (e) {
+        print("Error getting Dramachi next episode: $e");
+        return null;
+      }
+    }
+
     if (_is4kHub) {
       try {
         final targetId = _isTmdb ? _selectedSubjectId : widget.subjectId;

@@ -220,7 +220,12 @@ class PlaybackProgressService {
 
       final entry = {
         'subjectId': subjectId,
-        'provider': provider ?? (subjectId.startsWith('/') || subjectId.contains('-movie-') || subjectId.contains('-series-') ? '4khdhub' : 'moviebox'),
+        'provider': provider ??
+            (subjectId.startsWith('dramachi_') || subjectId.contains('::')
+                ? 'dramachi'
+                : (subjectId.startsWith('/') || subjectId.contains('-movie-') || subjectId.contains('-series-')
+                    ? '4khdhub'
+                    : 'moviebox')),
         'season': savedSeason,
         'episode': savedEpisode,
         'originalSeason': season,

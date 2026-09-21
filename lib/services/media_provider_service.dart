@@ -1,5 +1,6 @@
 import 'moviebox_api_service.dart';
 import 'fourkhdhub_api_service.dart';
+import 'dramachi_api_service.dart';
 import 'app_source_service.dart';
 
 export 'moviebox_api_service.dart' show RateLimitException, NetworkConnectionException, NoStreamAvailableException, ApiException;
@@ -7,14 +8,19 @@ export 'moviebox_api_service.dart' show RateLimitException, NetworkConnectionExc
 class MediaProviderService {
   final MovieBoxApiService _movieBox = MovieBoxApiService();
   final FourKHdHubApiService _fourKHdHub = FourKHdHubApiService();
+  final DramachiApiService _dramachi = DramachiApiService();
 
   bool get isMovieBox => AppSourceService.isMovieBox;
   bool get isFourKHdHub => AppSourceService.isFourKHdHub;
+  bool get isDramachi => AppSourceService.isDramachi;
 
   /// Get Homepage items
   Future<Map<String, dynamic>> getHomepage({int page = 1, int tabId = 0}) async {
     if (AppSourceService.isFourKHdHub) {
       return _fourKHdHub.getHomepage(page: page, tabId: tabId);
+    }
+    if (AppSourceService.isDramachi) {
+      return _dramachi.getHomepage(page: page);
     }
     return _movieBox.getHomepage(page: page, tabId: tabId);
   }
@@ -29,6 +35,15 @@ class MediaProviderService {
     if (AppSourceService.isFourKHdHub) {
       return _fourKHdHub.search(query: query, page: page, subjectType: subjectType);
     }
+    if (AppSourceService.isDramachi) {
+      final list = await _dramachi.search(query, page: page);
+      return {
+        'code': 0,
+        'list': list,
+        'items': list,
+        'data': {'list': list},
+      };
+    }
     return _movieBox.search(
       query: query,
       page: page,
@@ -42,6 +57,9 @@ class MediaProviderService {
     if (AppSourceService.isFourKHdHub) {
       return _fourKHdHub.getDetails(subjectId: subjectId);
     }
+    if (AppSourceService.isDramachi || subjectId.startsWith('dramachi_') || subjectId.contains('::')) {
+      return _dramachi.getDetails(subjectId: subjectId);
+    }
     return _movieBox.getDetails(subjectId: subjectId);
   }
 
@@ -50,6 +68,10 @@ class MediaProviderService {
     if (AppSourceService.isFourKHdHub) {
       final details = await _fourKHdHub.getDetails(subjectId: subjectId);
       return details["seasons"] ?? {};
+    }
+    if (AppSourceService.isDramachi || subjectId.startsWith('dramachi_') || subjectId.contains('::')) {
+      final details = await _dramachi.getDetails(subjectId: subjectId);
+      return {'seasons': details['seasons'] ?? []};
     }
     return _movieBox.getSeasonInfo(subjectId: subjectId);
   }
@@ -63,6 +85,9 @@ class MediaProviderService {
   }) async {
     if (AppSourceService.isFourKHdHub) {
       return _fourKHdHub.getResources(subjectId: subjectId, se: se, ep: ep);
+    }
+    if (AppSourceService.isDramachi || subjectId.startsWith('dramachi_') || subjectId.contains('::')) {
+      return _dramachi.getResources(subjectId: subjectId, se: se, ep: ep);
     }
     return _movieBox.getResources(
       subjectId: subjectId,
@@ -85,7 +110,7 @@ class MediaProviderService {
     required String subjectId,
     required String resourceId,
   }) async {
-    if (AppSourceService.isFourKHdHub) {
+    if (AppSourceService.isFourKHdHub || AppSourceService.isDramachi) {
       return {"list": []};
     }
     return _movieBox.getExtCaptions(subjectId: subjectId, resourceId: resourceId);
