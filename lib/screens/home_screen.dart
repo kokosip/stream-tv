@@ -23,6 +23,7 @@ import 'provider_catalog_screen.dart';
 import '../services/download_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/update_service.dart';
+import '../services/performance_service.dart';
 import '../widgets/update_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -459,6 +460,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _isLoadingHome = false;
         });
       }
+      PerformanceService.instance.stopAppStartupTrace();
     }
   }
 

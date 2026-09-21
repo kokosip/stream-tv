@@ -13,6 +13,8 @@ import '../widgets/subtitle_search_dialog.dart';
 import '../services/playback_progress_service.dart';
 import '../services/app_language_service.dart';
 import '../services/analytics_service.dart';
+import '../services/performance_service.dart';
+import 'package:firebase_performance/firebase_performance.dart';
 import '../services/moviebox_api_service.dart';
 import '../services/online_subtitle_service.dart';
 
@@ -203,6 +205,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final GlobalKey<PopupMenuButtonState<String>> _popupMenuKey = GlobalKey();
   final GlobalKey<PopupMenuButtonState<Color>> _colorPopupMenuKey = GlobalKey();
   final GlobalKey<PopupMenuButtonState<BoxFit>> _fitMenuKey = GlobalKey();
+
+  Trace? _playbackTrace;
+  Stopwatch? _playbackStopwatch;
 
   Map<String, String>? _extractStreamHeaders(Map<String, dynamic>? stream) {
     final is4kHub = widget.provider == '4khdhub' ||
@@ -525,6 +530,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
               setState(() {
                 _isInitialized = true;
               });
+
+              if (_playbackTrace != null && _playbackStopwatch != null) {
+                _playbackStopwatch!.stop();
+                PerformanceService.instance.stopTrace(
+                  _playbackTrace,
+                  attributes: {
+                    'provider': widget.provider,
+                  },
+                  metrics: {
+                    'load_time_ms': _playbackStopwatch!.elapsedMilliseconds,
+                  },
+                );
+                _playbackTrace = null;
+                _playbackStopwatch = null;
+              }
               
               if (savedMs > 0 && !didResume) {
                 didResume = true;
@@ -558,7 +578,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }),
       );
 
-      // Open media and start playback
+      // Open media and start playback with performance tracking
+      _playbackStopwatch = Stopwatch()..start();
+      PerformanceService.instance.startTrace('video_playback_load').then((t) {
+        _playbackTrace = t;
+      });
+
       final headers = _extractStreamHeaders(_currentStream ?? widget.currentStream);
       await _player.open(Media(widget.streamUrl, httpHeaders: headers));
     } catch (e) {
@@ -668,6 +693,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    if (_playbackTrace != null) {
+      PerformanceService.instance.stopTrace(
+        _playbackTrace,
+        attributes: {'cancelled': 'true'},
+      );
+      _playbackTrace = null;
+      _playbackStopwatch = null;
+    }
+
     _pipChannel.invokeMethod('setPipEnabled', {'enabled': false});
     _hideTimer?.cancel();
     _nextEpisodeTimer?.cancel();

@@ -8,6 +8,7 @@ import 'services/app_language_service.dart';
 import 'services/app_content_filter_service.dart';
 import 'services/analytics_service.dart';
 import 'services/remote_config_service.dart';
+import 'services/performance_service.dart';
 import 'screens/home_screen.dart';
 
 void main() async {
@@ -46,6 +47,10 @@ void main() async {
 
     // Initialize Firebase Remote Config for dynamic provider URLs
     await RemoteConfigService.init();
+
+    // Initialize Firebase Performance Monitoring
+    await PerformanceService.init();
+    PerformanceService.instance.startAppStartupTrace();
   } catch (e) {
     debugPrint('Firebase initialization failed: $e');
   }
