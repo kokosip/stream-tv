@@ -9,6 +9,8 @@ import 'services/app_content_filter_service.dart';
 import 'services/analytics_service.dart';
 import 'services/remote_config_service.dart';
 import 'services/performance_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'services/fcm_service.dart';
 import 'screens/home_screen.dart';
 
 void main() async {
@@ -51,6 +53,12 @@ void main() async {
     // Initialize Firebase Performance Monitoring
     await PerformanceService.init();
     PerformanceService.instance.startAppStartupTrace();
+
+    // Register FCM Background Handler
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+    // Initialize Firebase Cloud Messaging (FCM)
+    await FcmService.init();
   } catch (e) {
     debugPrint('Firebase initialization failed: $e');
   }
@@ -74,6 +82,7 @@ class MovieBoxTvApp extends StatelessWidget {
       valueListenable: AppLanguageService.currentLanguage,
       builder: (context, langCode, child) {
         return MaterialApp(
+          navigatorKey: FcmService.navigatorKey,
           title: 'MovieBox TV',
           debugShowCheckedModeBanner: false,
           navigatorObservers: [
