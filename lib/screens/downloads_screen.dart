@@ -29,6 +29,110 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     _downloadService.init();
   }
 
+  String _formatErrorMessage(String? rawError) {
+    if (rawError == null || rawError.isEmpty) {
+      return AppLanguageService.tr(
+        en: "Download failed. Tap Retry to try again.",
+        id: "Gagal mengunduh file. Tekan Coba Lagi.",
+      );
+    }
+    final err = rawError.toLowerCase();
+
+    // 403 / 401 / forbidden / permission / expired / kedaluwarsa / kadaluarsa
+    if (err.contains('403') ||
+        err.contains('401') ||
+        err.contains('forbidden') ||
+        err.contains('ditolak') ||
+        err.contains('kedaluwarsa') ||
+        err.contains('kadaluarsa') ||
+        err.contains('expired')) {
+      return AppLanguageService.tr(
+        en: "Download link expired or access forbidden. Tap Retry to renew.",
+        id: "Tautan kedaluwarsa atau akses ditolak. Tekan Coba Lagi untuk memperbarui.",
+      );
+    }
+
+    // 428 / token updated
+    if (err.contains('428') || err.contains('diperbarui')) {
+      return AppLanguageService.tr(
+        en: "CDN access token updated. Tap Retry to continue.",
+        id: "Akses CDN diperbarui. Tekan Coba Lagi.",
+      );
+    }
+
+    // 404 / 410 / not found / unavailable
+    if (err.contains('404') ||
+        err.contains('410') ||
+        err.contains('not found') ||
+        err.contains('tidak tersedia') ||
+        err.contains('no longer available')) {
+      return AppLanguageService.tr(
+        en: "File is no longer available on source server (HTTP 404).",
+        id: "File sudah tidak tersedia di server sumber (HTTP 404).",
+      );
+    }
+
+    // 429 / rate limit
+    if (err.contains('429') || err.contains('rate limit') || err.contains('terlampaui')) {
+      return AppLanguageService.tr(
+        en: "Server download rate limit exceeded. Please try again later.",
+        id: "Batas unduhan server terlampaui (Rate limit). Coba lagi beberapa saat lagi.",
+      );
+    }
+
+    // 500 / 502 / 503 / 504 / server error
+    if (err.contains('500') ||
+        err.contains('502') ||
+        err.contains('503') ||
+        err.contains('504') ||
+        err.contains('gangguan') ||
+        err.contains('server error')) {
+      return AppLanguageService.tr(
+        en: "Download server encountered an issue. Please try again later.",
+        id: "Server unduhan sedang mengalami gangguan. Coba lagi nanti.",
+      );
+    }
+
+    // Timeout
+    if (err.contains('timeout') || err.contains('timed out') || err.contains('waktu habis')) {
+      return AppLanguageService.tr(
+        en: "Connection to download server timed out.",
+        id: "Koneksi ke server unduhan waktu habis (Timed out).",
+      );
+    }
+
+    // Network / socket / disconnected
+    if (err.contains('socketexception') ||
+        err.contains('connection closed') ||
+        err.contains('connection reset') ||
+        err.contains('network is unreachable') ||
+        err.contains('handshake failed') ||
+        err.contains('terputus') ||
+        err.contains('internet')) {
+      return AppLanguageService.tr(
+        en: "Internet connection lost during download.",
+        id: "Koneksi internet terputus saat mengunduh.",
+      );
+    }
+
+    // Storage full
+    if (err.contains('os error') ||
+        err.contains('no space') ||
+        err.contains('filesystemexception') ||
+        err.contains('ruang penyimpanan') ||
+        err.contains('storage')) {
+      return AppLanguageService.tr(
+        en: "Failed to save file. Check your device storage space.",
+        id: "Gagal menyimpan file. Periksa sisa ruang penyimpanan perangkat.",
+      );
+    }
+
+    return AppLanguageService.tr(
+      en: "Download failed: ${rawError.replaceFirst(RegExp(r'^(Unduhan gagal:\s*|Download failed:\s*|Exception:\s*)', caseSensitive: false), '')}",
+      id: "Unduhan gagal: ${rawError.replaceFirst(RegExp(r'^(Unduhan gagal:\s*|Download failed:\s*|Exception:\s*)', caseSensitive: false), '')}",
+    );
+  }
+
   void _playOffline(DownloadItem item) {
     if (!File(item.filePath).existsSync()) {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -136,9 +240,12 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<List<DownloadItem>>(
-      valueListenable: _downloadService.downloadsNotifier,
-      builder: (context, items, _) {
+    return ValueListenableBuilder<String>(
+      valueListenable: AppLanguageService.currentLanguage,
+      builder: (context, currentLang, _) {
+        return ValueListenableBuilder<List<DownloadItem>>(
+          valueListenable: _downloadService.downloadsNotifier,
+          builder: (context, items, _) {
         final activeDownloads = items.where((i) => i.status == DownloadStatus.downloading || i.status == DownloadStatus.paused).toList();
         final completedDownloads = items.where((i) => i.status == DownloadStatus.completed).toList();
         final failedDownloads = items.where((i) => i.status == DownloadStatus.failed).toList();
@@ -258,7 +365,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
         );
       },
     );
-  }
+  },
+);
+}
 
   Widget _buildSectionHeader(String title, int count) {
     return Row(
@@ -359,7 +468,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          isPaused ? "Dijeda" : DownloadService.formatSpeed(speed),
+                          isPaused
+                              ? AppLanguageService.tr(en: "Paused", id: "Dijeda")
+                              : DownloadService.formatSpeed(speed),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.outfit(
@@ -651,13 +762,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    item.errorMessage != null
-                        ? (item.errorMessage!.contains('428')
-                            ? "Akses CDN diperbarui. Tekan Coba Lagi."
-                            : (item.errorMessage!.contains('403') || item.errorMessage!.contains('410')
-                                ? "Tautan kedaluwarsa. Tekan Coba Lagi untuk memperbarui."
-                                : item.errorMessage!))
-                        : "Gagal mengunduh file.",
+                    _formatErrorMessage(item.errorMessage),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.outfit(color: Colors.redAccent, fontSize: 11),

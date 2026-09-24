@@ -12,6 +12,7 @@ import '../services/tvmaze_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/download_service.dart';
+import '../services/remote_config_service.dart';
 import 'player_screen.dart';
 import 'search_screen.dart';
 import 'cast_screen.dart';
@@ -3354,6 +3355,20 @@ class _DetailScreenState extends State<DetailScreen> {
                                 final streamUrl = streamData['resourceLink'] ?? streamData['resource_link'] ?? "";
                                 if (streamUrl.isEmpty) return;
 
+                                Map<String, String>? streamHeaders;
+                                if (streamData['headers'] is Map) {
+                                  streamHeaders = Map<String, String>.from(streamData['headers']);
+                                } else {
+                                  final signCookie = streamData['signCookie']?.toString();
+                                  if (signCookie != null && signCookie.isNotEmpty) {
+                                    streamHeaders = {
+                                      'User-Agent': 'ExoPlayer/2.18.1 (Linux; Android 11)',
+                                      'Referer': RemoteConfigService.instance.movieboxStreamReferer,
+                                      'Cookie': signCookie.trim(),
+                                    };
+                                  }
+                                }
+
                                 await _downloadService.startDownload(
                                   id: dId,
                                   title: itemTitle,
@@ -3363,6 +3378,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                   provider: 'moviebox',
                                   season: se,
                                   episode: ep,
+                                  headers: streamHeaders,
                                 );
 
                                 if (mounted) {

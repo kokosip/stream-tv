@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'moviebox_api_service.dart';
+import 'remote_config_service.dart';
+import 'app_language_service.dart';
 
 enum DownloadStatus {
   downloading,
@@ -20,7 +22,7 @@ class DownloadItem {
   final String title;
   final String coverUrl;
   String streamUrl;
-  final String filePath;
+  String filePath;
   final String quality;
   final String provider;
   final int season;
@@ -30,7 +32,7 @@ class DownloadItem {
   DownloadStatus status;
   String? errorMessage;
   final DateTime createdAt;
-
+  Map<String, String>? headers;
 
   DownloadItem({
     required this.id,
@@ -47,6 +49,7 @@ class DownloadItem {
     this.status = DownloadStatus.downloading,
     this.errorMessage,
     DateTime? createdAt,
+    this.headers,
   }) : createdAt = createdAt ?? DateTime.now();
 
   double get progress {
@@ -71,6 +74,7 @@ class DownloadItem {
     'status': status.name,
     'errorMessage': errorMessage,
     'createdAt': createdAt.toIso8601String(),
+    if (headers != null) 'headers': headers,
   };
 
   factory DownloadItem.fromJson(Map<String, dynamic> json) {
@@ -93,7 +97,8 @@ class DownloadItem {
       errorMessage: json['errorMessage'],
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt']) ?? DateTime.now()
-          : DateTime.now(),
+      : DateTime.now(),
+      headers: json['headers'] != null ? Map<String, String>.from(json['headers']) : null,
     );
   }
 }
@@ -230,13 +235,15 @@ class DownloadService {
     String provider = "moviebox",
     int season = 0,
     int episode = 0,
+    Map<String, String>? headers,
   }) async {
     await init();
 
     // Check if item already exists
     var item = getItem(id);
     if (item != null) {
-      if (item.status == DownloadStatus.completed && File(item.filePath).existsSync()) {
+      final file = File(item.filePath);
+      if (item.status == DownloadStatus.completed && file.existsSync()) {
         return;
       }
       if (item.status == DownloadStatus.downloading) {
@@ -245,10 +252,13 @@ class DownloadService {
       // Re-download or resume
       item.status = DownloadStatus.downloading;
       item.errorMessage = null;
+      item.streamUrl = streamUrl;
+      if (headers != null) item.headers = headers;
     } else {
       final dir = await _getDownloadDir();
       final cleanTitle = _sanitizeFileName("${id}_$quality");
-      final filePath = "${dir.path}/$cleanTitle.mp4";
+      final isDash = streamUrl.toLowerCase().contains('.mpd') || streamUrl.toLowerCase().contains('/dash/');
+      final filePath = isDash ? "${dir.path}/$cleanTitle/index.mpd" : "${dir.path}/$cleanTitle.mp4";
 
       item = DownloadItem(
         id: id,
@@ -263,6 +273,7 @@ class DownloadService {
         totalBytes: 0,
         downloadedBytes: 0,
         status: DownloadStatus.downloading,
+        headers: headers,
       );
 
       final current = List<DownloadItem>.from(downloadsNotifier.value);
@@ -274,11 +285,83 @@ class DownloadService {
     _executeDownload(item);
   }
 
+  Map<String, String> _buildRequestHeaders(DownloadItem item) {
+    final headers = <String, String>{};
+    if (item.headers != null && item.headers!.isNotEmpty) {
+      headers.addAll(item.headers!);
+    }
+
+    if (item.provider.toLowerCase() == '4khdhub') {
+      headers['User-Agent'] =
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+      final streamLower = item.streamUrl.toLowerCase();
+      if (!streamLower.contains('googleusercontent') &&
+          !streamLower.contains('storage.googleapis') &&
+          !streamLower.contains('pixeldrain') &&
+          !streamLower.contains('cloudflarestorage') &&
+          !streamLower.contains('snvhost') &&
+          !streamLower.contains('r2.')) {
+        headers['Referer'] = 'https://4khdhub.one/';
+      }
+    } else if (item.provider.toLowerCase() == 'dramachi') {
+      headers['User-Agent'] =
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    } else {
+      headers['User-Agent'] ??= 'ExoPlayer/2.18.1 (Linux; Android 11)';
+      headers['Referer'] ??= RemoteConfigService.instance.movieboxStreamReferer;
+    }
+    return headers;
+  }
+
+  Future<bool> _refreshMovieBoxLink(DownloadItem item) async {
+    try {
+      final sId = item.id.contains('_') ? item.id.split('_').first : item.id;
+      final resNum = int.tryParse(item.quality.replaceAll(RegExp(r'[^\d]'), '')) ?? 720;
+      final freshData = await MovieBoxApiService().getResources(
+        subjectId: sId,
+        se: item.season,
+        ep: item.episode,
+        resolution: resNum,
+      );
+      final list = freshData['list'] as List<dynamic>? ?? [];
+      for (final r in list) {
+        final link = r['resourceLink'] ?? r['resource_link'];
+        if (link != null && link.toString().isNotEmpty) {
+          item.streamUrl = link.toString();
+          if (r['headers'] is Map) {
+            item.headers = Map<String, String>.from(r['headers']);
+          } else {
+            final sc = (r['signCookie'] ?? '').toString();
+            if (sc.isNotEmpty) {
+              item.headers = {
+                'User-Agent': 'ExoPlayer/2.18.1 (Linux; Android 11)',
+                'Referer': RemoteConfigService.instance.movieboxStreamReferer,
+                'Cookie': sc.trim(),
+              };
+            }
+          }
+          _updateItemInList(item);
+          await _saveToPrefs();
+          return true;
+        }
+      }
+    } catch (e) {
+      print("Error refreshing MovieBox download link: $e");
+    }
+    return false;
+  }
+
   Future<void> _executeDownload(DownloadItem item) async {
     final client = http.Client();
     _activeClients[item.id] = client;
 
     try {
+      final isDash = item.streamUrl.toLowerCase().contains('.mpd') || item.streamUrl.toLowerCase().contains('/dash/');
+      if (isDash) {
+        await _executeDashDownload(item, client);
+        return;
+      }
+
       final file = File(item.filePath);
       int startByte = 0;
       if (item.downloadedBytes > 0 && await file.exists()) {
@@ -288,18 +371,9 @@ class DownloadService {
         item.downloadedBytes = 0;
       }
 
+      var reqHeaders = _buildRequestHeaders(item);
       var request = http.Request('GET', Uri.parse(item.streamUrl));
-      if (item.provider.toLowerCase() == '4khdhub') {
-        request.headers['User-Agent'] =
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-        request.headers['Referer'] = 'https://4khdhub.one/';
-      } else if (item.provider.toLowerCase() == 'dramachi') {
-        request.headers['User-Agent'] =
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-      } else {
-        // Use media player User-Agent (ExoPlayer) which MovieBox CDN accepts (browser UAs return 428 Forbidden)
-        request.headers['User-Agent'] = 'ExoPlayer/2.18.1 (Linux; Android 11)';
-      }
+      request.headers.addAll(reqHeaders);
 
       if (startByte > 0) {
         request.headers['Range'] = 'bytes=$startByte-';
@@ -310,38 +384,16 @@ class DownloadService {
       // If CDN link expired or rejected (403, 410, 428), attempt auto-refresh from MovieBox API
       if ((response.statusCode == 403 || response.statusCode == 410 || response.statusCode == 428) &&
           item.provider.toLowerCase() == 'moviebox') {
-        try {
-          final sId = item.id.contains('_') ? item.id.split('_').first : item.id;
-          final resNum = int.tryParse(item.quality.replaceAll(RegExp(r'[^\d]'), '')) ?? 720;
-          final freshData = await MovieBoxApiService().getResources(
-            subjectId: sId,
-            se: item.season,
-            ep: item.episode,
-            resolution: resNum,
-          );
-          final list = freshData['list'] as List<dynamic>? ?? [];
-          String? freshUrl;
-          for (final r in list) {
-            final link = r['resourceLink'] ?? r['resource_link'];
-            if (link != null && link.toString().isNotEmpty) {
-              freshUrl = link.toString();
-              break;
-            }
+        final refreshed = await _refreshMovieBoxLink(item);
+        if (refreshed) {
+          reqHeaders = _buildRequestHeaders(item);
+          request = http.Request('GET', Uri.parse(item.streamUrl));
+          request.headers.addAll(reqHeaders);
+          if (startByte > 0) {
+            request.headers['Range'] = 'bytes=$startByte-';
           }
-
-          if (freshUrl != null && freshUrl.isNotEmpty) {
-            item.streamUrl = freshUrl;
-            _updateItemInList(item);
-            await _saveToPrefs();
-
-            request = http.Request('GET', Uri.parse(item.streamUrl));
-            request.headers['User-Agent'] = 'ExoPlayer/2.18.1 (Linux; Android 11)';
-            if (startByte > 0) {
-              request.headers['Range'] = 'bytes=$startByte-';
-            }
-            response = await client.send(request);
-          }
-        } catch (_) {}
+          response = await client.send(request);
+        }
       }
 
       if (response.statusCode != 200 && response.statusCode != 206) {
@@ -387,7 +439,6 @@ class DownloadService {
           item.downloadedBytes += chunk.length;
 
           final now = DateTime.now();
-          // Calculate speed every 1 second
           final speedDiff = now.difference(_lastSpeedTime[item.id] ?? now).inMilliseconds;
           if (speedDiff >= 1000) {
             final bytesDiff = item.downloadedBytes - (_lastSpeedBytes[item.id] ?? 0);
@@ -396,7 +447,6 @@ class DownloadService {
             _lastSpeedBytes[item.id] = item.downloadedBytes;
           }
 
-          // Throttle ValueNotifier updates to every 400ms for smooth UI without lagging
           if (now.difference(lastNotifyTime).inMilliseconds >= 400) {
             lastNotifyTime = now;
             downloadsNotifier.value = List<DownloadItem>.from(downloadsNotifier.value);
@@ -437,36 +487,266 @@ class DownloadService {
     }
   }
 
+  Future<void> _executeDashDownload(
+    DownloadItem item,
+    http.Client client,
+  ) async {
+    try {
+      final cleanTitle = _sanitizeFileName("${item.id}_${item.quality}");
+      final docsDir = await getApplicationDocumentsDirectory();
+      final folder = Directory("${docsDir.path}/downloads/$cleanTitle");
+    if (!await folder.exists()) {
+      await folder.create(recursive: true);
+    }
+    final manifestFile = File("${folder.path}/index.mpd");
+    item.filePath = manifestFile.path;
+
+    var reqHeaders = _buildRequestHeaders(item);
+    var mpdRes = await client.get(Uri.parse(item.streamUrl), headers: reqHeaders);
+
+    // Auto-refresh if 403, 410, 428
+    if ((mpdRes.statusCode == 403 || mpdRes.statusCode == 410 || mpdRes.statusCode == 428) &&
+        item.provider.toLowerCase() == 'moviebox') {
+      final refreshed = await _refreshMovieBoxLink(item);
+      if (refreshed) {
+        reqHeaders = _buildRequestHeaders(item);
+        mpdRes = await client.get(Uri.parse(item.streamUrl), headers: reqHeaders);
+      }
+    }
+
+    if (mpdRes.statusCode != 200) {
+      throw Exception("Server returned HTTP ${mpdRes.statusCode} while fetching manifest");
+    }
+
+    final mpdXml = mpdRes.body;
+    await manifestFile.writeAsString(mpdXml);
+
+    final baseUrl = item.streamUrl.substring(0, item.streamUrl.lastIndexOf('/') + 1);
+
+    // Parse duration
+    final durMatch = RegExp(r'mediaPresentationDuration="PT(?:(\d+)H)?(?:(\d+)M)?(?:([\d\.]+)S)?"').firstMatch(mpdXml);
+    double totalSeconds = 0;
+    if (durMatch != null) {
+      final h = double.tryParse(durMatch.group(1) ?? '0') ?? 0;
+      final m = double.tryParse(durMatch.group(2) ?? '0') ?? 0;
+      final s = double.tryParse(durMatch.group(3) ?? '0') ?? 0;
+      totalSeconds = (h * 3600) + (m * 60) + s;
+    }
+
+    final segDurMatch = RegExp(r'<SegmentTemplate[^>]*timescale="(\d+)"[^>]*duration="(\d+)"').firstMatch(mpdXml);
+    double segSec = 5.0;
+    if (segDurMatch != null) {
+      final ts = double.tryParse(segDurMatch.group(1) ?? '1') ?? 1;
+      final dur = double.tryParse(segDurMatch.group(2) ?? '5') ?? 5;
+      segSec = dur / ts;
+    }
+    final totalChunks = totalSeconds > 0 ? (totalSeconds / segSec).ceil() : 0;
+
+    // Parse Representation IDs
+    final targetRes = int.tryParse(item.quality.replaceAll(RegExp(r'[^\d]'), '')) ?? 1080;
+    final videoRepMatches = RegExp(r'<Representation[^>]*id="([^"]+)"[^>]*mimeType="video[^"]*"[^>]*height="(\d+)"').allMatches(mpdXml).toList();
+    if (videoRepMatches.isEmpty) {
+      videoRepMatches.addAll(RegExp(r'<Representation[^>]*height="(\d+)"[^>]*id="([^"]+)"').allMatches(mpdXml));
+    }
+
+    String videoRepId = "0";
+    if (videoRepMatches.isNotEmpty) {
+      var bestDiff = 99999;
+      for (final m in videoRepMatches) {
+        final id = m.group(1) ?? "0";
+        final h = int.tryParse(m.group(2) ?? "1080") ?? 1080;
+        final diff = (h - targetRes).abs();
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          videoRepId = id;
+        }
+      }
+    }
+
+    // Audio representation
+    final audioRepMatch = RegExp(r'<Representation[^>]*id="([^"]+)"[^>]*mimeType="audio').firstMatch(mpdXml) ??
+        RegExp(r'<Representation[^>]*mimeType="audio[^"]*"[^>]*id="([^"]+)"').firstMatch(mpdXml);
+    final audioRepId = audioRepMatch?.group(1) ?? "3";
+
+    // Download init segments
+    final videoInitFile = File("${folder.path}/init-stream$videoRepId.m4s");
+    if (!await videoInitFile.exists() || await videoInitFile.length() == 0) {
+      final vInitRes = await client.get(Uri.parse('${baseUrl}init-stream$videoRepId.m4s'), headers: reqHeaders);
+      if (vInitRes.statusCode == 200) {
+        await videoInitFile.writeAsBytes(vInitRes.bodyBytes);
+      }
+    }
+
+    final audioInitFile = File("${folder.path}/init-stream$audioRepId.m4s");
+    if (!await audioInitFile.exists() || await audioInitFile.length() == 0) {
+      final aInitRes = await client.get(Uri.parse('${baseUrl}init-stream$audioRepId.m4s'), headers: reqHeaders);
+      if (aInitRes.statusCode == 200) {
+        await audioInitFile.writeAsBytes(aInitRes.bodyBytes);
+      }
+    }
+
+    // Check existing downloaded chunks for resume support
+    int completedChunks = 0;
+    int currentBytes = (await videoInitFile.exists() ? await videoInitFile.length() : 0) +
+        (await audioInitFile.exists() ? await audioInitFile.length() : 0);
+
+    for (int i = 1; i <= totalChunks; i++) {
+      final padIdx = i.toString().padLeft(5, '0');
+      final vChunk = File("${folder.path}/chunk-stream$videoRepId-$padIdx.m4s");
+      final aChunk = File("${folder.path}/chunk-stream$audioRepId-$padIdx.m4s");
+      if (await vChunk.exists() && await aChunk.exists()) {
+        final vLen = await vChunk.length();
+        final aLen = await aChunk.length();
+        if (vLen > 0 && aLen > 0) {
+          completedChunks++;
+          currentBytes += vLen + aLen;
+        }
+      }
+    }
+
+    item.downloadedBytes = currentBytes;
+    if (item.totalBytes <= 0 && totalChunks > 0 && completedChunks > 0) {
+      item.totalBytes = ((currentBytes / completedChunks) * totalChunks).toInt();
+    }
+    item.status = DownloadStatus.downloading;
+    item.errorMessage = null;
+    _updateItemInList(item);
+
+    var lastNotifyTime = DateTime.now();
+    _lastSpeedTime[item.id] = DateTime.now();
+    _lastSpeedBytes[item.id] = item.downloadedBytes;
+
+    for (int i = 1; i <= totalChunks; i++) {
+      if (item.status != DownloadStatus.downloading) {
+        break;
+      }
+      final padIdx = i.toString().padLeft(5, '0');
+      final vFile = File("${folder.path}/chunk-stream$videoRepId-$padIdx.m4s");
+      final aFile = File("${folder.path}/chunk-stream$audioRepId-$padIdx.m4s");
+
+      if (await vFile.exists() && await aFile.exists()) {
+        final vLen = await vFile.length();
+        final aLen = await aFile.length();
+        if (vLen > 0 && aLen > 0) {
+          continue;
+        }
+      }
+
+      // Download video chunk
+      final vChunkUrl = '${baseUrl}chunk-stream$videoRepId-$padIdx.m4s';
+      var vRes = await client.get(Uri.parse(vChunkUrl), headers: reqHeaders);
+      if ((vRes.statusCode == 403 || vRes.statusCode == 410) && item.provider.toLowerCase() == 'moviebox') {
+        final refreshed = await _refreshMovieBoxLink(item);
+        if (refreshed) {
+          reqHeaders = _buildRequestHeaders(item);
+          vRes = await client.get(Uri.parse(vChunkUrl), headers: reqHeaders);
+        }
+      }
+      if (vRes.statusCode != 200) {
+        throw Exception("Server returned HTTP ${vRes.statusCode} for chunk $i");
+      }
+      await vFile.writeAsBytes(vRes.bodyBytes);
+      item.downloadedBytes += vRes.bodyBytes.length;
+
+      // Download audio chunk
+      final aChunkUrl = '${baseUrl}chunk-stream$audioRepId-$padIdx.m4s';
+      var aRes = await client.get(Uri.parse(aChunkUrl), headers: reqHeaders);
+      if (aRes.statusCode == 200) {
+        await aFile.writeAsBytes(aRes.bodyBytes);
+        item.downloadedBytes += aRes.bodyBytes.length;
+      }
+
+      completedChunks++;
+      if (item.totalBytes <= 0 && totalChunks > 0) {
+        item.totalBytes = ((item.downloadedBytes / completedChunks) * totalChunks).toInt();
+      }
+
+      final now = DateTime.now();
+      final speedDiff = now.difference(_lastSpeedTime[item.id] ?? now).inMilliseconds;
+      if (speedDiff >= 1000) {
+        final bytesDiff = item.downloadedBytes - (_lastSpeedBytes[item.id] ?? 0);
+        _downloadSpeeds[item.id] = (bytesDiff / (speedDiff / 1000.0));
+        _lastSpeedTime[item.id] = now;
+        _lastSpeedBytes[item.id] = item.downloadedBytes;
+      }
+
+      if (now.difference(lastNotifyTime).inMilliseconds >= 400) {
+        lastNotifyTime = now;
+        downloadsNotifier.value = List<DownloadItem>.from(downloadsNotifier.value);
+      }
+    }
+
+    if (item.status == DownloadStatus.downloading) {
+      item.status = DownloadStatus.completed;
+      _downloadSpeeds.remove(item.id);
+      _cleanupHandles(item.id);
+      _updateItemInList(item);
+      await _saveToPrefs();
+    }
+  } catch (e) {
+    _cleanupHandles(item.id);
+    item.status = DownloadStatus.failed;
+    item.errorMessage = _sanitizeDownloadError(e);
+    _downloadSpeeds.remove(item.id);
+    _updateItemInList(item);
+    await _saveToPrefs();
+  }
+}
+
   String _sanitizeDownloadError(dynamic error) {
     final errStr = error.toString().toLowerCase();
 
     // MovieBox TUI v0.1.24 Sanitized Download Failure Notices (DownloadError::user_message())
     if (errStr.contains('403') || errStr.contains('401') || errStr.contains('forbidden')) {
-      return "Izin server ditolak (HTTP 403). Link kadaluarsa atau akses ditolak.";
+      return AppLanguageService.tr(
+        en: "Server access denied (HTTP 403). Link expired or forbidden.",
+        id: "Izin server ditolak (HTTP 403). Link kedaluwarsa atau akses ditolak.",
+      );
     }
     if (errStr.contains('404') || errStr.contains('410') || errStr.contains('not found')) {
-      return "File sudah tidak tersedia di server sumber (HTTP 404).";
+      return AppLanguageService.tr(
+        en: "File is no longer available on source server (HTTP 404).",
+        id: "File sudah tidak tersedia di server sumber (HTTP 404).",
+      );
     }
     if (errStr.contains('429')) {
-      return "Batas unduhan server terlampaui (Rate limit). Coba lagi beberapa saat lagi.";
+      return AppLanguageService.tr(
+        en: "Server download rate limit exceeded. Please try again later.",
+        id: "Batas unduhan server terlampaui (Rate limit). Coba lagi beberapa saat lagi.",
+      );
     }
     if (errStr.contains('500') || errStr.contains('502') || errStr.contains('503') || errStr.contains('504')) {
-      return "Server unduhan sedang mengalami gangguan. Coba lagi nanti.";
+      return AppLanguageService.tr(
+        en: "Download server encountered an issue. Please try again later.",
+        id: "Server unduhan sedang mengalami gangguan. Coba lagi nanti.",
+      );
     }
     if (errStr.contains('timeout') || errStr.contains('timed out')) {
-      return "Koneksi ke server unduhan waktu habis (Timed out).";
+      return AppLanguageService.tr(
+        en: "Connection to download server timed out.",
+        id: "Koneksi ke server unduhan waktu habis (Timed out).",
+      );
     }
     if (errStr.contains('socketexception') ||
         errStr.contains('connection closed') ||
         errStr.contains('connection reset') ||
         errStr.contains('network is unreachable') ||
         errStr.contains('handshake failed')) {
-      return "Koneksi internet terputus saat mengunduh.";
+      return AppLanguageService.tr(
+        en: "Internet connection lost during download.",
+        id: "Koneksi internet terputus saat mengunduh.",
+      );
     }
     if (errStr.contains('os error') || errStr.contains('no space') || errStr.contains('filesystemexception')) {
-      return "Gagal menyimpan file. Periksa sisa ruang penyimpanan perangkat.";
+      return AppLanguageService.tr(
+        en: "Failed to save file. Check your device storage space.",
+        id: "Gagal menyimpan file. Periksa sisa ruang penyimpanan perangkat.",
+      );
     }
-    return "Unduhan gagal: ${error.toString().replaceFirst(RegExp(r'^Exception:\s*'), '')}";
+    return AppLanguageService.tr(
+      en: "Download failed: ${error.toString().replaceFirst(RegExp(r'^Exception:\s*'), '')}",
+      id: "Unduhan gagal: ${error.toString().replaceFirst(RegExp(r'^Exception:\s*'), '')}",
+    );
   }
 
   void _updateItemInList(DownloadItem item) {
@@ -497,9 +777,13 @@ class DownloadService {
 
     final item = getItem(id);
     if (item != null) {
-      // Delete temporary partial file
+      item.status = DownloadStatus.cancelled;
       final file = File(item.filePath);
-      if (await file.exists()) {
+      if (item.filePath.endsWith('.mpd') && file.parent.existsSync()) {
+        try {
+          await file.parent.delete(recursive: true);
+        } catch (_) {}
+      } else if (await file.exists()) {
         try {
           await file.delete();
         } catch (_) {}
@@ -542,7 +826,11 @@ class DownloadService {
     final item = getItem(id);
     if (item != null) {
       final file = File(item.filePath);
-      if (await file.exists()) {
+      if (item.filePath.endsWith('.mpd') && file.parent.existsSync()) {
+        try {
+          await file.parent.delete(recursive: true);
+        } catch (_) {}
+      } else if (await file.exists()) {
         try {
           await file.delete();
         } catch (_) {}
