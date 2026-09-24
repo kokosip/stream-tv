@@ -418,7 +418,7 @@ class DownloadService {
           _cleanupHandles(item.id);
 
           item.status = DownloadStatus.failed;
-          item.errorMessage = err.toString();
+          item.errorMessage = _sanitizeDownloadError(err);
           _downloadSpeeds.remove(item.id);
           _updateItemInList(item);
           await _saveToPrefs();
@@ -430,11 +430,43 @@ class DownloadService {
     } catch (e) {
       _cleanupHandles(item.id);
       item.status = DownloadStatus.failed;
-      item.errorMessage = e.toString();
+      item.errorMessage = _sanitizeDownloadError(e);
       _downloadSpeeds.remove(item.id);
       _updateItemInList(item);
       await _saveToPrefs();
     }
+  }
+
+  String _sanitizeDownloadError(dynamic error) {
+    final errStr = error.toString().toLowerCase();
+
+    // MovieBox TUI v0.1.24 Sanitized Download Failure Notices (DownloadError::user_message())
+    if (errStr.contains('403') || errStr.contains('401') || errStr.contains('forbidden')) {
+      return "Izin server ditolak (HTTP 403). Link kadaluarsa atau akses ditolak.";
+    }
+    if (errStr.contains('404') || errStr.contains('410') || errStr.contains('not found')) {
+      return "File sudah tidak tersedia di server sumber (HTTP 404).";
+    }
+    if (errStr.contains('429')) {
+      return "Batas unduhan server terlampaui (Rate limit). Coba lagi beberapa saat lagi.";
+    }
+    if (errStr.contains('500') || errStr.contains('502') || errStr.contains('503') || errStr.contains('504')) {
+      return "Server unduhan sedang mengalami gangguan. Coba lagi nanti.";
+    }
+    if (errStr.contains('timeout') || errStr.contains('timed out')) {
+      return "Koneksi ke server unduhan waktu habis (Timed out).";
+    }
+    if (errStr.contains('socketexception') ||
+        errStr.contains('connection closed') ||
+        errStr.contains('connection reset') ||
+        errStr.contains('network is unreachable') ||
+        errStr.contains('handshake failed')) {
+      return "Koneksi internet terputus saat mengunduh.";
+    }
+    if (errStr.contains('os error') || errStr.contains('no space') || errStr.contains('filesystemexception')) {
+      return "Gagal menyimpan file. Periksa sisa ruang penyimpanan perangkat.";
+    }
+    return "Unduhan gagal: ${error.toString().replaceFirst(RegExp(r'^Exception:\s*'), '')}";
   }
 
   void _updateItemInList(DownloadItem item) {

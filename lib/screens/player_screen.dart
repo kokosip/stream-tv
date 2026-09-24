@@ -450,12 +450,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
         await platform.setProperty('force-seekable', 'yes');
         await platform.setProperty('hr-seek', 'yes');
         await platform.setProperty('hr-seek-framedrop', 'yes');
-        // Auto-reconnect on network drops for HLS / HTTP streams to prevent ffurl_read timeouts, enable seeking
+
+        // MovieBox TUI v0.1.24 High-Throughput Buffering & Anti-Rebuffering Loop:
+        // Enforce cache, pause on re-buffering with an 8-second cushion to avoid 1-second stutter loops
+        await platform.setProperty('cache', 'yes');
+        await platform.setProperty('cache-pause', 'yes');
+        await platform.setProperty('cache-pause-wait', '8');
+        await platform.setProperty('cache-pause-initial', 'yes');
+
+        // Expand demuxer cache to 128MB and 120s readahead to absorb long Wi-Fi / CDN network jitter
+        await platform.setProperty('demuxer-max-bytes', '134217728'); // 128MB
+        await platform.setProperty('demuxer-max-back-bytes', '52428800'); // 50MB
+        await platform.setProperty('demuxer-readahead-secs', '120'); // 2 minutes readahead
+        await platform.setProperty('demuxer-lavf-buffersize', '1048576'); // 1MB
+        await platform.setProperty('stream-buffer-size', '524288'); // 512KB
         await platform.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,seekable=1');
-        // Demuxer cache optimizations: 64MB buffer and 30s readahead to absorb Wi-Fi jitter on TV
-        await platform.setProperty('demuxer-max-bytes', '67108864');
-        await platform.setProperty('demuxer-max-back-bytes', '16777216');
-        await platform.setProperty('demuxer-readahead-secs', '30');
+        await platform.setProperty('stream-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
+
+        await _applyStreamQualityLimit(_currentStream ?? widget.currentStream);
       }
 
       // Check for saved progress
@@ -1901,6 +1913,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
         });
         _setupSubtitles(res.captions);
+        await _applyStreamQualityLimit(res.currentStream ?? _currentStream);
         final headers = _extractStreamHeaders(res.currentStream ?? _currentStream);
         await _player.open(Media(res.streamUrl, httpHeaders: headers));
         await _player.seek(currentPos);
@@ -1990,6 +2003,36 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return curId.isNotEmpty && curId == mapId;
   }
 
+  Future<void> _applyStreamQualityLimit(Map<String, dynamic>? stream) async {
+    try {
+      if (_player.platform is! NativePlayer) return;
+      final platform = _player.platform as NativePlayer;
+      final targetStream = stream ?? _currentStream ?? widget.currentStream;
+      if (targetStream == null) return;
+
+      final res = (targetStream['resolution'] is num)
+          ? (targetStream['resolution'] as num).toInt()
+          : (int.tryParse(targetStream['resolution']?.toString() ?? '0') ?? 0);
+
+      final url = (targetStream['resourceLink'] ?? targetStream['resource_link'] ?? targetStream['url'] ?? '').toString();
+      final isDash = url.endsWith('.mpd') || (targetStream['format'] ?? '').toString().toUpperCase() == 'DASH';
+
+      // MovieBox TUI v0.1.24 adaptive stream bitrate capping:
+      // Injects ytdl-format height limit so MPV demuxer selects matching DASH representation
+      if (res > 0 && isDash) {
+        await platform.setProperty(
+          'ytdl-format',
+          'bestvideo[height<=$res]+bestaudio/best[height<=$res]/bestvideo+bestaudio/best',
+        );
+      } else {
+        await platform.setProperty('ytdl-format', 'bestvideo+bestaudio/best');
+        await platform.setProperty('hls-bitrate', 'max');
+      }
+    } catch (e) {
+      debugPrint("Error setting stream quality limit: $e");
+    }
+  }
+
   void _switchQuality(Map<String, dynamic> stream) async {
     final currentPos = _player.state.position;
 
@@ -2010,6 +2053,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         setState(() {
           _currentStream = stream;
         });
+        await _applyStreamQualityLimit(stream);
         final headers = _extractStreamHeaders(stream);
         await _player.open(Media(newUrl, httpHeaders: headers));
         await _player.seek(currentPos);
@@ -2058,6 +2102,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         });
 
         _setupSubtitles(nextData.captions);
+        await _applyStreamQualityLimit(nextData.currentStream ?? _currentStream);
         final headers = _extractStreamHeaders(nextData.currentStream ?? _currentStream);
         await _player.open(Media(nextData.streamUrl, httpHeaders: headers));
         _startHideTimer();

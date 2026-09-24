@@ -917,7 +917,8 @@ class MovieBoxApiService {
           .map((s) => int.tryParse(s.trim()))
           .whereType<int>()
           .toList();
-      final maxRes = resList.isNotEmpty ? resList.reduce(max) : 1080;
+      resList.sort((a, b) => b.compareTo(a)); // Descending resolution sorting
+      final maxRes = resList.isNotEmpty ? resList.first : 1080;
 
       final headers = <String, String>{
         "User-Agent": _userAgent,
@@ -937,8 +938,18 @@ class MovieBoxApiService {
       final rawTitle = (playData['title'] ?? 'MovieBox Stream').toString();
       final title = cleanMovieBoxTitle(rawTitle);
 
+      final highestRes = resList.isNotEmpty ? resList.first : 1080;
+      final rawSize = int.tryParse(st['size']?.toString() ?? '0') ?? 0;
+
       if (isDash && resList.length > 1) {
         for (final r in resList) {
+          // MovieBox TUI v0.1.24: Scale size dynamically based on resolution ratio
+          int scaledSize = rawSize;
+          if (rawSize > 0 && highestRes > 0 && r < highestRes) {
+            final scale = pow(r / highestRes, 1.6).clamp(0.15, 1.0);
+            scaledSize = (rawSize * scale).toInt();
+          }
+
           adaptedStreams.add({
             'resourceId': streamId,
             'resourceLink': playableUrl,
@@ -948,7 +959,7 @@ class MovieBoxApiService {
             'codecName': codec,
             'codec_name': codec,
             'format': 'DASH',
-            'size': st['size'] ?? 0,
+            'size': scaledSize,
             'fileName': se > 0 && ep > 0
                 ? "$title S${se.toString().padLeft(2, '0')}E${ep.toString().padLeft(2, '0')} ${r}p $codec"
                 : "$title ${r}p $codec",
@@ -968,7 +979,7 @@ class MovieBoxApiService {
           'codecName': codec,
           'codec_name': codec,
           'format': isDash ? 'DASH' : 'MP4',
-          'size': st['size'] ?? 0,
+          'size': rawSize,
           'fileName': se > 0 && ep > 0
               ? "$title S${se.toString().padLeft(2, '0')}E${ep.toString().padLeft(2, '0')} ${maxRes}p $codec"
               : "$title ${maxRes}p $codec",
@@ -980,7 +991,7 @@ class MovieBoxApiService {
       }
     }
 
-    // MovieBox-TUI v0.1.22: Concurrently merge play-info/v2 DASH streams and
+    // MovieBox-TUI v0.1.24: Concurrently merge play-info/v2 DASH streams and
     // high-bitrate server files, deduplicate links, and sort numerically by resolution & size.
     final Set<String> seenBaseUrls = {};
     final List<Map<String, dynamic>> combinedReleases = [];
@@ -988,8 +999,9 @@ class MovieBoxApiService {
     for (final st in adaptedStreams) {
       final link = (st['resourceLink'] ?? st['resource_link'] ?? st['url'] ?? '').toString();
       final base = link.split('?').first.trim();
+      final res = st['resolution']?.toString() ?? '';
       if (base.isNotEmpty) {
-        seenBaseUrls.add(base);
+        seenBaseUrls.add("${base}_$res");
       }
       combinedReleases.add(st);
     }
@@ -1008,8 +1020,10 @@ class MovieBoxApiService {
       if (!matchesEpisode) continue;
 
       final base = link.split('?').first.trim();
-      if (base.isNotEmpty && seenBaseUrls.contains(base)) continue;
-      if (base.isNotEmpty) seenBaseUrls.add(base);
+      final res = rawMap['resolution']?.toString() ?? '';
+      final dedupKey = "${base}_$res";
+      if (base.isNotEmpty && seenBaseUrls.contains(dedupKey)) continue;
+      if (base.isNotEmpty) seenBaseUrls.add(dedupKey);
 
       // Ensure standard keys
       rawMap['resourceLink'] ??= link;
@@ -1139,38 +1153,43 @@ class MovieBoxApiService {
           .toList();
 
       if (validSiblings.isNotEmpty) {
+        // MovieBox TUI v0.1.24: Bound parallel sibling caption queries with an 8-second timeout to prevent stalls
         final siblingResults = await Future.wait(validSiblings.map((sibId) async {
           try {
-            final resList = await getResources(subjectId: sibId, se: se, ep: ep, resolution: 1080);
-            final files = resList['list'] ?? (resList['data'] is Map ? resList['data']['list'] : null) ?? [];
-            if (files is List && files.isNotEmpty) {
-              // Find matching episode or fallback to first
-              dynamic matchItem;
-              for (final f in files) {
-                if (f is Map) {
-                  final fSe = int.tryParse(f['se']?.toString() ?? '') ?? 0;
-                  final fEp = int.tryParse(f['ep']?.toString() ?? '') ?? 0;
-                  if (se == 0 && ep == 0) {
-                    matchItem = f;
-                    break;
+            return await () async {
+              final resList = await getResources(subjectId: sibId, se: se, ep: ep, resolution: 1080);
+              final files = resList['list'] ?? (resList['data'] is Map ? resList['data']['list'] : null) ?? [];
+              if (files is List && files.isNotEmpty) {
+                // Find matching episode or fallback to first
+                dynamic matchItem;
+                for (final f in files) {
+                  if (f is Map) {
+                    final fSe = int.tryParse(f['se']?.toString() ?? '') ?? 0;
+                    final fEp = int.tryParse(f['ep']?.toString() ?? '') ?? 0;
+                    if (se == 0 && ep == 0) {
+                      matchItem = f;
+                      break;
+                    }
+                    if (fSe == se && fEp == ep) {
+                      matchItem = f;
+                      break;
+                    }
                   }
-                  if (fSe == se && fEp == ep) {
-                    matchItem = f;
-                    break;
+                }
+                matchItem ??= files[0];
+                if (matchItem is Map) {
+                  final sibRid = matchItem['resourceId']?.toString() ?? matchItem['id']?.toString() ?? '';
+                  if (sibRid.isNotEmpty) {
+                    final sibSubs = await getExtCaptions(subjectId: sibId, resourceId: sibRid);
+                    return sibSubs['extCaptions'] ?? (sibSubs['data'] is Map ? sibSubs['data']['extCaptions'] : null);
                   }
                 }
               }
-              matchItem ??= files[0];
-              if (matchItem is Map) {
-                final sibRid = matchItem['resourceId']?.toString() ?? matchItem['id']?.toString() ?? '';
-                if (sibRid.isNotEmpty) {
-                  final sibSubs = await getExtCaptions(subjectId: sibId, resourceId: sibRid);
-                  return sibSubs['extCaptions'] ?? (sibSubs['data'] is Map ? sibSubs['data']['extCaptions'] : null);
-                }
-              }
-            }
-          } catch (_) {}
-          return null;
+              return null;
+            }().timeout(const Duration(seconds: 8));
+          } catch (_) {
+            return null;
+          }
         }));
 
         for (final sList in siblingResults) {

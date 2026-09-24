@@ -103,10 +103,19 @@ class _LiveTvPlayerScreenState extends State<LiveTvPlayerScreen> {
         await platform.setProperty('vd-lavc-fast', 'yes');
         await platform.setProperty('vd-lavc-skiploopfilter', 'all');
         await platform.setProperty('vd-lavc-threads', '4');
+
+        // MovieBox TUI v0.1.24 High-Throughput Buffering & Anti-Rebuffering Loop:
+        await platform.setProperty('cache', 'yes');
+        await platform.setProperty('cache-pause', 'yes');
+        await platform.setProperty('cache-pause-wait', '8');
+        await platform.setProperty('cache-pause-initial', 'yes');
+        await platform.setProperty('demuxer-max-bytes', '134217728'); // 128MB
+        await platform.setProperty('demuxer-max-back-bytes', '52428800'); // 50MB
+        await platform.setProperty('demuxer-readahead-secs', '120');
+        await platform.setProperty('demuxer-lavf-buffersize', '1048576'); // 1MB
+        await platform.setProperty('stream-buffer-size', '524288'); // 512KB
         await platform.setProperty('demuxer-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
-        await platform.setProperty('demuxer-max-bytes', '67108864');
-        await platform.setProperty('demuxer-max-back-bytes', '16777216');
-        await platform.setProperty('demuxer-readahead-secs', '30');
+        await platform.setProperty('stream-lavf-o', 'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5');
       }
     } catch (e) {
       debugPrint("Live TV player configuration error: $e");
