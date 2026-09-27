@@ -137,7 +137,17 @@ class PlaybackProgressService {
     if (jsonStr == null) return [];
     try {
       final List<dynamic> decoded = jsonDecode(jsonStr);
-      return decoded.map((item) => Map<String, dynamic>.from(item)).toList();
+      return decoded.map((item) {
+        final map = Map<String, dynamic>.from(item);
+        final sId = (map['subjectId'] ?? '').toString().trim();
+        final prov = (map['provider'] ?? '').toString().trim().toLowerCase();
+        final numId = int.tryParse(sId);
+        // Self-heal: If saved as TMDB but ID is actually a MovieBox 64-bit ID
+        if (prov == 'tmdb' && !sId.startsWith('tmdb_') && (numId != null && numId > 20000000)) {
+          map['provider'] = 'moviebox';
+        }
+        return map;
+      }).toList();
     } catch (_) {
       return [];
     }
@@ -218,14 +228,24 @@ class PlaybackProgressService {
         isNextCue = true;
       }
 
-      final entry = {
-        'subjectId': subjectId,
-        'provider': provider ??
-            (subjectId.startsWith('dramachi_') || subjectId.contains('::')
+      String resolvedProvider = provider ?? '';
+      final parsedNum = int.tryParse(subjectId);
+      if (resolvedProvider.toLowerCase() == 'tmdb' && !subjectId.startsWith('tmdb_') && (parsedNum != null && parsedNum > 20000000)) {
+        resolvedProvider = 'moviebox';
+      }
+      if (resolvedProvider.isEmpty) {
+        resolvedProvider = subjectId.startsWith('tmdb_')
+            ? 'tmdb'
+            : (subjectId.startsWith('dramachi_') || subjectId.contains('::')
                 ? 'dramachi'
                 : (subjectId.startsWith('/') || subjectId.contains('-movie-') || subjectId.contains('-series-')
                     ? '4khdhub'
-                    : 'moviebox')),
+                    : 'moviebox'));
+      }
+
+      final entry = {
+        'subjectId': subjectId,
+        'provider': resolvedProvider,
         'season': savedSeason,
         'episode': savedEpisode,
         'originalSeason': season,

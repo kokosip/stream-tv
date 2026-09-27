@@ -278,9 +278,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
 
     try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final decoded = utf8.decode(response.bodyBytes, allowMalformed: true);
+      final decoded = await OnlineSubtitleService().downloadSubtitleContent(
+        url,
+        season: _currentSeason,
+        episode: _currentEpisode,
+      );
+      if (decoded != null && decoded.isNotEmpty) {
         final entries = parseSrt(decoded);
         if (mounted) {
           setState(() {
@@ -305,9 +308,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (result != null && mounted) {
       final entries = parseSrt(result.srtContent);
       if (entries.isNotEmpty) {
+        final providerLabel = result.item.source;
+        final authorTag = (result.item.author != null && result.item.author!.isNotEmpty)
+            ? " [${result.item.author}]"
+            : "";
         final customSubEntry = {
           'url': result.item.url,
-          'normalizedLan': "${result.item.languageName} (Online)",
+          'normalizedLan': "${result.item.languageName} ($providerLabel$authorTag)",
           'lanName': result.item.languageName,
           'isOnline': true,
         };
@@ -1798,10 +1805,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final List<Map<String, dynamic>> fallbackEntries = [];
 
           for (final item in onlineSubs) {
-            if (addedLangs.add(item.languageName.toLowerCase())) {
+            final providerLabel = item.source;
+            final authorTag = (item.author != null && item.author!.isNotEmpty)
+                ? " [${item.author}]"
+                : "";
+            if (addedLangs.add("${item.languageName.toLowerCase()}_${item.source}")) {
               fallbackEntries.add({
                 'url': item.url,
-                'normalizedLan': "${item.languageName} (OpenSubtitles)",
+                'normalizedLan': "${item.languageName} ($providerLabel$authorTag)",
                 'lanName': item.languageName,
                 'isFallback': true,
                 'release': item.releaseName,

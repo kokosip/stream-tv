@@ -135,7 +135,11 @@ class _SubtitleSearchDialogState extends State<SubtitleSearchDialog> {
     });
 
     try {
-      final srt = await _subtitleService.downloadSubtitleContent(item.url);
+      final srt = await _subtitleService.downloadSubtitleContent(
+        item.url,
+        season: widget.season,
+        episode: widget.episode,
+      );
       if (!mounted) return;
 
       if (srt != null && srt.isNotEmpty) {
@@ -485,24 +489,52 @@ class _SubtitleSearchDialogState extends State<SubtitleSearchDialog> {
             ),
             child: Row(
               children: [
-                // Language badge
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isId ? Colors.redAccent.withValues(alpha: 0.2) : Colors.blueAccent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: isId ? Colors.redAccent : Colors.blueAccent.withValues(alpha: 0.5),
+                // Language & Provider badges
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isId ? Colors.redAccent.withValues(alpha: 0.2) : Colors.blueAccent.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: isId ? Colors.redAccent : Colors.blueAccent.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: Text(
+                        item.languageName.toUpperCase(),
+                        style: GoogleFonts.outfit(
+                          color: isId ? Colors.redAccent : Colors.lightBlueAccent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
-                  child: Text(
-                    item.languageName.toUpperCase(),
-                    style: GoogleFonts.outfit(
-                      color: isId ? Colors.redAccent : Colors.lightBlueAccent,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: item.source == 'SubDL'
+                            ? Colors.amber.withValues(alpha: 0.15)
+                            : Colors.purpleAccent.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: item.source == 'SubDL'
+                              ? Colors.amber.withValues(alpha: 0.5)
+                              : Colors.purpleAccent.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: Text(
+                        item.source,
+                        style: GoogleFonts.outfit(
+                          color: item.source == 'SubDL' ? Colors.amberAccent : Colors.purpleAccent,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
                 const SizedBox(width: 12),
 
@@ -532,6 +564,23 @@ class _SubtitleSearchDialogState extends State<SubtitleSearchDialog> {
                             color: Colors.white54,
                             fontSize: 11,
                           ),
+                        ),
+                      ],
+                      if (item.author != null && item.author!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            const Icon(Icons.person_outline_rounded, size: 12, color: Colors.amberAccent),
+                            const SizedBox(width: 4),
+                            Text(
+                              item.author!,
+                              style: GoogleFonts.outfit(
+                                color: Colors.amberAccent,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ],

@@ -14,6 +14,7 @@ class RemoteConfigService {
   static const String keyMovieBoxHostPool = 'moviebox_host_pool';
   static const String keyMovieBoxStreamReferer = 'moviebox_stream_referer';
   static const String keyIptvDefaultUrl = 'iptv_default_url';
+  static const String keySubdlApiKey = 'subdl_api_key';
 
   // SharedPreferences Local Storage Keys
   static const String _prefFourKHdHub = 'rc_local_fourkhdhub_base_url';
@@ -22,6 +23,7 @@ class RemoteConfigService {
   static const String _prefMovieBoxPool = 'rc_local_moviebox_host_pool';
   static const String _prefMovieBoxReferer = 'rc_local_moviebox_stream_referer';
   static const String _prefIptvUrl = 'rc_local_iptv_default_url';
+  static const String _prefSubdlApiKey = 'rc_local_subdl_api_key';
 
   // Hardcoded default fallbacks
   static const String defaultFourKHdHubBaseUrl = 'https://4khdhub.one/';
@@ -38,6 +40,12 @@ class RemoteConfigService {
   ];
   static const String defaultMovieBoxStreamReferer = 'https://sportslive.wine';
   static const String defaultIptvUrl = 'https://iptv-org.github.io/iptv/countries/id.m3u';
+  static const List<String> defaultSubdlApiKeyPool = [
+    'subdl_juzGQt0pcPTB3ZuBAmAkXtNwEhX-gIfz5SjEnuNDd5c',
+    'subdl_-QPfi2pVWXr9Gmtq-4K2eWGYXBDONWDpXKaGntMDcZA',
+    'subdl_Lyfy8q_azvWbslbP0MHPiTGeaJ4UFAPOf0uP80liqFI',
+  ];
+  static const String defaultSubdlApiKey = 'subdl_juzGQt0pcPTB3ZuBAmAkXtNwEhX-gIfz5SjEnuNDd5c';
 
   FirebaseRemoteConfig? _remoteConfig;
   bool _isInitialized = false;
@@ -49,6 +57,7 @@ class RemoteConfigService {
   List<String>? _activeMovieBoxHostPool;
   String? _activeMovieBoxStreamReferer;
   String? _activeIptvDefaultUrl;
+  String? _activeSubdlApiKey;
 
   DateTime? _lastFetchAttempt;
   Future<bool>? _activeRefreshFuture;
@@ -63,6 +72,7 @@ class RemoteConfigService {
         keyMovieBoxHostPool: jsonEncode(defaultMovieBoxHostPool),
         keyMovieBoxStreamReferer: defaultMovieBoxStreamReferer,
         keyIptvDefaultUrl: defaultIptvUrl,
+        keySubdlApiKey: defaultSubdlApiKeyPool.join(','),
       };
 
   /// Initialize local configurations from SharedPreferences and prepare Remote Config instance.
@@ -107,6 +117,7 @@ class RemoteConfigService {
 
     _activeMovieBoxStreamReferer = prefs.getString(_prefMovieBoxReferer);
     _activeIptvDefaultUrl = prefs.getString(_prefIptvUrl);
+    _activeSubdlApiKey = prefs.getString(_prefSubdlApiKey);
   }
 
   /// On-Demand Fetch: Called only when a provider request fails.
@@ -219,6 +230,13 @@ class RemoteConfigService {
       await prefs.setString(_prefIptvUrl, newIptv);
     }
 
+    // SubDL API Key
+    final newSubdlKey = _remoteConfig!.getString(keySubdlApiKey).trim();
+    if (newSubdlKey.isNotEmpty) {
+      _activeSubdlApiKey = newSubdlKey;
+      await prefs.setString(_prefSubdlApiKey, newSubdlKey);
+    }
+
     debugPrint('RemoteConfigService: Saved updated provider URLs to local storage.');
   }
 
@@ -250,5 +268,30 @@ class RemoteConfigService {
   /// Default Indonesia IPTV playlist URL
   String get iptvDefaultIndonesiaUrl {
     return _activeIptvDefaultUrl ?? defaultIptvUrl;
+  }
+
+  /// SubDL API Key Pool (supports comma-separated list, JSON array, or default pool)
+  List<String> get subdlApiKeyPool {
+    final raw = _activeSubdlApiKey;
+    if (raw != null && raw.trim().isNotEmpty) {
+      if (raw.startsWith('[') && raw.endsWith(']')) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is List) {
+            final list = decoded.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+            if (list.isNotEmpty) return list;
+          }
+        } catch (_) {}
+      }
+      final split = raw.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      if (split.isNotEmpty) return split;
+    }
+    return defaultSubdlApiKeyPool;
+  }
+
+  /// Active or first SubDL API Key
+  String get subdlApiKey {
+    final pool = subdlApiKeyPool;
+    return pool.isNotEmpty ? pool.first : defaultSubdlApiKey;
   }
 }

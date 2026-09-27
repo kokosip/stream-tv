@@ -46,7 +46,13 @@ class _DetailScreenState extends State<DetailScreen> {
   
   late String _activeProvider;
   bool get _is4kHub => _activeProvider.toLowerCase() == '4khdhub';
-  bool get _isTmdb => _activeProvider.toLowerCase() == 'tmdb' || widget.subjectId.startsWith('tmdb_');
+  bool get _isTmdb {
+    if (widget.subjectId.startsWith('tmdb_')) return true;
+    if (_activeProvider.toLowerCase() != 'tmdb') return false;
+    final parsed = int.tryParse(widget.subjectId);
+    if (parsed != null && parsed > 20000000) return false;
+    return true;
+  }
   bool get _isDramachi =>
       _activeProvider.toLowerCase() == 'dramachi' ||
       widget.subjectId.startsWith('dramachi_') ||
@@ -85,14 +91,28 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   void initState() {
     super.initState();
-    final String initialProv = widget.provider.isNotEmpty
-        ? widget.provider
-        : (widget.subjectId.startsWith('tmdb_')
-            ? 'tmdb'
-            : (widget.subjectId.startsWith('dramachi_') || widget.subjectId.contains('::')
-                ? 'dramachi'
-                : (widget.subjectId.startsWith('/') ? '4khdhub' : 'moviebox')));
-    _activeProvider = widget.subjectId.startsWith('tmdb_') ? 'tmdb' : initialProv;
+    String initialProv = widget.provider.isNotEmpty ? widget.provider : '';
+    final sId = widget.subjectId.trim();
+    final parsedNum = int.tryParse(sId);
+
+    // Auto-heal: If provider was passed as 'tmdb' but ID is a MovieBox 64-bit subject ID (> 20M)
+    if (initialProv.toLowerCase() == 'tmdb' && !sId.startsWith('tmdb_') && (parsedNum != null && parsedNum > 20000000)) {
+      initialProv = 'moviebox';
+    }
+
+    if (initialProv.isEmpty) {
+      if (sId.startsWith('tmdb_')) {
+        initialProv = 'tmdb';
+      } else if (sId.startsWith('dramachi_') || sId.contains('::')) {
+        initialProv = 'dramachi';
+      } else if (sId.startsWith('/') || sId.contains('-movie-') || sId.contains('-series-')) {
+        initialProv = '4khdhub';
+      } else {
+        initialProv = 'moviebox';
+      }
+    }
+
+    _activeProvider = sId.startsWith('tmdb_') ? 'tmdb' : initialProv;
     _selectedSubjectId = widget.subjectId;
     _loadDetails();
     _checkFavorite();
@@ -142,7 +162,7 @@ class _DetailScreenState extends State<DetailScreen> {
             if (n is int) epNums.add(n);
           }
         } else {
-          final maxEp = (s['maxEp'] ?? _episodesCount) as int;
+          final maxEp = int.tryParse(s['maxEp']?.toString() ?? '') ?? _episodesCount;
           for (int i = 1; i <= maxEp; i++) {
             epNums.add(i);
           }
@@ -278,8 +298,8 @@ class _DetailScreenState extends State<DetailScreen> {
             }
           }
           matchingSeason ??= seasonsList.first;
-          _selectedSeasonNumber = (matchingSeason is Map ? matchingSeason['se'] : null) ?? 1;
-          initialEpisodesCount = (matchingSeason is Map ? (matchingSeason['maxEp'] ?? 1) : 1) as int;
+          _selectedSeasonNumber = (matchingSeason is Map ? int.tryParse(matchingSeason['se']?.toString() ?? '') : null) ?? 1;
+          initialEpisodesCount = (matchingSeason is Map ? int.tryParse(matchingSeason['maxEp']?.toString() ?? '') : null) ?? 1;
           _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
         }
 
@@ -343,8 +363,8 @@ class _DetailScreenState extends State<DetailScreen> {
             }
           }
           matchingSeason ??= seasonsList.first;
-          _selectedSeasonNumber = (matchingSeason is Map ? matchingSeason['se'] : null) ?? 1;
-          initialEpisodesCount = (matchingSeason is Map ? (matchingSeason['maxEp'] ?? 1) : 1) as int;
+          _selectedSeasonNumber = (matchingSeason is Map ? int.tryParse(matchingSeason['se']?.toString() ?? '') : null) ?? 1;
+          initialEpisodesCount = (matchingSeason is Map ? int.tryParse(matchingSeason['maxEp']?.toString() ?? '') : null) ?? 1;
           _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
         }
 
@@ -375,7 +395,10 @@ class _DetailScreenState extends State<DetailScreen> {
     }
 
     try {
-      final detailsRes = await _api.getDetails(subjectId: widget.subjectId);
+      final effectiveSubjectId = _selectedSubjectId.isNotEmpty
+          ? _selectedSubjectId
+          : widget.subjectId.replaceFirst('tmdb_', '').trim();
+      final detailsRes = await _api.getDetails(subjectId: effectiveSubjectId);
       final type = detailsRes['subjectType'] ?? detailsRes['subject_type'];
       final isTvShow = type == 2 || type?.toString() == '2' || type?.toString().toLowerCase() == 'tv';
       
@@ -424,8 +447,12 @@ class _DetailScreenState extends State<DetailScreen> {
 
       if (isTvShow) {
         try {
-          final seasonsRes = await _api.getSeasonInfo(subjectId: widget.subjectId);
+          var seasonsRes = await _api.getSeasonInfo(subjectId: selectedSubId);
           seasonsList = seasonsRes['seasons'] ?? [];
+          if (seasonsList.isEmpty && selectedSubId != effectiveSubjectId) {
+            seasonsRes = await _api.getSeasonInfo(subjectId: effectiveSubjectId);
+            seasonsList = seasonsRes['seasons'] ?? [];
+          }
         } catch (e) {
           print("Failed to load seasons info: $e");
         }
@@ -448,20 +475,30 @@ class _DetailScreenState extends State<DetailScreen> {
         } else {
           final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
           if (recentPlay != null) {
-            final recSeason = recentPlay['season'] as int? ?? 1;
-            final recEpisode = recentPlay['episode'] as int? ?? 1;
+            final recSeason = int.tryParse(recentPlay['season']?.toString() ?? '') ?? 1;
+            final recEpisode = int.tryParse(recentPlay['episode']?.toString() ?? '') ?? 1;
             if (recSeason > 0) targetSeason = recSeason;
             if (recEpisode > 0) targetEpisode = recEpisode;
           }
         }
 
-        final matchingSeason = seasonsList.firstWhere(
-          (s) => (s['se'] ?? 1) == targetSeason,
-          orElse: () => seasonsList.first,
-        );
+        dynamic matchingSeason;
+        for (final s in seasonsList) {
+          if (s is Map && (int.tryParse(s['se']?.toString() ?? '') ?? 1) == targetSeason) {
+            matchingSeason = s;
+            break;
+          }
+        }
+        matchingSeason ??= seasonsList.isNotEmpty ? seasonsList.first : null;
 
-        _selectedSeasonNumber = matchingSeason['se'] ?? 1;
-        initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
+        if (matchingSeason is Map) {
+          _selectedSeasonNumber = int.tryParse(matchingSeason['se']?.toString() ?? '') ?? 1;
+          initialEpisodesCount = int.tryParse(matchingSeason['maxEp']?.toString() ?? '') ?? 1;
+        } else {
+          _selectedSeasonNumber = targetSeason;
+          initialEpisodesCount = int.tryParse(detailsRes['episode']?.toString() ?? '') ??
+              int.tryParse(detailsRes['maxEp']?.toString() ?? '') ?? 1;
+        }
         _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
       }
 
@@ -540,8 +577,21 @@ class _DetailScreenState extends State<DetailScreen> {
           ? Map<String, dynamic>.from(widget.tmdbData!)
           : null;
 
-      final rawIdStr = widget.subjectId.replaceFirst('tmdb_', '');
+      final rawIdStr = widget.subjectId.replaceFirst('tmdb_', '').trim();
       final int tmdbId = overrideTmdbId ?? int.tryParse(rawIdStr) ?? 0;
+
+      // Auto-heal: If ID is a MovieBox 64-bit ID (> 20M), never query TMDB
+      if (tmdbId > 20000000) {
+        debugPrint("ID $tmdbId is a MovieBox subject ID (> 20M), auto-switching to MovieBox...");
+        if (mounted) {
+          setState(() {
+            _activeProvider = 'moviebox';
+            _selectedSubjectId = rawIdStr;
+          });
+          _loadDetails();
+        }
+        return;
+      }
 
       final rawTmdb = initialMap?['rawTmdb'] is Map ? (initialMap!['rawTmdb'] as Map) : null;
       final typeVal = initialMap?['subjectType'] ?? initialMap?['subject_type'] ?? rawTmdb?['subjectType'] ?? rawTmdb?['subject_type'];
@@ -589,6 +639,19 @@ class _DetailScreenState extends State<DetailScreen> {
       }
 
       if (initialMap == null) {
+        final parsed = int.tryParse(widget.subjectId.replaceFirst('tmdb_', ''));
+        if (parsed != null && parsed > 20000000) {
+          debugPrint("TMDB details empty for MovieBox subjectId ${widget.subjectId}, switching to MovieBox...");
+          if (mounted) {
+            setState(() {
+              _activeProvider = 'moviebox';
+              _selectedSubjectId = widget.subjectId.replaceFirst('tmdb_', '');
+            });
+            _loadDetails();
+          }
+          return;
+        }
+
         if (mounted) {
           setState(() {
             _errorMessage = "Gagal memuat detail TMDB";
@@ -618,6 +681,21 @@ class _DetailScreenState extends State<DetailScreen> {
       await _resolveStreamingSources();
     } catch (e) {
       print("TMDB Details Error: $e");
+      final rawId = widget.subjectId.replaceFirst('tmdb_', '');
+      final parsed = int.tryParse(rawId);
+      // Auto-fallback: If TMDB request failed with 404 on a non-TMDB or large numeric ID, fallback to MovieBox
+      if ((e.toString().contains('404') || e.toString().contains('TMDB API Error')) && (parsed != null && parsed > 20000000)) {
+        debugPrint("TMDB returned 404 for MovieBox subjectId $rawId, auto-switching to MovieBox...");
+        if (mounted) {
+          setState(() {
+            _activeProvider = 'moviebox';
+            _selectedSubjectId = rawId;
+          });
+          _loadDetails();
+        }
+        return;
+      }
+
       if (mounted) {
         setState(() {
           _errorMessage = "Gagal memuat detail TMDB: $e";
@@ -936,8 +1014,8 @@ class _DetailScreenState extends State<DetailScreen> {
               }
             }
             matchingSeason ??= seasonsList.first;
-            _selectedSeasonNumber = (matchingSeason is Map ? matchingSeason['se'] : null) ?? 1;
-            initialEpisodesCount = (matchingSeason is Map ? (matchingSeason['maxEp'] ?? 1) : 1) as int;
+            _selectedSeasonNumber = (matchingSeason is Map ? int.tryParse(matchingSeason['se']?.toString() ?? '') : null) ?? 1;
+            initialEpisodesCount = (matchingSeason is Map ? int.tryParse(matchingSeason['maxEp']?.toString() ?? '') : null) ?? 1;
             _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
           }
         } catch (_) {}
@@ -1763,7 +1841,7 @@ class _DetailScreenState extends State<DetailScreen> {
         int maxEpOfSeason = 0;
         for (final s in _seasons) {
           if ((s['se'] ?? 0) == season) {
-            maxEpOfSeason = (s['maxEp'] ?? 0) as int;
+            maxEpOfSeason = int.tryParse(s['maxEp']?.toString() ?? '') ?? 0;
             break;
           }
         }
@@ -1824,7 +1902,7 @@ class _DetailScreenState extends State<DetailScreen> {
         int maxEpOfSeason = 0;
         for (final s in _seasons) {
           if ((s['se'] ?? 0) == season) {
-            maxEpOfSeason = (s['maxEp'] ?? 0) as int;
+            maxEpOfSeason = int.tryParse(s['maxEp']?.toString() ?? '') ?? 0;
             break;
           }
         }
@@ -1952,7 +2030,7 @@ class _DetailScreenState extends State<DetailScreen> {
       int maxEpOfSeason = 0;
       for (final s in _seasons) {
         if ((s['se'] ?? 0) == season) {
-          maxEpOfSeason = (s['maxEp'] ?? 0) as int;
+          maxEpOfSeason = int.tryParse(s['maxEp']?.toString() ?? '') ?? 0;
           break;
         }
       }
@@ -2648,8 +2726,8 @@ class _DetailScreenState extends State<DetailScreen> {
             builder: (context) => PlayerScreen(
               streamUrl: resolvedUrl,
               title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
-              subjectId: widget.subjectId,
-              provider: widget.provider,
+              subjectId: _isTmdb ? widget.subjectId : _selectedSubjectId,
+              provider: _isTmdb ? 'tmdb' : _activeProvider,
               season: _isTvShow ? _selectedSeasonNumber : 0,
               episode: _isTvShow ? _selectedEpisodeNumber : 0,
               captions: const [],
@@ -2769,8 +2847,8 @@ class _DetailScreenState extends State<DetailScreen> {
           builder: (context) => PlayerScreen(
             streamUrl: streamUrl,
             title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
-            subjectId: _selectedSubjectId,
-            provider: widget.provider,
+            subjectId: _isTmdb ? widget.subjectId : _selectedSubjectId,
+            provider: _isTmdb ? 'tmdb' : _activeProvider,
             season: _isTvShow ? _selectedSeasonNumber : 0,
             episode: _isTvShow ? _selectedEpisodeNumber : 0,
             captions: captions,
@@ -4191,7 +4269,7 @@ class _DetailScreenState extends State<DetailScreen> {
     if (currentSeasonData['episodes'] is List && (currentSeasonData['episodes'] as List).isNotEmpty) {
       epList = currentSeasonData['episodes'];
     } else {
-      final maxEp = (currentSeasonData['maxEp'] ?? _episodesCount) as int;
+      final maxEp = int.tryParse(currentSeasonData['maxEp']?.toString() ?? '') ?? _episodesCount;
       final total = maxEp > 0 ? maxEp : 1;
       epList = List.generate(total, (i) {
         final epNum = i + 1;
@@ -4226,7 +4304,7 @@ class _DetailScreenState extends State<DetailScreen> {
                     padding: const EdgeInsets.only(right: 12.0),
                     child: TvFocusableCard(
                       onTap: () {
-                        final maxEp = (s['maxEp'] ?? 1) as int;
+                        final maxEp = int.tryParse(s['maxEp']?.toString() ?? '') ?? 1;
                         setState(() {
                           _selectedSeasonNumber = seNum;
                           _episodesCount = maxEp;

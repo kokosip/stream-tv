@@ -16,10 +16,12 @@ import '../services/app_content_filter_service.dart';
 import '../widgets/tv_focusable_card.dart';
 import '../widgets/tv_pin_pad_dialog.dart';
 import 'detail_screen.dart';
+import 'player_screen.dart';
 import 'cast_screen.dart';
 import 'live_tv_screen.dart';
 import 'downloads_screen.dart';
 import 'provider_catalog_screen.dart';
+import '../services/dramachi_api_service.dart';
 import '../services/download_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../services/update_service.dart';
@@ -37,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final MovieBoxApiService _api = MovieBoxApiService();
   final FourKHdHubService _fourkApi = FourKHdHubService();
   final FourKHdHubApiService _fourkHomeApi = FourKHdHubApiService();
+  final DramachiApiService _dramachiApi = DramachiApiService();
   final TmdbService _tmdb = TmdbService();
   String _selectedSearchProvider = "all";
   final TextEditingController _searchController = TextEditingController();
@@ -677,6 +680,236 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (confirmed == true && mounted) {
       await _deleteWatchHistoryItem(subjectId, title);
+    }
+  }
+
+  Future<void> _playHistoryItem(Map<String, dynamic> item) async {
+    final title = (item['title'] ?? "Untitled").toString();
+    final subjectId = (item['subjectId'] ?? "").toString().trim();
+    var provider = (item['provider'] ?? "").toString().trim().toLowerCase();
+    final parsedNum = int.tryParse(subjectId);
+    if (provider == 'tmdb' && !subjectId.startsWith('tmdb_') && (parsedNum != null && parsedNum > 20000000)) {
+      provider = 'moviebox';
+    }
+    if (provider.isEmpty) {
+      provider = subjectId.startsWith('tmdb_')
+          ? 'tmdb'
+          : (subjectId.startsWith('/') ? '4khdhub' : 'moviebox');
+    }
+    final season = item['season'] is int
+        ? item['season'] as int
+        : int.tryParse(item['season']?.toString() ?? '') ?? 0;
+    final episode = item['episode'] is int
+        ? item['episode'] as int
+        : int.tryParse(item['episode']?.toString() ?? '') ?? 0;
+    final coverUrl = (item['coverUrl'] ?? "").toString();
+    final isShow = season > 0 || episode > 0;
+
+    // Show a compact loading spinner dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF333333)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SpinKitRing(color: Colors.redAccent, size: 40.0, lineWidth: 3.5),
+              const SizedBox(height: 16),
+              Text(
+                AppLanguageService.tr(
+                  en: "Opening player...",
+                  id: "Membuka pemutar...",
+                ),
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  decoration: TextDecoration.none,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      if (provider == 'moviebox') {
+        final sId = subjectId.replaceFirst('tmdb_', '');
+        final results = await Future.wait([
+          _api.getResources(
+            subjectId: sId,
+            se: isShow ? season : 0,
+            ep: isShow ? episode : 0,
+            resolution: 1080,
+          ).catchError((_) => <String, dynamic>{}),
+          _api.getResources(
+            subjectId: sId,
+            se: isShow ? season : 0,
+            ep: isShow ? episode : 0,
+            resolution: 720,
+          ).catchError((_) => <String, dynamic>{}),
+        ]);
+
+        List<dynamic> combinedStreams = [
+          ...(results[0]['list'] as List? ?? []),
+          ...(results[1]['list'] as List? ?? []),
+        ];
+
+        if (isShow && combinedStreams.isNotEmpty) {
+          combinedStreams = combinedStreams.where((st) {
+            final itemSe = int.tryParse(st['se']?.toString() ?? '') ?? 0;
+            final itemEp = int.tryParse(st['ep']?.toString() ?? '') ?? 0;
+            return itemSe == season && itemEp == episode;
+          }).toList();
+        }
+
+        if (combinedStreams.isNotEmpty) {
+          final stream = combinedStreams.first;
+          final streamUrl = (stream['resourceLink'] ?? stream['resource_link'] ?? '').toString();
+          final resourceId = (stream['resourceId'] ?? stream['resource_id'] ?? '').toString();
+
+          if (streamUrl.isNotEmpty) {
+            List<dynamic> captions = [];
+            if (resourceId.isNotEmpty) {
+              try {
+                captions = await _api.getCleanExtCaptions(
+                  subjectId: sId,
+                  resourceId: resourceId,
+                  se: isShow ? season : 0,
+                  ep: isShow ? episode : 0,
+                );
+              } catch (_) {}
+            }
+
+            if (mounted) Navigator.pop(context); // Close dialog
+
+            if (mounted) {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PlayerScreen(
+                    streamUrl: streamUrl,
+                    title: title,
+                    subjectId: sId,
+                    provider: 'moviebox',
+                    season: isShow ? season : 0,
+                    episode: isShow ? episode : 0,
+                    captions: captions,
+                    coverUrl: coverUrl,
+                    availableStreams: combinedStreams,
+                    currentStream: stream,
+                  ),
+                ),
+              );
+              _loadFavoritesAndProgress();
+              return;
+            }
+          }
+        }
+      } else if (provider == '4khdhub') {
+        final releases = await _fourkApi.getReleases(
+          subjectId,
+          season: isShow ? season : 0,
+          episode: isShow ? episode : 0,
+        );
+        if (releases.isNotEmpty) {
+          final firstRel = releases.first;
+          final streamUrl = await _fourkApi.resolveReleaseStream(firstRel);
+          if (streamUrl != null && streamUrl.isNotEmpty) {
+            firstRel['provider'] = '4khdhub';
+            firstRel['headers'] = {
+              'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Referer': 'https://4khdhub.one/',
+            };
+
+            if (mounted) Navigator.pop(context); // Close dialog
+
+            if (mounted) {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PlayerScreen(
+                    streamUrl: streamUrl,
+                    title: title,
+                    subjectId: subjectId,
+                    provider: '4khdhub',
+                    season: isShow ? season : 0,
+                    episode: isShow ? episode : 0,
+                    coverUrl: coverUrl,
+                    availableStreams: releases,
+                    currentStream: firstRel,
+                  ),
+                ),
+              );
+              _loadFavoritesAndProgress();
+              return;
+            }
+          }
+        }
+      } else if (provider == 'dramachi') {
+        final res = await _dramachiApi.getResources(
+          subjectId: subjectId,
+          se: isShow ? season : 0,
+          ep: isShow ? episode : 0,
+        );
+        final list = (res['list'] as List? ?? []);
+        if (list.isNotEmpty) {
+          final stream = list.first;
+          final streamUrl = (stream['resourceLink'] ?? stream['resource_link'] ?? '').toString();
+          if (streamUrl.isNotEmpty) {
+            if (mounted) Navigator.pop(context); // Close dialog
+            if (mounted) {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PlayerScreen(
+                    streamUrl: streamUrl,
+                    title: title,
+                    subjectId: subjectId,
+                    provider: 'dramachi',
+                    season: isShow ? season : 0,
+                    episode: isShow ? episode : 0,
+                    coverUrl: coverUrl,
+                    availableStreams: list,
+                    currentStream: stream,
+                  ),
+                ),
+              );
+              _loadFavoritesAndProgress();
+              return;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Error direct playing history item: $e");
+    }
+
+    // Fallback: If direct play didn't succeed, dismiss dialog and route to DetailScreen
+    if (mounted) {
+      Navigator.pop(context); // Close dialog
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DetailScreen(
+            subjectId: subjectId,
+            provider: provider,
+            initialSeason: isShow ? season : null,
+            initialEpisode: isShow ? episode : null,
+          ),
+        ),
+      ).then((_) {
+        _loadFavoritesAndProgress();
+      });
     }
   }
 
@@ -2479,8 +2712,17 @@ class _HomeScreenState extends State<HomeScreen> {
               final item = _recentPlays[index];
               final title = item['title'] ?? "Untitled";
               final coverUrl = item['coverUrl'] ?? "";
-              final subjectId = item['subjectId'] ?? "";
-              final provider = item['provider'] ?? (subjectId.toString().startsWith('/') ? '4khdhub' : 'moviebox');
+              final subjectId = (item['subjectId'] ?? "").toString();
+              var provider = (item['provider'] ?? "").toString();
+              final parsedNum = int.tryParse(subjectId);
+              if (provider.toLowerCase() == 'tmdb' && !subjectId.startsWith('tmdb_') && (parsedNum != null && parsedNum > 20000000)) {
+                provider = 'moviebox';
+              }
+              if (provider.isEmpty) {
+                provider = subjectId.startsWith('tmdb_')
+                    ? 'tmdb'
+                    : (subjectId.startsWith('/') ? '4khdhub' : 'moviebox');
+              }
               final season = item['season'] ?? 0;
               final episode = item['episode'] ?? 0;
               final pos = item['positionMs'] ?? 0;
@@ -2502,124 +2744,182 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: TvFocusableCard(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => DetailScreen(
-                                subjectId: subjectId,
-                                provider: provider,
-                                initialSeason: isShow ? season : null,
-                                initialEpisode: isShow ? episode : null,
-                              ),
-                            ),
-                          ).then((_) {
-                            _loadFavoritesAndProgress();
-                          });
-                        },
-                        onLongPress: () => _confirmDeleteWatchHistoryItem(item),
-                        borderRadius: BorderRadius.circular(12),
-                        scaleFactor: 1.02,
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF161616),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF262626)),
-                          ),
-                          child: Row(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: CachedNetworkImage(
-                                  imageUrl: coverUrl,
-                                  memCacheWidth: 160,
-                                  memCacheHeight: 240,
-                                  width: 60,
-                                  height: 85,
-                                  fit: BoxFit.cover,
-                                  errorWidget: (context, url, error) => Container(
-                                    color: const Color(0xFF262626),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF161616),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFF262626)),
+                        ),
+                        child: Row(
+                          children: [
+                            // Section 1: Thumbnail with Play overlay -> Direct Play
+                            TvFocusableCard(
+                              onTap: () => _playHistoryItem(item),
+                              borderRadius: BorderRadius.circular(8),
+                              scaleFactor: 1.05,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: CachedNetworkImage(
+                                      imageUrl: coverUrl,
+                                      memCacheWidth: 160,
+                                      memCacheHeight: 240,
+                                      width: 60,
+                                      height: 85,
+                                      fit: BoxFit.cover,
+                                      errorWidget: (context, url, error) => Container(
+                                        color: const Color(0xFF262626),
+                                        width: 60,
+                                        height: 85,
+                                        child: const Icon(Icons.movie, size: 24, color: Colors.grey),
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
                                     width: 60,
                                     height: 85,
-                                    child: const Icon(Icons.movie, size: 24, color: Colors.grey),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(8),
+                                      color: Colors.black38,
+                                    ),
                                   ),
-                                ),
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.65),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: Colors.white30, width: 1),
+                                    ),
+                                    child: const Icon(
+                                      Icons.play_arrow_rounded,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        if (provider == '4khdhub') ...[
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                                            margin: const EdgeInsets.only(right: 6),
-                                            decoration: BoxDecoration(
-                                              color: Colors.cyan.shade900.withOpacity(0.85),
-                                              borderRadius: BorderRadius.circular(4),
-                                              border: Border.all(color: Colors.cyanAccent.withOpacity(0.4), width: 0.8),
+                            ),
+                            const SizedBox(width: 14),
+
+                            // Section 2: Movie Title & Subtitle Info -> Opens DetailScreen
+                            Expanded(
+                              child: TvFocusableCard(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => DetailScreen(
+                                        subjectId: subjectId,
+                                        provider: provider,
+                                        initialSeason: isShow ? season : null,
+                                        initialEpisode: isShow ? episode : null,
+                                      ),
+                                    ),
+                                  ).then((_) {
+                                    _loadFavoritesAndProgress();
+                                  });
+                                },
+                                onLongPress: () => _confirmDeleteWatchHistoryItem(item),
+                                borderRadius: BorderRadius.circular(8),
+                                scaleFactor: 1.02,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 4.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          if (provider == '4khdhub') ...[
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                              margin: const EdgeInsets.only(right: 6),
+                                              decoration: BoxDecoration(
+                                                color: Colors.cyan.shade900.withOpacity(0.85),
+                                                borderRadius: BorderRadius.circular(4),
+                                                border: Border.all(color: Colors.cyanAccent.withOpacity(0.4), width: 0.8),
+                                              ),
+                                              child: Text(
+                                                "4K UHD",
+                                                style: GoogleFonts.outfit(color: Colors.cyanAccent, fontSize: 9, fontWeight: FontWeight.bold),
+                                              ),
                                             ),
+                                          ],
+                                          Expanded(
                                             child: Text(
-                                              "4K UHD",
-                                              style: GoogleFonts.outfit(color: Colors.cyanAccent, fontSize: 9, fontWeight: FontWeight.bold),
+                                              title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: GoogleFonts.outfit(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16,
+                                              ),
                                             ),
                                           ),
                                         ],
-                                        Expanded(
-                                          child: Text(
-                                            title,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: GoogleFonts.outfit(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 16,
-                                            ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        subtitle,
+                                        style: GoogleFonts.outfit(
+                                          color: Colors.cyan.shade400,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      if (progress > 0)
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(3),
+                                          child: LinearProgressIndicator(
+                                            value: progress,
+                                            minHeight: 4,
+                                            backgroundColor: const Color(0xFF262626),
+                                            valueColor: const AlwaysStoppedAnimation<Color>(Colors.redAccent),
                                           ),
                                         ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      subtitle,
-                                      style: GoogleFonts.outfit(
-                                        color: Colors.cyan.shade400,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    if (progress > 0)
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(3),
-                                        child: LinearProgressIndicator(
-                                          value: progress,
-                                          minHeight: 4,
-                                          backgroundColor: const Color(0xFF262626),
-                                          valueColor: const AlwaysStoppedAnimation<Color>(Colors.redAccent),
-                                        ),
-                                      ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
-                              const SizedBox(width: 12),
-                              const Icon(Icons.play_circle_fill_rounded, color: Colors.redAccent, size: 36),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(width: 10),
+
+                            // Section 3: Dedicated Play Button -> Direct Play
+                            TvFocusableCard(
+                              onTap: () => _playHistoryItem(item),
+                              borderRadius: BorderRadius.circular(10),
+                              scaleFactor: 1.15,
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.redAccent.withOpacity(0.12),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.redAccent.withOpacity(0.3), width: 1),
+                                ),
+                                child: const Icon(
+                                  Icons.play_arrow_rounded,
+                                  color: Colors.redAccent,
+                                  size: 28,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
+
+                    // Section 4: Delete Button -> Confirms Delete
                     TvFocusableCard(
                       onTap: () => _confirmDeleteWatchHistoryItem(item),
                       borderRadius: BorderRadius.circular(12),
                       scaleFactor: 1.06,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 38),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 34),
                         decoration: BoxDecoration(
                           color: const Color(0xFF161616),
                           borderRadius: BorderRadius.circular(12),
@@ -3995,8 +4295,17 @@ class _HomeScreenState extends State<HomeScreen> {
               final item = _recentPlays[index];
               final title = item['title'] ?? "Untitled";
               final coverUrl = item['coverUrl'] ?? "";
-              final subjectId = item['subjectId'] ?? "";
-              final provider = item['provider'] ?? (subjectId.toString().startsWith('/') ? '4khdhub' : 'moviebox');
+              final subjectId = (item['subjectId'] ?? "").toString();
+              var provider = (item['provider'] ?? "").toString();
+              final parsedNum = int.tryParse(subjectId);
+              if (provider.toLowerCase() == 'tmdb' && !subjectId.startsWith('tmdb_') && (parsedNum != null && parsedNum > 20000000)) {
+                provider = 'moviebox';
+              }
+              if (provider.isEmpty) {
+                provider = subjectId.startsWith('tmdb_')
+                    ? 'tmdb'
+                    : (subjectId.startsWith('/') ? '4khdhub' : 'moviebox');
+              }
               final season = item['season'] ?? 0;
               final episode = item['episode'] ?? 0;
               final pos = item['positionMs'] ?? 0;
