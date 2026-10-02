@@ -41,33 +41,6 @@ class DramachiApiService {
     return int.tryParse(digits);
   }
 
-  static int? parseEpisodeNumber(String fTitle) {
-    final upper = fTitle.toUpperCase();
-    final eIdx = upper.lastIndexOf('E');
-    if (eIdx != -1) {
-      final slice = upper.substring(eIdx + 1);
-      final digits = StringBuffer();
-      for (int i = 0; i < slice.length; i++) {
-        final code = slice.codeUnitAt(i);
-        if (code >= 48 && code <= 57) {
-          digits.writeCharCode(code);
-        } else {
-          break;
-        }
-      }
-      if (digits.isNotEmpty) {
-        return int.tryParse(digits.toString());
-      }
-    }
-
-    final tokens = fTitle.trim().split(RegExp(r'\s+'));
-    if (tokens.isNotEmpty) {
-      final last = int.tryParse(tokens.last);
-      if (last != null) return last;
-    }
-    return null;
-  }
-
   static String cleanEpisodeTitle(String fTitle) {
     var title = fTitle.trim();
     const suffixes = [
@@ -80,6 +53,43 @@ class DramachiApiService {
       }
     }
     return title;
+  }
+
+  static int? parseEpisodeNumber(String fTitle) {
+    final cleaned = cleanEpisodeTitle(fTitle);
+    final upper = cleaned.toUpperCase();
+
+    // Check explicit episode prefixes: EPISODE, EP., EP, E
+    const prefixes = ["EPISODE", "EP.", "EP", "E"];
+    for (final prefix in prefixes) {
+      var searchFrom = 0;
+      while (true) {
+        final relPos = upper.indexOf(prefix, searchFrom);
+        if (relPos == -1) break;
+        final pos = relPos;
+        final prevChar = pos > 0 ? upper[pos - 1] : null;
+        final validBoundary = prevChar == null ||
+            !RegExp(r'[a-zA-Z]').hasMatch(prevChar) ||
+            (prefix == "E" && RegExp(r'[0-9]').hasMatch(prevChar)); // e.g. S01E05
+
+        final after = upper.substring(pos + prefix.length);
+        final afterTrimmed = after.replaceFirst(RegExp(r'^[ \-._]+'), '');
+        final digitsMatch = RegExp(r'^\d+').firstMatch(afterTrimmed);
+
+        if (validBoundary && digitsMatch != null) {
+          final num = int.tryParse(digitsMatch.group(0)!);
+          if (num != null) return num;
+        }
+        searchFrom = pos + prefix.length;
+      }
+    }
+
+    final tokens = cleaned.trim().split(RegExp(r'\s+'));
+    if (tokens.isNotEmpty) {
+      final last = int.tryParse(tokens.last);
+      if (last != null) return last;
+    }
+    return null;
   }
 
   static int parseSizeToBytes(String sizeStr) {

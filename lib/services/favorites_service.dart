@@ -4,32 +4,53 @@ import 'package:shared_preferences/shared_preferences.dart';
 class FavoritesService {
   static const String _key = 'favorites_list';
 
-  // Get list of favorites
-  static Future<List<Map<String, dynamic>>> getFavorites() async {
+  // In-memory cache for O(1) lookups
+  static List<Map<String, dynamic>>? _cachedList;
+  static Set<String>? _cachedIds;
+
+  static void _invalidateCache() {
+    _cachedList = null;
+    _cachedIds = null;
+  }
+
+  static Future<void> _ensureCache() async {
+    if (_cachedList != null && _cachedIds != null) return;
     final prefs = await SharedPreferences.getInstance();
     final String? jsonStr = prefs.getString(_key);
-    if (jsonStr == null) return [];
+    if (jsonStr == null) {
+      _cachedList = [];
+      _cachedIds = {};
+      return;
+    }
     try {
       final List<dynamic> decoded = jsonDecode(jsonStr);
-      return decoded.map((item) => Map<String, dynamic>.from(item)).toList();
+      _cachedList = decoded.map((item) => Map<String, dynamic>.from(item)).toList();
+      _cachedIds = _cachedList!.map((item) => item['subjectId']?.toString() ?? '').where((id) => id.isNotEmpty).toSet();
     } catch (_) {
-      return [];
+      _cachedList = [];
+      _cachedIds = {};
     }
   }
 
-  // Check if an item is favorite
+  // Get list of favorites
+  static Future<List<Map<String, dynamic>>> getFavorites() async {
+    await _ensureCache();
+    return List.unmodifiable(_cachedList!);
+  }
+
+  // Check if an item is favorite - O(1) via HashSet
   static Future<bool> isFavorite(String subjectId) async {
-    final list = await getFavorites();
-    return list.any((item) => item['subjectId'] == subjectId);
+    await _ensureCache();
+    return _cachedIds!.contains(subjectId);
   }
 
   // Add to favorites
   static Future<void> addFavorite(Map<String, dynamic> item) async {
-    final list = await getFavorites();
+    await _ensureCache();
     final String subjectId = item['subjectId']?.toString() ?? item['id']?.toString() ?? "";
     if (subjectId.isEmpty) return;
     
-    list.removeWhere((x) => x['subjectId'] == subjectId);
+    _cachedList!.removeWhere((x) => x['subjectId'] == subjectId);
     
     // Store fields needed for the list item view
     final newFav = {
@@ -44,18 +65,20 @@ class FavoritesService {
               : (subjectId.startsWith('/') ? '4khdhub' : 'moviebox')),
     };
     
-    list.insert(0, newFav); // Add to the top
+    _cachedList!.insert(0, newFav); // Add to the top
+    _cachedIds!.add(subjectId);
     
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key, jsonEncode(list));
+    await prefs.setString(_key, jsonEncode(_cachedList));
   }
 
   // Remove from favorites
   static Future<void> removeFavorite(String subjectId) async {
-    final list = await getFavorites();
-    list.removeWhere((item) => item['subjectId'] == subjectId);
+    await _ensureCache();
+    _cachedList!.removeWhere((item) => item['subjectId'] == subjectId);
+    _cachedIds!.remove(subjectId);
     
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key, jsonEncode(list));
+    await prefs.setString(_key, jsonEncode(_cachedList));
   }
 }

@@ -695,7 +695,6 @@ class MovieBoxApiService {
            lower.contains("9a0461bc39da389663bf3dbb17091d3f") ||
            lower.contains("b164fbfb4347792950bdfbfb563d39d9") ||
            lower.contains("/notice.mp4") ||
-           lower.contains("notice") ||
            (lower.contains("macdn.aoneroom.com") && lower.contains("/other/"));
   }
 
