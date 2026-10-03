@@ -1,15 +1,14 @@
 import 'dart:async';
 import 'dart:ui';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
-import 'package:http/http.dart' as http;
 import '../widgets/tv_focusable_card.dart';
 import '../widgets/subtitle_search_dialog.dart';
+import '../widgets/subtitle_customization_dialog.dart';
 import '../services/playback_progress_service.dart';
 import '../services/app_language_service.dart';
 import '../services/analytics_service.dart';
@@ -17,6 +16,7 @@ import '../services/performance_service.dart';
 import 'package:firebase_performance/firebase_performance.dart';
 import '../services/moviebox_api_service.dart';
 import '../services/online_subtitle_service.dart';
+import '../services/subtitle_settings_service.dart';
 
 class PlayerSwitchAudioResult {
   final String streamUrl;
@@ -169,16 +169,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   static const MethodChannel _pipChannel = MethodChannel('com.koko.moviebox/pip');
   bool _isPipMode = false;
   bool _isErrorDialogShowing = false;
-  Color _selectedSubtitleColor = Colors.white;
+  Color _selectedSubtitleColor = SubtitleSettingsService.fontColor;
+  double _selectedSubtitleFontSize = SubtitleSettingsService.fontSize;
   BoxFit _selectedFitMode = BoxFit.contain;
 
-  final Map<String, Color> _subtitleColors = {
-    'White': Colors.white,
-    'Yellow': Colors.yellowAccent,
-    'Cyan': Colors.cyanAccent,
-    'Green': Colors.greenAccent,
-    'Pink': Colors.pinkAccent,
-  };
+  final Map<String, Color> _subtitleColors = SubtitleSettingsService.supportedColors;
 
   final Map<String, BoxFit> _fitModes = {
     'Fit (Default)': BoxFit.contain,
@@ -194,6 +189,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   late FocusNode _backFocusNode;
   late FocusNode _subtitleFocusNode;
   late FocusNode _subtitleColorFocusNode;
+  late FocusNode _subtitleSizeFocusNode;
   late FocusNode _fitModeFocusNode;
   late FocusNode _pipFocusNode;
   late FocusNode _rewindFocusNode;
@@ -204,6 +200,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // GlobalKeys to programmatically open PopupMenuButtons
   final GlobalKey<PopupMenuButtonState<String>> _popupMenuKey = GlobalKey();
   final GlobalKey<PopupMenuButtonState<Color>> _colorPopupMenuKey = GlobalKey();
+  final GlobalKey<PopupMenuButtonState<String>> _subtitleSizePopupMenuKey = GlobalKey();
   final GlobalKey<PopupMenuButtonState<BoxFit>> _fitMenuKey = GlobalKey();
 
   Trace? _playbackTrace;
@@ -368,6 +365,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _backFocusNode = FocusNode();
     _subtitleFocusNode = FocusNode();
     _subtitleColorFocusNode = FocusNode();
+    _subtitleSizeFocusNode = FocusNode();
     _fitModeFocusNode = FocusNode();
     _orientationFocusNode = FocusNode();
     _pipFocusNode = FocusNode();
@@ -375,6 +373,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _playPauseFocusNode = FocusNode();
     _forwardFocusNode = FocusNode();
     _sliderFocusNode = FocusNode();
+
+    _selectedSubtitleColor = SubtitleSettingsService.fontColor;
+    _selectedSubtitleFontSize = SubtitleSettingsService.fontSize;
+    SubtitleSettingsService.fontSizeNotifier.addListener(_onSubtitleSettingsChanged);
+    SubtitleSettingsService.fontColorNotifier.addListener(_onSubtitleSettingsChanged);
+    SubtitleSettingsService.hasBackgroundNotifier.addListener(_onSubtitleSettingsChanged);
 
     // Listen for Picture-in-Picture mode changes from native Android
     _pipChannel.setMethodCallHandler((call) async {
@@ -733,10 +737,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _player.dispose();
     _positionNotifier.dispose();
     
+    SubtitleSettingsService.fontSizeNotifier.removeListener(_onSubtitleSettingsChanged);
+    SubtitleSettingsService.fontColorNotifier.removeListener(_onSubtitleSettingsChanged);
+    SubtitleSettingsService.hasBackgroundNotifier.removeListener(_onSubtitleSettingsChanged);
+
     // Dispose focus nodes
     _backFocusNode.dispose();
     _subtitleFocusNode.dispose();
     _subtitleColorFocusNode.dispose();
+    _subtitleSizeFocusNode.dispose();
     _fitModeFocusNode.dispose();
     _orientationFocusNode.dispose();
     _pipFocusNode.dispose();
@@ -759,6 +768,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       DeviceOrientation.landscapeRight,
     ]);
     super.dispose();
+  }
+
+  void _onSubtitleSettingsChanged() {
+    if (mounted) {
+      setState(() {
+        _selectedSubtitleColor = SubtitleSettingsService.fontColor;
+        _selectedSubtitleFontSize = SubtitleSettingsService.fontSize;
+      });
+    }
   }
 
   List<Widget> _buildTopBarActionButtons({required bool isPortrait}) {
@@ -1025,13 +1043,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
               key: _colorPopupMenuKey,
               color: const Color(0xFF1E1E1E),
               onSelected: (color) {
-                setState(() {
-                  _selectedSubtitleColor = color;
-                });
+                SubtitleSettingsService.setFontColor(color);
               },
               itemBuilder: (context) {
                 return _subtitleColors.entries.map((entry) {
-                  final isSelected = _selectedSubtitleColor == entry.value;
+                  final isSelected = _selectedSubtitleColor.toARGB32() == entry.value.toARGB32();
+                  final colorName = SubtitleSettingsService.getColorName(entry.value);
                   return PopupMenuItem<Color>(
                     value: entry.value,
                     child: Row(
@@ -1047,7 +1064,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         ),
                         const SizedBox(width: 12),
                         Text(
-                          entry.key,
+                          colorName,
                           style: GoogleFonts.outfit(
                             color: isSelected ? Colors.redAccent : Colors.white,
                             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
@@ -1061,6 +1078,127 @@ class _PlayerScreenState extends State<PlayerScreen> {
               child: Padding(
                 padding: btnPadding,
                 child: Icon(Icons.palette, color: Colors.white, size: iconSize),
+              ),
+            ),
+          ),
+        ),
+      );
+      buttons.add(SizedBox(width: spacing));
+    }
+
+    // Subtitle Font Size / Appearance Button (Bisa di kecilin, bisa di gedein)
+    if (_availableSubtitles.isNotEmpty || _subtitleEntries.isNotEmpty) {
+      buttons.add(
+        TvFocusableCard(
+          focusNode: _subtitleSizeFocusNode,
+          borderRadius: BorderRadius.circular(24),
+          onTap: () {
+            _subtitleSizePopupMenuKey.currentState?.showButtonMenu();
+          },
+          child: IgnorePointer(
+            child: PopupMenuButton<String>(
+              key: _subtitleSizePopupMenuKey,
+              color: const Color(0xFF1E1E1E),
+              onSelected: (action) {
+                if (action == "__increase__") {
+                  SubtitleSettingsService.increaseFontSize();
+                } else if (action == "__decrease__") {
+                  SubtitleSettingsService.decreaseFontSize();
+                } else if (action == "__custom_dialog__") {
+                  SubtitleCustomizationDialog.show(context);
+                } else if (action.startsWith("__preset_")) {
+                  final sizeVal = double.tryParse(action.replaceFirst("__preset_", ""));
+                  if (sizeVal != null) {
+                    SubtitleSettingsService.setFontSize(sizeVal);
+                  }
+                }
+              },
+              itemBuilder: (context) {
+                return [
+                  PopupMenuItem<String>(
+                    value: "__increase__",
+                    child: Row(
+                      children: [
+                        const Icon(Icons.add_circle_outline, color: Colors.redAccent, size: 20),
+                        const SizedBox(width: 10),
+                        Text(
+                          AppLanguageService.tr(
+                            en: "Increase Font Size (+2px)",
+                            id: "Perbesar Huruf (+2px)",
+                          ),
+                          style: GoogleFonts.outfit(
+                            color: Colors.redAccent,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem<String>(
+                    value: "__decrease__",
+                    child: Row(
+                      children: [
+                        const Icon(Icons.remove_circle_outline, color: Colors.white70, size: 20),
+                        const SizedBox(width: 10),
+                        Text(
+                          AppLanguageService.tr(
+                            en: "Decrease Font Size (-2px)",
+                            id: "Perkecil Huruf (-2px)",
+                          ),
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuDivider(),
+                  ...SubtitleSettingsService.sizePresets.map((preset) {
+                    final isSelected = (_selectedSubtitleFontSize - preset.size).abs() < 0.5;
+                    return PopupMenuItem<String>(
+                      value: "__preset_${preset.size}",
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            preset.label,
+                            style: GoogleFonts.outfit(
+                              color: isSelected ? Colors.redAccent : Colors.white,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                          if (isSelected)
+                            const Icon(Icons.check, color: Colors.redAccent, size: 18),
+                        ],
+                      ),
+                    );
+                  }),
+                  const PopupMenuDivider(),
+                  PopupMenuItem<String>(
+                    value: "__custom_dialog__",
+                    child: Row(
+                      children: [
+                        const Icon(Icons.tune_rounded, color: Colors.white70, size: 20),
+                        const SizedBox(width: 10),
+                        Text(
+                          AppLanguageService.tr(
+                            en: "Subtitle Settings...",
+                            id: "Pengaturan Huruf Lengkap...",
+                          ),
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ];
+              },
+              child: Padding(
+                padding: btnPadding,
+                child: Icon(Icons.format_size_rounded, color: Colors.white, size: iconSize),
               ),
             ),
           ),
@@ -1225,39 +1363,60 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   bottom: _showControls
                       ? (isPortrait ? (bottomInset > 0 ? bottomInset + 80 : 80) : 90)
                       : (isPortrait ? (bottomInset > 0 ? bottomInset + 30 : 30) : 30),
-                  left: isPortrait ? 20 : 40,
-                  right: isPortrait ? 20 : 40,
+                  left: isPortrait ? 16 : 32,
+                  right: isPortrait ? 16 : 32,
                   child: ValueListenableBuilder<Duration>(
                     valueListenable: _positionNotifier,
                     builder: (context, pos, child) {
                       final currentSubText = _getSubtitleAt(pos);
                       if (currentSubText.isEmpty) return const SizedBox.shrink();
+                      final double activeFontSize = isPortrait
+                          ? (_selectedSubtitleFontSize * 0.9)
+                          : _selectedSubtitleFontSize;
+                      final bool hasBg = SubtitleSettingsService.hasBackground;
+
                       return Center(
-                        child: Text(
-                          currentSubText,
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.outfit(
-                            fontSize: isPortrait ? 16 : 18,
-                            color: _selectedSubtitleColor,
-                            fontWeight: FontWeight.bold,
-                            shadows: const [
-                              Shadow(
-                                offset: Offset(-1.5, -1.5),
-                                color: Colors.black,
-                              ),
-                              Shadow(
-                                offset: Offset(1.5, -1.5),
-                                color: Colors.black,
-                              ),
-                              Shadow(
-                                offset: Offset(-1.5, 1.5),
-                                color: Colors.black,
-                              ),
-                              Shadow(
-                                offset: Offset(1.5, 1.5),
-                                color: Colors.black,
-                              ),
-                            ],
+                        child: Container(
+                          padding: hasBg
+                              ? const EdgeInsets.symmetric(horizontal: 14, vertical: 6)
+                              : EdgeInsets.zero,
+                          decoration: hasBg
+                              ? BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.75),
+                                  borderRadius: BorderRadius.circular(8),
+                                )
+                              : null,
+                          child: Text(
+                            currentSubText,
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.outfit(
+                              fontSize: activeFontSize,
+                              color: _selectedSubtitleColor,
+                              fontWeight: FontWeight.bold,
+                              shadows: [
+                                Shadow(
+                                  offset: const Offset(-1.5, -1.5),
+                                  color: Colors.black.withValues(alpha: 0.9),
+                                ),
+                                Shadow(
+                                  offset: const Offset(1.5, -1.5),
+                                  color: Colors.black.withValues(alpha: 0.9),
+                                ),
+                                Shadow(
+                                  offset: const Offset(-1.5, 1.5),
+                                  color: Colors.black.withValues(alpha: 0.9),
+                                ),
+                                Shadow(
+                                  offset: const Offset(1.5, 1.5),
+                                  color: Colors.black.withValues(alpha: 0.9),
+                                ),
+                                Shadow(
+                                  offset: const Offset(0, 2),
+                                  color: Colors.black.withValues(alpha: 0.8),
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       );

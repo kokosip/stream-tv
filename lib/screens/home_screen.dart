@@ -13,6 +13,8 @@ import '../services/playback_progress_service.dart';
 import '../services/search_history_service.dart';
 import '../services/app_language_service.dart';
 import '../services/app_content_filter_service.dart';
+import '../services/subtitle_settings_service.dart';
+import '../widgets/subtitle_customization_dialog.dart';
 import '../widgets/tv_focusable_card.dart';
 import '../widgets/tv_pin_pad_dialog.dart';
 import 'detail_screen.dart';
@@ -2981,6 +2983,58 @@ class _HomeScreenState extends State<HomeScreen> {
                             return Text(
                               lang == 'id' ? 'Bahasa Indonesia (ID)' : 'English (EN)',
                               style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 13),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Subtitle Settings Card
+          TvFocusableCard(
+            onTap: () {
+              SubtitleCustomizationDialog.show(context);
+            },
+            borderRadius: BorderRadius.circular(14),
+            scaleFactor: 1.02,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF161616),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF262626)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.subtitles_rounded, color: Colors.redAccent, size: 28),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          AppLanguageService.tr(en: "Subtitle Appearance", id: "Tampilan Subtitle"),
+                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        ValueListenableBuilder<double>(
+                          valueListenable: SubtitleSettingsService.fontSizeNotifier,
+                          builder: (context, size, _) {
+                            return ValueListenableBuilder<Color>(
+                              valueListenable: SubtitleSettingsService.fontColorNotifier,
+                              builder: (context, color, _) {
+                                final presetName = SubtitleSettingsService.activePresetName;
+                                final colorName = SubtitleSettingsService.getColorName(color);
+                                return Text(
+                                  "${size.toInt()}px • $presetName • $colorName",
+                                  style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 13),
+                                );
+                              },
                             );
                           },
                         ),
