@@ -206,14 +206,63 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Trace? _playbackTrace;
   Stopwatch? _playbackStopwatch;
 
-  Map<String, String>? _extractStreamHeaders(Map<String, dynamic>? stream) {
-    final is4kHub = widget.provider == '4khdhub' ||
-        (stream != null && stream['provider'] == '4khdhub') ||
-        widget.streamUrl.contains('hubcloud') ||
-        widget.streamUrl.contains('pixeldrain') ||
-        widget.streamUrl.contains('4khdhub');
+  bool get _is4kHub {
+    final prov = widget.provider.toLowerCase();
+    if (prov == '4khdhub') return true;
+    final curProv = (_currentStream?['provider'] ?? widget.currentStream?['provider'] ?? '').toString().toLowerCase();
+    if (curProv == '4khdhub') return true;
+    final url = (_currentStream?['url'] ?? widget.streamUrl).toString().toLowerCase();
+    if (url.contains('hubcloud') || url.contains('pixeldrain') || url.contains('4khdhub')) return true;
+    return false;
+  }
 
-    if (is4kHub) {
+  bool get _hasInternalSubtitles =>
+      _is4kHub ||
+      _player.state.tracks.subtitle.any((t) => t.id != 'no' && t.id != 'auto');
+
+  Future<void> _enableInternalSubtitleTrack() async {
+    try {
+      await _player.setSubtitleTrack(SubtitleTrack.auto());
+      if (_player.platform is NativePlayer) {
+        final platform = _player.platform as NativePlayer;
+        await platform.setProperty('sub-visibility', 'yes');
+        await platform.setProperty('sid', 'auto');
+      }
+    } catch (e) {
+      debugPrint("Error enabling internal subtitle track: $e");
+    }
+  }
+
+  Future<void> _disableInternalSubtitleTrack() async {
+    try {
+      await _player.setSubtitleTrack(SubtitleTrack.no());
+      if (_player.platform is NativePlayer) {
+        final platform = _player.platform as NativePlayer;
+        await platform.setProperty('sid', 'no');
+        await platform.setProperty('sub-visibility', 'no');
+      }
+    } catch (e) {
+      debugPrint("Error disabling internal subtitle track: $e");
+    }
+  }
+
+  Future<void> _syncSubtitleTracks() async {
+    if (!mounted) return;
+    try {
+      if (_selectedSubtitleUrl == '__provider__') {
+        await _enableInternalSubtitleTrack();
+      } else if (_selectedSubtitleUrl == '__off__' || (_selectedSubtitleUrl != null && _selectedSubtitleUrl!.isNotEmpty)) {
+        await _disableInternalSubtitleTrack();
+      } else if (_is4kHub) {
+        await _enableInternalSubtitleTrack();
+      }
+    } catch (e) {
+      debugPrint("Error syncing subtitle tracks: $e");
+    }
+  }
+
+  Map<String, String>? _extractStreamHeaders(Map<String, dynamic>? stream) {
+    if (_is4kHub) {
       final Map<String, String> base4kHeaders = {
         'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -269,7 +318,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _loadSubtitles(String url) async {
-    if (url.isEmpty) return;
+    if (url.isEmpty || url == '__off__' || url == '__provider__') {
+      setState(() {
+        _subtitleEntries = [];
+      });
+      if (url == '__provider__') {
+        await _enableInternalSubtitleTrack();
+      } else {
+        await _disableInternalSubtitleTrack();
+      }
+      return;
+    }
+
+    // Always disable internal embedded subtitle tracks when custom subtitle is active
+    await _disableInternalSubtitleTrack();
+
+    final cachedSub = _availableSubtitles.firstWhere(
+      (s) => s is Map && s['url'] == url && s['content'] != null,
+      orElse: () => null,
+    );
+    if (cachedSub != null && cachedSub['content'] != null) {
+      final entries = parseSrt(cachedSub['content'].toString());
+      if (mounted) {
+        setState(() {
+          _subtitleEntries = entries;
+        });
+      }
+      return;
+    }
+
     setState(() {
       _subtitleEntries = [];
     });
@@ -286,6 +363,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           setState(() {
             _subtitleEntries = entries;
           });
+          await _disableInternalSubtitleTrack();
         }
       }
     } catch (e) {
@@ -314,6 +392,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           'normalizedLan': "${result.item.languageName} ($providerLabel$authorTag)",
           'lanName': result.item.languageName,
           'isOnline': true,
+          'content': result.srtContent,
         };
 
         setState(() {
@@ -324,19 +403,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              AppLanguageService.tr(
-                en: "Applied subtitle: ${result.item.languageName} (${result.item.releaseName})",
-                id: "Subtitle diterapkan: ${result.item.languageName} (${result.item.releaseName})",
+        // Suppress 4KHDHub internal video subtitles when custom subtitle is selected
+        await _disableInternalSubtitleTrack();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                AppLanguageService.tr(
+                  en: "Applied subtitle: ${result.item.languageName} (${result.item.releaseName})",
+                  id: "Subtitle diterapkan: ${result.item.languageName} (${result.item.releaseName})",
+                ),
+                style: GoogleFonts.outfit(color: Colors.white),
               ),
-              style: GoogleFonts.outfit(color: Colors.white),
+              backgroundColor: const Color(0xFF1E1E1E),
+              duration: const Duration(seconds: 3),
             ),
-            backgroundColor: const Color(0xFF1E1E1E),
-            duration: const Duration(seconds: 3),
-          ),
-        );
+          );
+        }
       }
     }
     _startHideTimer();
@@ -346,6 +430,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void initState() {
     super.initState();
     
+    // Default 4KHDHub to provider embedded subtitles
+    if (_is4kHub) {
+      _selectedSubtitleUrl = '__provider__';
+    }
+
     // Force default landscape mode and immersive sticky mode upon entering player
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations([
@@ -601,6 +690,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }),
       );
 
+      // Listen to tracks stream to sync internal subtitle tracks with current user selection
+      _subscriptions.add(
+        _player.stream.tracks.listen((tracks) async {
+          await _syncSubtitleTracks();
+          if (mounted) setState(() {});
+        }),
+      );
+
       // Open media and start playback with performance tracking
       _playbackStopwatch = Stopwatch()..start();
       PerformanceService.instance.startTrace('video_playback_load').then((t) {
@@ -609,6 +706,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       final headers = _extractStreamHeaders(_currentStream ?? widget.currentStream);
       await _player.open(Media(widget.streamUrl, httpHeaders: headers));
+      await _syncSubtitleTracks();
     } catch (e) {
       _showErrorDialog("Failed to initialize video player: $e");
     }
@@ -926,14 +1024,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
           child: PopupMenuButton<String>(
             key: _popupMenuKey,
             color: const Color(0xFF1E1E1E),
-            onSelected: (url) {
+            onSelected: (url) async {
               if (url == "__search_online__") {
                 _openOnlineSubtitleSearch();
-              } else if (url.isEmpty) {
+              } else if (url == "__provider__") {
                 setState(() {
-                  _selectedSubtitleUrl = null;
+                  _selectedSubtitleUrl = "__provider__";
                   _subtitleEntries = [];
                 });
+                await _enableInternalSubtitleTrack();
+              } else if (url == "__off__" || url.isEmpty) {
+                setState(() {
+                  _selectedSubtitleUrl = "__off__";
+                  _subtitleEntries = [];
+                });
+                await _disableInternalSubtitleTrack();
               } else {
                 setState(() {
                   _selectedSubtitleUrl = url;
@@ -942,6 +1047,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
               }
             },
             itemBuilder: (context) {
+              final isProviderSelected = _selectedSubtitleUrl == '__provider__' ||
+                  (_selectedSubtitleUrl == null && _is4kHub);
+              final isOffSelected = _selectedSubtitleUrl == '__off__' ||
+                  (_selectedSubtitleUrl == null && !_is4kHub && _availableSubtitles.isEmpty);
+
               return [
                 PopupMenuItem<String>(
                   value: "__search_online__",
@@ -963,23 +1073,57 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
                 ),
                 const PopupMenuDivider(),
+                if (_hasInternalSubtitles) ...[
+                  PopupMenuItem<String>(
+                    value: "__provider__",
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.closed_caption, color: Colors.white70, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              _is4kHub
+                                  ? AppLanguageService.tr(
+                                      en: "4KHDHub Subtitles (Default)",
+                                      id: "Bawaan 4KHDHub (Default)",
+                                    )
+                                  : AppLanguageService.tr(
+                                      en: "Internal Video Subtitles",
+                                      id: "Bawaan Video",
+                                    ),
+                              style: GoogleFonts.outfit(
+                                color: isProviderSelected ? Colors.redAccent : Colors.white,
+                                fontWeight: isProviderSelected ? FontWeight.bold : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (isProviderSelected)
+                          const Icon(Icons.check, color: Colors.redAccent, size: 18),
+                      ],
+                    ),
+                  ),
+                ],
                 PopupMenuItem<String>(
-                  value: "",
+                  value: "__off__",
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
                         "Off",
                         style: GoogleFonts.outfit(
-                          color: _selectedSubtitleUrl == null ? Colors.redAccent : Colors.white,
-                          fontWeight: _selectedSubtitleUrl == null ? FontWeight.bold : FontWeight.normal,
+                          color: isOffSelected ? Colors.redAccent : Colors.white,
+                          fontWeight: isOffSelected ? FontWeight.bold : FontWeight.normal,
                         ),
                       ),
-                      if (_selectedSubtitleUrl == null)
+                      if (isOffSelected)
                         const Icon(Icons.check, color: Colors.redAccent, size: 18),
                     ],
                   ),
                 ),
+                if (_availableSubtitles.isNotEmpty) const PopupMenuDivider(),
                 ..._availableSubtitles.map((sub) {
                   final label = sub['normalizedLan'] ??
                                 sub['lanName'] ?? 
@@ -1019,7 +1163,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
               padding: btnPadding,
               child: Icon(
                 Icons.subtitles,
-                color: _selectedSubtitleUrl != null ? Colors.redAccent : Colors.white,
+                color: (_selectedSubtitleUrl != null && _selectedSubtitleUrl != '__off__')
+                    ? Colors.redAccent
+                    : Colors.white,
                 size: iconSize,
               ),
             ),
@@ -1030,7 +1176,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     buttons.add(SizedBox(width: spacing));
 
     // Subtitle Color Button
-    if (_availableSubtitles.isNotEmpty || _subtitleEntries.isNotEmpty) {
+    if (_availableSubtitles.isNotEmpty || _subtitleEntries.isNotEmpty || _hasInternalSubtitles) {
       buttons.add(
         TvFocusableCard(
           focusNode: _subtitleColorFocusNode,
@@ -1087,7 +1233,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     // Subtitle Font Size / Appearance Button (Bisa di kecilin, bisa di gedein)
-    if (_availableSubtitles.isNotEmpty || _subtitleEntries.isNotEmpty) {
+    if (_availableSubtitles.isNotEmpty || _subtitleEntries.isNotEmpty || _hasInternalSubtitles) {
       buttons.add(
         TvFocusableCard(
           focusNode: _subtitleSizeFocusNode,
@@ -1358,7 +1504,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
 
               // 2. Custom Subtitles Overlay
-              if (_selectedSubtitleUrl != null && _isInitialized && !_isPipMode)
+              if (_selectedSubtitleUrl != null &&
+                  _selectedSubtitleUrl != '__provider__' &&
+                  _selectedSubtitleUrl != '__off__' &&
+                  _isInitialized &&
+                  !_isPipMode)
                 Positioned(
                   bottom: _showControls
                       ? (isPortrait ? (bottomInset > 0 ? bottomInset + 80 : 80) : 90)
@@ -1836,7 +1986,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _availableSubtitles = cleanSubs;
 
-    if (_availableSubtitles.isNotEmpty) {
+    if (_is4kHub) {
+      // 4KHDHub streams come with embedded subtitles in the video stream.
+      // Default to provider's built-in subtitles without overlay collision.
+      _selectedSubtitleUrl = '__provider__';
+      _subtitleEntries = [];
+      _enableInternalSubtitleTrack();
+    } else if (_availableSubtitles.isNotEmpty) {
       // Prioritize Indonesian if app language is 'id', else English, else first
       final isIdLang = AppLanguageService.currentLanguage.value == 'id';
       final preferred = _availableSubtitles.firstWhere(
@@ -1851,14 +2007,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _selectedSubtitleUrl = null;
     }
 
-    if (_selectedSubtitleUrl != null) {
+    if (_selectedSubtitleUrl != null &&
+        _selectedSubtitleUrl != '__provider__' &&
+        _selectedSubtitleUrl != '__off__') {
       _loadSubtitles(_selectedSubtitleUrl!);
     }
 
-    _autoResolveMissingSubtitles();
+    if (!_is4kHub) {
+      _autoResolveMissingSubtitles();
+    }
   }
 
   Future<void> _autoResolveMissingSubtitles() async {
+    // 4KHDHub streams use embedded provider subtitles by default; user can manually search if needed.
+    if (_is4kHub) return;
+
     final int currentToken = ++_subtitleResolutionToken;
     final isIdLang = AppLanguageService.currentLanguage.value == 'id';
 
