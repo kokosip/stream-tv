@@ -112,6 +112,15 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
+enum _PlayerSettingsTab {
+  main,
+  quality,
+  audio,
+  subtitle,
+  subtitleStyle,
+  aspectRatio,
+}
+
 class _PlayerScreenState extends State<PlayerScreen> {
   late final Player _player;
   late final VideoController _controller;
@@ -155,12 +164,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isSwitchingAudio = false;
   bool _isSwitchingQuality = false;
 
-  late FocusNode _audioFocusNode;
-  late FocusNode _qualityFocusNode;
   late FocusNode _episodesFocusNode;
-
-  final GlobalKey<PopupMenuButtonState<dynamic>> _audioPopupMenuKey = GlobalKey<PopupMenuButtonState<dynamic>>();
-  final GlobalKey<PopupMenuButtonState<Map<String, dynamic>>> _qualityPopupMenuKey = GlobalKey<PopupMenuButtonState<Map<String, dynamic>>>();
 
   String? _selectedSubtitleUrl;
   List<dynamic> _availableSubtitles = [];
@@ -183,25 +187,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // Screen Orientation state (defaults to Landscape, can be toggled to Portrait during playback)
   bool _isPortrait = false;
-  late FocusNode _orientationFocusNode;
 
   // FocusNodes for Android TV Remote Navigation
   late FocusNode _backFocusNode;
-  late FocusNode _subtitleFocusNode;
-  late FocusNode _subtitleColorFocusNode;
-  late FocusNode _subtitleSizeFocusNode;
-  late FocusNode _fitModeFocusNode;
-  late FocusNode _pipFocusNode;
+  late FocusNode _settingsFocusNode;
   late FocusNode _rewindFocusNode;
   late FocusNode _playPauseFocusNode;
   late FocusNode _forwardFocusNode;
   late FocusNode _sliderFocusNode;
-  
-  // GlobalKeys to programmatically open PopupMenuButtons
-  final GlobalKey<PopupMenuButtonState<String>> _popupMenuKey = GlobalKey();
-  final GlobalKey<PopupMenuButtonState<Color>> _colorPopupMenuKey = GlobalKey();
-  final GlobalKey<PopupMenuButtonState<String>> _subtitleSizePopupMenuKey = GlobalKey();
-  final GlobalKey<PopupMenuButtonState<BoxFit>> _fitMenuKey = GlobalKey();
 
   Trace? _playbackTrace;
   Stopwatch? _playbackStopwatch;
@@ -452,12 +445,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     // Initialize focus nodes
     _backFocusNode = FocusNode();
-    _subtitleFocusNode = FocusNode();
-    _subtitleColorFocusNode = FocusNode();
-    _subtitleSizeFocusNode = FocusNode();
-    _fitModeFocusNode = FocusNode();
-    _orientationFocusNode = FocusNode();
-    _pipFocusNode = FocusNode();
+    _settingsFocusNode = FocusNode();
     _rewindFocusNode = FocusNode();
     _playPauseFocusNode = FocusNode();
     _forwardFocusNode = FocusNode();
@@ -515,8 +503,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _cleanAndSortAvailableStreams();
     _seasons = List.from(widget.seasons);
 
-    _audioFocusNode = FocusNode();
-    _qualityFocusNode = FocusNode();
     _episodesFocusNode = FocusNode();
 
     // Parse and clean captions list
@@ -841,20 +827,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     // Dispose focus nodes
     _backFocusNode.dispose();
-    _subtitleFocusNode.dispose();
-    _subtitleColorFocusNode.dispose();
-    _subtitleSizeFocusNode.dispose();
-    _fitModeFocusNode.dispose();
-    _orientationFocusNode.dispose();
-    _pipFocusNode.dispose();
+    _settingsFocusNode.dispose();
     _rewindFocusNode.dispose();
     _playPauseFocusNode.dispose();
     _forwardFocusNode.dispose();
     _sliderFocusNode.dispose();
     _playNextFocusNode.dispose();
     _cancelNextFocusNode.dispose();
-    _audioFocusNode.dispose();
-    _qualityFocusNode.dispose();
     _episodesFocusNode.dispose();
     
     // Restore default system UI modes when exiting fullscreen player
@@ -875,6 +854,69 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _selectedSubtitleFontSize = SubtitleSettingsService.fontSize;
       });
     }
+  }
+
+  String _getCurrentSubtitleLabel() {
+    if (_selectedSubtitleUrl == '__provider__' || (_selectedSubtitleUrl == null && _is4kHub)) {
+      return _is4kHub
+          ? AppLanguageService.tr(en: "4KHDHub Subtitles (Default)", id: "Bawaan 4KHDHub (Default)")
+          : AppLanguageService.tr(en: "Internal Video Subtitles", id: "Bawaan Video");
+    }
+    if (_selectedSubtitleUrl == '__off__' || (_selectedSubtitleUrl == null && !_is4kHub && _availableSubtitles.isEmpty)) {
+      return AppLanguageService.tr(en: "Off", id: "Mati");
+    }
+    if (_selectedSubtitleUrl != null && _selectedSubtitleUrl!.isNotEmpty) {
+      final match = _availableSubtitles.cast<dynamic>().firstWhere(
+        (sub) {
+          final subUrl = (sub['url'] ?? sub['link'] ?? sub['src'] ?? sub['path'] ?? '').toString();
+          return subUrl == _selectedSubtitleUrl;
+        },
+        orElse: () => null,
+      );
+      if (match != null) {
+        final label = match['normalizedLan'] ??
+            match['lanName'] ??
+            match['language'] ??
+            match['lan'] ??
+            match['lang'] ??
+            "Subtitle";
+        return label.toString();
+      }
+      return AppLanguageService.tr(en: "Custom Subtitle", id: "Subtitle Khusus");
+    }
+    return AppLanguageService.tr(en: "Off", id: "Mati");
+  }
+
+  String _getCurrentQualityLabel() {
+    if (_currentStream != null) {
+      return _formatStreamQualityLabel(_currentStream!);
+    }
+    if (_availableStreams.isNotEmpty) {
+      final first = _availableStreams.first;
+      if (first is Map) {
+        return _formatStreamQualityLabel(Map<String, dynamic>.from(first));
+      }
+    }
+    return "Auto";
+  }
+
+  String _getCurrentAudioLabel() {
+    if (_currentAudioName != null && _currentAudioName!.isNotEmpty) {
+      return _currentAudioName!;
+    }
+    if (_dubs.isNotEmpty) {
+      return _formatDubLabel(_dubs.first);
+    }
+    return AppLanguageService.tr(en: "Default", id: "Bawaan");
+  }
+
+  String _getCurrentFitLabel() {
+    for (final entry in _fitModes.entries) {
+      if (entry.value == _selectedFitMode) {
+        return entry.key;
+      }
+    }
+    return 'Fit (Default)';
   }
 
   List<Widget> _buildTopBarActionButtons({required bool isPortrait}) {
@@ -899,539 +941,756 @@ class _PlayerScreenState extends State<PlayerScreen> {
       buttons.add(SizedBox(width: spacing));
     }
 
-    // Audio Dub Selector Button
-    if (_dubs.isNotEmpty && widget.onSwitchAudio != null) {
-      buttons.add(
-        TvFocusableCard(
-          focusNode: _audioFocusNode,
-          borderRadius: BorderRadius.circular(24),
-          onTap: () {
-            _audioPopupMenuKey.currentState?.showButtonMenu();
-          },
-          child: IgnorePointer(
-            child: PopupMenuButton<dynamic>(
-              key: _audioPopupMenuKey,
-              color: const Color(0xFF1E1E1E),
-              onSelected: (dub) => _switchAudio(dub),
-              itemBuilder: (context) {
-                return _dubs.map((dub) {
-                  final label = _formatDubLabel(dub);
-                  final isSelected = label == _currentAudioName;
-                  return PopupMenuItem<dynamic>(
-                    value: dub,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          label,
-                          style: GoogleFonts.outfit(
-                            color: isSelected ? Colors.redAccent : Colors.white,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          ),
+    // Unified Settings Button (Gear icon)
+    buttons.add(
+      TvFocusableCard(
+        focusNode: _settingsFocusNode,
+        borderRadius: BorderRadius.circular(24),
+        onTap: () => _showPlayerSettingsModal(context),
+        child: Padding(
+          padding: btnPadding,
+          child: Icon(Icons.settings, color: Colors.white, size: iconSize),
+        ),
+      ),
+    );
+
+    return buttons;
+  }
+
+  void _showPlayerSettingsModal(BuildContext context) {
+    _hideTimer?.cancel();
+    _PlayerSettingsTab currentTab = _PlayerSettingsTab.main;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (BuildContext modalContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            void changeTab(_PlayerSettingsTab newTab) {
+              setModalState(() {
+                currentTab = newTab;
+              });
+            }
+
+            return PopScope(
+              canPop: currentTab == _PlayerSettingsTab.main,
+              onPopInvokedWithResult: (didPop, result) {
+                if (!didPop && currentTab != _PlayerSettingsTab.main) {
+                  changeTab(_PlayerSettingsTab.main);
+                }
+              },
+              child: SafeArea(
+                child: Center(
+                  child: Container(
+                    constraints: BoxConstraints(
+                      maxWidth: 580,
+                      maxHeight: MediaQuery.of(context).size.height * 0.88,
+                    ),
+                    margin: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF141414),
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(20),
+                        bottom: Radius.circular(20),
+                      ),
+                      border: Border.all(color: Colors.white12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.6),
+                          blurRadius: 24,
+                          spreadRadius: 4,
                         ),
-                        if (isSelected)
-                          const Icon(Icons.check, color: Colors.redAccent, size: 18),
                       ],
                     ),
-                  );
-                }).toList();
-              },
-              child: Padding(
-                padding: btnPadding,
-                child: Icon(Icons.audiotrack, color: Colors.white, size: iconSize),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildSettingsHeader(
+                          currentTab: currentTab,
+                          onBack: () => changeTab(_PlayerSettingsTab.main),
+                          onClose: () => Navigator.pop(modalContext),
+                        ),
+                        const Divider(color: Colors.white12, height: 1),
+                        Flexible(
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            child: _buildSettingsTabContent(
+                              modalContext: modalContext,
+                              currentTab: currentTab,
+                              onSelectTab: changeTab,
+                              setModalState: setModalState,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ).then((_) {
+      if (mounted) {
+        _startHideTimer();
+        _settingsFocusNode.requestFocus();
+      }
+    });
+  }
+
+  Widget _buildSettingsHeader({
+    required _PlayerSettingsTab currentTab,
+    required VoidCallback onBack,
+    required VoidCallback onClose,
+  }) {
+    String title;
+    IconData icon;
+
+    switch (currentTab) {
+      case _PlayerSettingsTab.main:
+        title = AppLanguageService.tr(en: "Settings", id: "Pengaturan");
+        icon = Icons.settings;
+        break;
+      case _PlayerSettingsTab.quality:
+        title = AppLanguageService.tr(en: "Video Quality", id: "Kualitas Video");
+        icon = Icons.high_quality;
+        break;
+      case _PlayerSettingsTab.audio:
+        title = AppLanguageService.tr(en: "Audio Track", id: "Trek Audio");
+        icon = Icons.audiotrack;
+        break;
+      case _PlayerSettingsTab.subtitle:
+        title = AppLanguageService.tr(en: "Subtitles", id: "Subtitle");
+        icon = Icons.subtitles;
+        break;
+      case _PlayerSettingsTab.subtitleStyle:
+        title = AppLanguageService.tr(en: "Subtitle Style & Size", id: "Gaya & Ukuran Subtitle");
+        icon = Icons.format_size_rounded;
+        break;
+      case _PlayerSettingsTab.aspectRatio:
+        title = AppLanguageService.tr(en: "Aspect Ratio", id: "Rasio Layar");
+        icon = Icons.aspect_ratio;
+        break;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          if (currentTab != _PlayerSettingsTab.main)
+            IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: onBack,
+              tooltip: "Back",
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Icon(icon, color: Colors.redAccent, size: 22),
+            ),
+          Expanded(
+            child: Text(
+              title,
+              style: GoogleFonts.outfit(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ),
-        ),
-      );
-      buttons.add(SizedBox(width: spacing));
-    }
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.white70),
+            onPressed: onClose,
+            tooltip: "Close",
+          ),
+        ],
+      ),
+    );
+  }
 
-    // Video Quality Selector Button
-    if (_availableStreams.isNotEmpty) {
-      buttons.add(
-        TvFocusableCard(
-          focusNode: _qualityFocusNode,
-          borderRadius: BorderRadius.circular(24),
-          onTap: () {
-            _qualityPopupMenuKey.currentState?.showButtonMenu();
-          },
-          child: IgnorePointer(
-            child: PopupMenuButton<Map<String, dynamic>>(
-              key: _qualityPopupMenuKey,
-              color: const Color(0xFF1E1E1E),
-              onSelected: (stream) => _switchQuality(stream),
-              itemBuilder: (context) {
-                return _availableStreams.map((s) {
-                  final mapStream = Map<String, dynamic>.from(s is Map ? s : {});
-                  final label = _formatStreamQualityLabel(mapStream);
-                  final isSelected = _isStreamSelected(mapStream);
-                  return PopupMenuItem<Map<String, dynamic>>(
-                    value: mapStream,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          label,
-                          style: GoogleFonts.outfit(
-                            color: isSelected ? Colors.redAccent : Colors.white,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        ),
-                        if (isSelected)
-                          const Icon(Icons.check, color: Colors.redAccent, size: 18),
-                      ],
-                    ),
-                  );
-                }).toList();
-              },
-              child: Padding(
-                padding: btnPadding,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+  Widget _buildSettingsTile({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    Widget? trailing,
+    required VoidCallback onTap,
+    Color? iconColor,
+    bool isSelected = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: TvFocusableCard(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.redAccent.withValues(alpha: 0.12) : const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? Colors.redAccent.withValues(alpha: 0.5) : Colors.white10,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: iconColor ?? (isSelected ? Colors.redAccent : Colors.white70), size: 22),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.high_quality, color: Colors.white, size: iconSize),
-                    if (_currentStream != null) ...[
-                      const SizedBox(width: 4),
+                    Text(
+                      title,
+                      style: GoogleFonts.outfit(
+                        color: isSelected ? Colors.redAccent : Colors.white,
+                        fontSize: 15,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                      ),
+                    ),
+                    if (subtitle != null && subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 2),
                       Text(
-                        _formatShortQualityLabel(_currentStream),
+                        subtitle,
                         style: GoogleFonts.outfit(
-                          color: Colors.white70,
-                          fontSize: isPortrait ? 10 : 12,
-                          fontWeight: FontWeight.bold,
+                          color: Colors.white54,
+                          fontSize: 13,
                         ),
                       ),
                     ],
                   ],
                 ),
               ),
-            ),
+              if (trailing != null)
+                trailing
+              else
+                const Icon(Icons.chevron_right, color: Colors.white38, size: 20),
+            ],
           ),
         ),
-      );
-      buttons.add(SizedBox(width: spacing));
-    }
+      ),
+    );
+  }
 
-    // Subtitle Selector Button (Always available with in-app online search)
-    buttons.add(
-      TvFocusableCard(
-        focusNode: _subtitleFocusNode,
-        borderRadius: BorderRadius.circular(24),
-        onTap: () {
-          _popupMenuKey.currentState?.showButtonMenu();
-        },
-        child: IgnorePointer(
-          child: PopupMenuButton<String>(
-            key: _popupMenuKey,
-            color: const Color(0xFF1E1E1E),
-            onSelected: (url) async {
-              if (url == "__search_online__") {
+  Widget _buildSettingsTabContent({
+    required BuildContext modalContext,
+    required _PlayerSettingsTab currentTab,
+    required void Function(_PlayerSettingsTab) onSelectTab,
+    required StateSetter setModalState,
+  }) {
+    switch (currentTab) {
+      case _PlayerSettingsTab.main:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_availableStreams.isNotEmpty)
+              _buildSettingsTile(
+                icon: Icons.high_quality,
+                title: AppLanguageService.tr(en: "Quality", id: "Kualitas Video"),
+                subtitle: _getCurrentQualityLabel(),
+                onTap: () => onSelectTab(_PlayerSettingsTab.quality),
+              ),
+            if (_dubs.isNotEmpty && widget.onSwitchAudio != null)
+              _buildSettingsTile(
+                icon: Icons.audiotrack,
+                title: AppLanguageService.tr(en: "Audio Track", id: "Trek Audio"),
+                subtitle: _getCurrentAudioLabel(),
+                onTap: () => onSelectTab(_PlayerSettingsTab.audio),
+              ),
+            _buildSettingsTile(
+              icon: Icons.subtitles,
+              title: AppLanguageService.tr(en: "Subtitles", id: "Subtitle"),
+              subtitle: _getCurrentSubtitleLabel(),
+              onTap: () => onSelectTab(_PlayerSettingsTab.subtitle),
+            ),
+            _buildSettingsTile(
+              icon: Icons.format_size_rounded,
+              title: AppLanguageService.tr(en: "Subtitle Style & Size", id: "Gaya & Ukuran Subtitle"),
+              subtitle: "${_selectedSubtitleFontSize.toInt()} px • ${SubtitleSettingsService.getColorName(_selectedSubtitleColor)}",
+              onTap: () => onSelectTab(_PlayerSettingsTab.subtitleStyle),
+            ),
+            _buildSettingsTile(
+              icon: Icons.aspect_ratio,
+              title: AppLanguageService.tr(en: "Aspect Ratio", id: "Rasio Layar"),
+              subtitle: _getCurrentFitLabel(),
+              onTap: () => onSelectTab(_PlayerSettingsTab.aspectRatio),
+            ),
+            _buildSettingsTile(
+              icon: _isPortrait ? Icons.stay_current_landscape : Icons.stay_current_portrait,
+              title: AppLanguageService.tr(en: "Screen Orientation", id: "Orientasi Layar"),
+              subtitle: _isPortrait
+                  ? AppLanguageService.tr(en: "Portrait", id: "Potret")
+                  : AppLanguageService.tr(en: "Landscape", id: "Lanskap"),
+              trailing: Icon(
+                _isPortrait ? Icons.screen_lock_portrait : Icons.screen_lock_landscape,
+                color: Colors.white54,
+                size: 20,
+              ),
+              onTap: () {
+                _toggleOrientation();
+                setModalState(() {});
+              },
+            ),
+            _buildSettingsTile(
+              icon: Icons.picture_in_picture_alt,
+              title: AppLanguageService.tr(en: "Picture-in-Picture", id: "Gambar-dalam-Gambar (PiP)"),
+              subtitle: AppLanguageService.tr(en: "Watch in floating window", id: "Tonton di jendela melayang"),
+              trailing: const Icon(Icons.open_in_new, color: Colors.white54, size: 20),
+              onTap: () {
+                Navigator.pop(modalContext);
+                _enterPipMode();
+              },
+            ),
+          ],
+        );
+
+      case _PlayerSettingsTab.quality:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: _availableStreams.map((s) {
+            final mapStream = Map<String, dynamic>.from(s is Map ? s : {});
+            final label = _formatStreamQualityLabel(mapStream);
+            final isSelected = _isStreamSelected(mapStream);
+            return _buildSettingsTile(
+              icon: Icons.high_quality,
+              title: label,
+              isSelected: isSelected,
+              trailing: isSelected ? const Icon(Icons.check, color: Colors.redAccent, size: 20) : null,
+              onTap: () {
+                _switchQuality(mapStream);
+                Navigator.pop(modalContext);
+              },
+            );
+          }).toList(),
+        );
+
+      case _PlayerSettingsTab.audio:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: _dubs.map((dub) {
+            final label = _formatDubLabel(dub);
+            final isSelected = label == _currentAudioName;
+            return _buildSettingsTile(
+              icon: Icons.audiotrack,
+              title: label,
+              isSelected: isSelected,
+              trailing: isSelected ? const Icon(Icons.check, color: Colors.redAccent, size: 20) : null,
+              onTap: () {
+                _switchAudio(dub);
+                Navigator.pop(modalContext);
+              },
+            );
+          }).toList(),
+        );
+
+      case _PlayerSettingsTab.subtitle:
+        final isProviderSelected = _selectedSubtitleUrl == '__provider__' ||
+            (_selectedSubtitleUrl == null && _is4kHub);
+        final isOffSelected = _selectedSubtitleUrl == '__off__' ||
+            (_selectedSubtitleUrl == null && !_is4kHub && _availableSubtitles.isEmpty);
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildSettingsTile(
+              icon: Icons.search,
+              iconColor: Colors.redAccent,
+              title: AppLanguageService.tr(
+                en: "Search Online Subtitles...",
+                id: "Cari Subtitle Online...",
+              ),
+              subtitle: AppLanguageService.tr(
+                en: "OpenSubtitles & SubDL",
+                id: "OpenSubtitles & SubDL",
+              ),
+              onTap: () {
+                Navigator.pop(modalContext);
                 _openOnlineSubtitleSearch();
-              } else if (url == "__provider__") {
-                setState(() {
-                  _selectedSubtitleUrl = "__provider__";
-                  _subtitleEntries = [];
-                });
-                await _enableInternalSubtitleTrack();
-              } else if (url == "__off__" || url.isEmpty) {
+              },
+            ),
+            const Divider(color: Colors.white12, height: 16),
+            if (_hasInternalSubtitles) ...[
+              _buildSettingsTile(
+                icon: Icons.closed_caption,
+                title: _is4kHub
+                    ? AppLanguageService.tr(
+                        en: "4KHDHub Subtitles (Default)",
+                        id: "Bawaan 4KHDHub (Default)",
+                      )
+                    : AppLanguageService.tr(
+                        en: "Internal Video Subtitles",
+                        id: "Bawaan Video",
+                      ),
+                isSelected: isProviderSelected,
+                trailing: isProviderSelected ? const Icon(Icons.check, color: Colors.redAccent, size: 20) : null,
+                onTap: () async {
+                  setState(() {
+                    _selectedSubtitleUrl = "__provider__";
+                    _subtitleEntries = [];
+                  });
+                  await _enableInternalSubtitleTrack();
+                  setModalState(() {});
+                },
+              ),
+            ],
+            _buildSettingsTile(
+              icon: Icons.subtitles_off,
+              title: AppLanguageService.tr(en: "Off", id: "Mati"),
+              isSelected: isOffSelected,
+              trailing: isOffSelected ? const Icon(Icons.check, color: Colors.redAccent, size: 20) : null,
+              onTap: () async {
                 setState(() {
                   _selectedSubtitleUrl = "__off__";
                   _subtitleEntries = [];
                 });
                 await _disableInternalSubtitleTrack();
-              } else {
-                setState(() {
-                  _selectedSubtitleUrl = url;
-                });
-                _loadSubtitles(url);
-              }
-            },
-            itemBuilder: (context) {
-              final isProviderSelected = _selectedSubtitleUrl == '__provider__' ||
-                  (_selectedSubtitleUrl == null && _is4kHub);
-              final isOffSelected = _selectedSubtitleUrl == '__off__' ||
-                  (_selectedSubtitleUrl == null && !_is4kHub && _availableSubtitles.isEmpty);
+                setModalState(() {});
+              },
+            ),
+            if (_availableSubtitles.isNotEmpty) ...[
+              const Divider(color: Colors.white12, height: 16),
+              ..._availableSubtitles.map((sub) {
+                final label = sub['normalizedLan'] ??
+                    sub['lanName'] ??
+                    sub['language'] ??
+                    sub['lan'] ??
+                    sub['lang'] ??
+                    "Subtitle";
+                final subUrl = (sub['url'] ?? sub['link'] ?? sub['src'] ?? sub['path'] ?? '').toString();
+                if (subUrl.isEmpty) return const SizedBox.shrink();
 
-              return [
-                PopupMenuItem<String>(
-                  value: "__search_online__",
-                  child: Row(
-                    children: [
-                      const Icon(Icons.search, color: Colors.redAccent, size: 20),
-                      const SizedBox(width: 10),
-                      Text(
-                        AppLanguageService.tr(
-                          en: "Search Online Subtitles...",
-                          id: "Cari Subtitle Online...",
+                final isSelected = _selectedSubtitleUrl == subUrl;
+                return _buildSettingsTile(
+                  icon: Icons.subtitles,
+                  title: label.toString(),
+                  isSelected: isSelected,
+                  trailing: isSelected ? const Icon(Icons.check, color: Colors.redAccent, size: 20) : null,
+                  onTap: () {
+                    setState(() {
+                      _selectedSubtitleUrl = subUrl;
+                    });
+                    _loadSubtitles(subUrl);
+                    setModalState(() {});
+                  },
+                );
+              }),
+            ],
+          ],
+        );
+
+      case _PlayerSettingsTab.subtitleStyle:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Preview card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Center(
+                child: Container(
+                  padding: SubtitleSettingsService.hasBackground
+                      ? const EdgeInsets.symmetric(horizontal: 10, vertical: 4)
+                      : EdgeInsets.zero,
+                  decoration: SubtitleSettingsService.hasBackground
+                      ? BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(6),
+                        )
+                      : null,
+                  child: Text(
+                    AppLanguageService.tr(
+                      en: "Sample Subtitle Text",
+                      id: "Contoh Teks Subtitle",
+                    ),
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.outfit(
+                      fontSize: _selectedSubtitleFontSize,
+                      color: _selectedSubtitleColor,
+                      fontWeight: FontWeight.w600,
+                      shadows: [
+                        Shadow(
+                          offset: const Offset(0, 1),
+                          blurRadius: 4,
+                          color: Colors.black.withValues(alpha: 0.9),
                         ),
-                        style: GoogleFonts.outfit(
-                          color: Colors.redAccent,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const PopupMenuDivider(),
-                if (_hasInternalSubtitles) ...[
-                  PopupMenuItem<String>(
-                    value: "__provider__",
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.closed_caption, color: Colors.white70, size: 18),
-                            const SizedBox(width: 8),
-                            Text(
-                              _is4kHub
-                                  ? AppLanguageService.tr(
-                                      en: "4KHDHub Subtitles (Default)",
-                                      id: "Bawaan 4KHDHub (Default)",
-                                    )
-                                  : AppLanguageService.tr(
-                                      en: "Internal Video Subtitles",
-                                      id: "Bawaan Video",
-                                    ),
-                              style: GoogleFonts.outfit(
-                                color: isProviderSelected ? Colors.redAccent : Colors.white,
-                                fontWeight: isProviderSelected ? FontWeight.bold : FontWeight.normal,
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (isProviderSelected)
-                          const Icon(Icons.check, color: Colors.redAccent, size: 18),
                       ],
                     ),
                   ),
-                ],
-                PopupMenuItem<String>(
-                  value: "__off__",
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        "Off",
-                        style: GoogleFonts.outfit(
-                          color: isOffSelected ? Colors.redAccent : Colors.white,
-                          fontWeight: isOffSelected ? FontWeight.bold : FontWeight.normal,
-                        ),
-                      ),
-                      if (isOffSelected)
-                        const Icon(Icons.check, color: Colors.redAccent, size: 18),
-                    ],
-                  ),
                 ),
-                if (_availableSubtitles.isNotEmpty) const PopupMenuDivider(),
-                ..._availableSubtitles.map((sub) {
-                  final label = sub['normalizedLan'] ??
-                                sub['lanName'] ?? 
-                                sub['language'] ?? 
-                                sub['lan'] ?? 
-                                sub['lang'] ?? 
-                                "Subtitle";
-                  final subUrl = (sub['url'] ?? sub['link'] ?? sub['src'] ?? sub['path'] ?? '').toString();
-                  if (subUrl.isEmpty) return null;
-
-                  final isSelected = _selectedSubtitleUrl == subUrl;
-                  return PopupMenuItem<String>(
-                    value: subUrl,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            label.toString(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.outfit(
-                              color: isSelected ? Colors.redAccent : Colors.white,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            ),
-                          ),
-                        ),
-                        if (isSelected)
-                          const Icon(Icons.check, color: Colors.redAccent, size: 18),
-                      ],
-                    ),
-                  );
-                }).whereType<PopupMenuItem<String>>(),
-              ];
-            },
-            child: Padding(
-              padding: btnPadding,
-              child: Icon(
-                Icons.subtitles,
-                color: (_selectedSubtitleUrl != null && _selectedSubtitleUrl != '__off__')
-                    ? Colors.redAccent
-                    : Colors.white,
-                size: iconSize,
               ),
             ),
-          ),
-        ),
-      ),
-    );
-    buttons.add(SizedBox(width: spacing));
+            const SizedBox(height: 16),
 
-    // Subtitle Color Button
-    if (_availableSubtitles.isNotEmpty || _subtitleEntries.isNotEmpty || _hasInternalSubtitles) {
-      buttons.add(
-        TvFocusableCard(
-          focusNode: _subtitleColorFocusNode,
-          borderRadius: BorderRadius.circular(24),
-          onTap: () {
-            _colorPopupMenuKey.currentState?.showButtonMenu();
-          },
-          child: IgnorePointer(
-            child: PopupMenuButton<Color>(
-              key: _colorPopupMenuKey,
-              color: const Color(0xFF1E1E1E),
-              onSelected: (color) {
-                SubtitleSettingsService.setFontColor(color);
-              },
-              itemBuilder: (context) {
-                return _subtitleColors.entries.map((entry) {
-                  final isSelected = _selectedSubtitleColor.toARGB32() == entry.value.toARGB32();
-                  final colorName = SubtitleSettingsService.getColorName(entry.value);
-                  return PopupMenuItem<Color>(
-                    value: entry.value,
+            // Stepper controls
+            Row(
+              children: [
+                Expanded(
+                  child: TvFocusableCard(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () {
+                      SubtitleSettingsService.decreaseFontSize();
+                      setModalState(() {});
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E1E1E),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.remove, color: Colors.white, size: 18),
+                          const SizedBox(width: 6),
+                          Text("-2 px", style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    "${_selectedSubtitleFontSize.toInt()} px",
+                    style: GoogleFonts.outfit(color: Colors.redAccent, fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Expanded(
+                  child: TvFocusableCard(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () {
+                      SubtitleSettingsService.increaseFontSize();
+                      setModalState(() {});
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E1E1E),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.add, color: Colors.white, size: 18),
+                          const SizedBox(width: 6),
+                          Text("+2 px", style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+
+            // Presets
+            Text(
+              AppLanguageService.tr(en: "Preset Sizes", id: "Ukuran Standar"),
+              style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: SubtitleSettingsService.sizePresets.map((preset) {
+                final isSelected = (_selectedSubtitleFontSize - preset.size).abs() < 0.5;
+                return TvFocusableCard(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    SubtitleSettingsService.setFontSize(preset.size);
+                    setModalState(() {});
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isSelected ? Colors.redAccent.withValues(alpha: 0.2) : const Color(0xFF1E1E1E),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isSelected ? Colors.redAccent : Colors.white12,
+                      ),
+                    ),
+                    child: Text(
+                      preset.label,
+                      style: GoogleFonts.outfit(
+                        color: isSelected ? Colors.redAccent : Colors.white,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 14),
+
+            // Colors
+            Text(
+              AppLanguageService.tr(en: "Subtitle Color", id: "Warna Subtitle"),
+              style: GoogleFonts.outfit(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _subtitleColors.entries.map((entry) {
+                final isSelected = _selectedSubtitleColor.toARGB32() == entry.value.toARGB32();
+                final colorName = SubtitleSettingsService.getColorName(entry.value);
+                return TvFocusableCard(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    SubtitleSettingsService.setFontColor(entry.value);
+                    setModalState(() {});
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isSelected ? Colors.redAccent.withValues(alpha: 0.15) : const Color(0xFF1E1E1E),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isSelected ? Colors.redAccent : Colors.white12,
+                      ),
+                    ),
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Container(
-                          width: 16,
-                          height: 16,
+                          width: 14,
+                          height: 14,
                           decoration: BoxDecoration(
                             color: entry.value,
                             shape: BoxShape.circle,
                             border: Border.all(color: Colors.white38),
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 6),
                         Text(
                           colorName,
                           style: GoogleFonts.outfit(
                             color: isSelected ? Colors.redAccent : Colors.white,
                             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            fontSize: 12,
                           ),
                         ),
                       ],
-                    ),
-                  );
-                }).toList();
-              },
-              child: Padding(
-                padding: btnPadding,
-                child: Icon(Icons.palette, color: Colors.white, size: iconSize),
-              ),
-            ),
-          ),
-        ),
-      );
-      buttons.add(SizedBox(width: spacing));
-    }
-
-    // Subtitle Font Size / Appearance Button (Bisa di kecilin, bisa di gedein)
-    if (_availableSubtitles.isNotEmpty || _subtitleEntries.isNotEmpty || _hasInternalSubtitles) {
-      buttons.add(
-        TvFocusableCard(
-          focusNode: _subtitleSizeFocusNode,
-          borderRadius: BorderRadius.circular(24),
-          onTap: () {
-            _subtitleSizePopupMenuKey.currentState?.showButtonMenu();
-          },
-          child: IgnorePointer(
-            child: PopupMenuButton<String>(
-              key: _subtitleSizePopupMenuKey,
-              color: const Color(0xFF1E1E1E),
-              onSelected: (action) {
-                if (action == "__increase__") {
-                  SubtitleSettingsService.increaseFontSize();
-                } else if (action == "__decrease__") {
-                  SubtitleSettingsService.decreaseFontSize();
-                } else if (action == "__custom_dialog__") {
-                  SubtitleCustomizationDialog.show(context);
-                } else if (action.startsWith("__preset_")) {
-                  final sizeVal = double.tryParse(action.replaceFirst("__preset_", ""));
-                  if (sizeVal != null) {
-                    SubtitleSettingsService.setFontSize(sizeVal);
-                  }
-                }
-              },
-              itemBuilder: (context) {
-                return [
-                  PopupMenuItem<String>(
-                    value: "__increase__",
-                    child: Row(
-                      children: [
-                        const Icon(Icons.add_circle_outline, color: Colors.redAccent, size: 20),
-                        const SizedBox(width: 10),
-                        Text(
-                          AppLanguageService.tr(
-                            en: "Increase Font Size (+2px)",
-                            id: "Perbesar Huruf (+2px)",
-                          ),
-                          style: GoogleFonts.outfit(
-                            color: Colors.redAccent,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem<String>(
-                    value: "__decrease__",
-                    child: Row(
-                      children: [
-                        const Icon(Icons.remove_circle_outline, color: Colors.white70, size: 20),
-                        const SizedBox(width: 10),
-                        Text(
-                          AppLanguageService.tr(
-                            en: "Decrease Font Size (-2px)",
-                            id: "Perkecil Huruf (-2px)",
-                          ),
-                          style: GoogleFonts.outfit(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuDivider(),
-                  ...SubtitleSettingsService.sizePresets.map((preset) {
-                    final isSelected = (_selectedSubtitleFontSize - preset.size).abs() < 0.5;
-                    return PopupMenuItem<String>(
-                      value: "__preset_${preset.size}",
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            preset.label,
-                            style: GoogleFonts.outfit(
-                              color: isSelected ? Colors.redAccent : Colors.white,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            ),
-                          ),
-                          if (isSelected)
-                            const Icon(Icons.check, color: Colors.redAccent, size: 18),
-                        ],
-                      ),
-                    );
-                  }),
-                  const PopupMenuDivider(),
-                  PopupMenuItem<String>(
-                    value: "__custom_dialog__",
-                    child: Row(
-                      children: [
-                        const Icon(Icons.tune_rounded, color: Colors.white70, size: 20),
-                        const SizedBox(width: 10),
-                        Text(
-                          AppLanguageService.tr(
-                            en: "Subtitle Settings...",
-                            id: "Pengaturan Huruf Lengkap...",
-                          ),
-                          style: GoogleFonts.outfit(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ];
-              },
-              child: Padding(
-                padding: btnPadding,
-                child: Icon(Icons.format_size_rounded, color: Colors.white, size: iconSize),
-              ),
-            ),
-          ),
-        ),
-      );
-      buttons.add(SizedBox(width: spacing));
-    }
-
-    // Aspect Ratio / Screen Zoom Fit Button
-    buttons.add(
-      TvFocusableCard(
-        focusNode: _fitModeFocusNode,
-        borderRadius: BorderRadius.circular(24),
-        onTap: () {
-          _fitMenuKey.currentState?.showButtonMenu();
-        },
-        child: IgnorePointer(
-          child: PopupMenuButton<BoxFit>(
-            key: _fitMenuKey,
-            color: const Color(0xFF1E1E1E),
-            onSelected: (mode) {
-              setState(() {
-                _selectedFitMode = mode;
-              });
-            },
-            itemBuilder: (context) {
-              return _fitModes.entries.map((entry) {
-                final isSelected = _selectedFitMode == entry.value;
-                return PopupMenuItem<BoxFit>(
-                  value: entry.value,
-                  child: Text(
-                    entry.key,
-                    style: GoogleFonts.outfit(
-                      color: isSelected ? Colors.redAccent : Colors.white,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                     ),
                   ),
                 );
-              }).toList();
-            },
-            child: Padding(
-              padding: btnPadding,
-              child: Icon(Icons.aspect_ratio, color: Colors.white, size: iconSize),
+              }).toList(),
             ),
-          ),
-        ),
-      ),
-    );
-    buttons.add(SizedBox(width: spacing));
+            const SizedBox(height: 14),
 
-    // Screen Orientation Toggle Button (Default Landscape, toggleable to Portrait during playback)
-    buttons.add(
-      TvFocusableCard(
-        focusNode: _orientationFocusNode,
-        borderRadius: BorderRadius.circular(24),
-        onTap: _toggleOrientation,
-        child: Tooltip(
-          message: _isPortrait
-              ? AppLanguageService.tr(en: "Switch to Landscape", id: "Ubah ke Lanskap")
-              : AppLanguageService.tr(en: "Switch to Portrait", id: "Ubah ke Potret"),
-          child: Padding(
-            padding: btnPadding,
-            child: Icon(
-              _isPortrait ? Icons.stay_current_landscape : Icons.stay_current_portrait,
-              color: _isPortrait ? Colors.redAccent : Colors.white,
-              size: iconSize,
+            // Background switch
+            TvFocusableCard(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () {
+                SubtitleSettingsService.setHasBackground(!SubtitleSettingsService.hasBackground);
+                setModalState(() {});
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.branding_watermark_outlined, color: Colors.white70, size: 20),
+                        const SizedBox(width: 12),
+                        Text(
+                          AppLanguageService.tr(
+                            en: "Semi-transparent Background",
+                            id: "Latar Belakang Redup",
+                          ),
+                          style: GoogleFonts.outfit(color: Colors.white, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                    Switch.adaptive(
+                      value: SubtitleSettingsService.hasBackground,
+                      activeColor: Colors.redAccent,
+                      onChanged: (val) {
+                        SubtitleSettingsService.setHasBackground(val);
+                        setModalState(() {});
+                      },
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-        ),
-      ),
-    );
-    buttons.add(SizedBox(width: spacing));
+            const SizedBox(height: 12),
 
-    // Picture-in-Picture (PiP) Button
-    buttons.add(
-      TvFocusableCard(
-        focusNode: _pipFocusNode,
-        borderRadius: BorderRadius.circular(24),
-        onTap: _enterPipMode,
-        child: Padding(
-          padding: btnPadding,
-          child: Icon(Icons.picture_in_picture_alt, color: Colors.white, size: iconSize),
-        ),
-      ),
-    );
+            // Advanced Dialog trigger
+            TvFocusableCard(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () {
+                SubtitleCustomizationDialog.show(context);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.tune, color: Colors.redAccent, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        AppLanguageService.tr(
+                          en: "Full Subtitle Customization...",
+                          id: "Pengaturan Lengkap Subtitle...",
+                        ),
+                        style: GoogleFonts.outfit(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
 
-    return buttons;
+      case _PlayerSettingsTab.aspectRatio:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: _fitModes.entries.map((entry) {
+            final isSelected = _selectedFitMode == entry.value;
+            return _buildSettingsTile(
+              icon: Icons.aspect_ratio,
+              title: entry.key,
+              isSelected: isSelected,
+              trailing: isSelected ? const Icon(Icons.check, color: Colors.redAccent, size: 20) : null,
+              onTap: () {
+                setState(() {
+                  _selectedFitMode = entry.value;
+                });
+                Navigator.pop(modalContext);
+              },
+            );
+          }).toList(),
+        );
+    }
   }
 
   @override
@@ -1593,48 +1852,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               top: topInset > 0 ? topInset + 6 : 16,
                               left: 16,
                               right: 16,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              child: Row(
                                 children: [
-                                  Row(
-                                    children: [
-                                      TvFocusableCard(
-                                        focusNode: _backFocusNode,
-                                        borderRadius: BorderRadius.circular(24),
-                                        onTap: () => Navigator.pop(context, {
-                                          'season': _currentSeason,
-                                          'episode': _currentEpisode,
-                                        }),
-                                        child: const Padding(
-                                          padding: EdgeInsets.all(6.0),
-                                          child: Icon(Icons.arrow_back, color: Colors.white, size: 24),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          (_currentSeason > 0 || _currentEpisode > 0)
-                                              ? "$_currentTitle • S$_currentSeason E$_currentEpisode"
-                                              : _currentTitle,
-                                          style: GoogleFonts.outfit(
-                                            color: Colors.white,
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: _buildTopBarActionButtons(isPortrait: true),
+                                  TvFocusableCard(
+                                    focusNode: _backFocusNode,
+                                    borderRadius: BorderRadius.circular(24),
+                                    onTap: () => Navigator.pop(context, {
+                                      'season': _currentSeason,
+                                      'episode': _currentEpisode,
+                                    }),
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(6.0),
+                                      child: Icon(Icons.arrow_back, color: Colors.white, size: 24),
                                     ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      (_currentSeason > 0 || _currentEpisode > 0)
+                                          ? "$_currentTitle • S$_currentSeason E$_currentEpisode"
+                                          : _currentTitle,
+                                      style: GoogleFonts.outfit(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: _buildTopBarActionButtons(isPortrait: true),
                                   ),
                                 ],
                               ),
@@ -1673,14 +1923,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  Flexible(
-                                    child: SingleChildScrollView(
-                                      scrollDirection: Axis.horizontal,
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: _buildTopBarActionButtons(isPortrait: false),
-                                      ),
-                                    ),
+                                  const SizedBox(width: 12),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: _buildTopBarActionButtons(isPortrait: false),
                                   ),
                                 ],
                               ),
@@ -2205,22 +2451,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     final title = (stream['qualityTitle'] ?? stream['title'] ?? stream['quality'] ?? '').toString();
     if (title.isNotEmpty) return title;
-    return "HD";
-  }
-
-  String _formatShortQualityLabel(dynamic stream) {
-    if (stream is! Map) return "HD";
-    if (stream['resolution'] != null && stream['resolution'] != 0) {
-      final res = stream['resolution'];
-      if (res >= 2160) return "4K";
-      if (res >= 1080) return "1080p";
-      if (res >= 720) return "720p";
-      return "${res}p";
-    }
-    final title = (stream['qualityTitle'] ?? stream['title'] ?? '').toString().toLowerCase();
-    if (title.contains('2160') || title.contains('4k')) return "4K";
-    if (title.contains('1080')) return "1080p";
-    if (title.contains('720')) return "720p";
     return "HD";
   }
 
