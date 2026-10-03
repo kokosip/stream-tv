@@ -2148,6 +2148,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     int epCount = (seasonData['maxEp'] ?? widget.maxEpisodesInSeason) as int;
     if (epCount <= 0) epCount = 1;
 
+    const int pageSize = 50;
+    int totalPages = (epCount / pageSize).ceil();
+    int selectedPageIndex = ((_currentEpisode - 1) / pageSize).floor().clamp(0, totalPages > 0 ? totalPages - 1 : 0);
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xF2141414),
@@ -2157,6 +2161,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            final int pageStart = selectedPageIndex * pageSize;
+            final int pageEnd = ((selectedPageIndex + 1) * pageSize > epCount) ? epCount : (selectedPageIndex + 1) * pageSize;
+            final int pageItemCount = pageEnd - pageStart;
+
             return Container(
               height: 380,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
@@ -2192,6 +2200,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   selectedSeasonTab = seNum;
                                   epCount = (s['maxEp'] ?? 1) as int;
                                   if (epCount <= 0) epCount = 1;
+                                  totalPages = (epCount / pageSize).ceil();
+                                  selectedPageIndex = 0;
                                 });
                               },
                               borderRadius: BorderRadius.circular(20),
@@ -2217,6 +2227,54 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                     const SizedBox(height: 16),
                   ],
+                  // Episode Range Pagination (when totalPages > 1)
+                  if (totalPages > 1) ...[
+                    SizedBox(
+                      height: 34,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: totalPages,
+                        itemBuilder: (context, p) {
+                          final int pStart = p * pageSize + 1;
+                          final int pEnd = ((p + 1) * pageSize > epCount) ? epCount : (p + 1) * pageSize;
+                          final String rangeLabel = pStart == pEnd ? "$pStart" : "$pStart-$pEnd";
+                          final isPageSelected = p == selectedPageIndex;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: TvFocusableCard(
+                              onTap: () {
+                                setModalState(() {
+                                  selectedPageIndex = p;
+                                });
+                              },
+                              borderRadius: BorderRadius.circular(16),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: isPageSelected ? Colors.redAccent : const Color(0xFF222222),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: isPageSelected ? Colors.redAccent : const Color(0xFF333333),
+                                  ),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    rangeLabel,
+                                    style: GoogleFonts.outfit(
+                                      color: Colors.white,
+                                      fontWeight: isPageSelected ? FontWeight.bold : FontWeight.normal,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   Expanded(
                     child: GridView.builder(
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -2225,9 +2283,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         mainAxisSpacing: 10,
                         childAspectRatio: 2.2,
                       ),
-                      itemCount: epCount,
+                      itemCount: pageItemCount,
                       itemBuilder: (context, index) {
-                        final epNum = index + 1;
+                        final epNum = pageStart + index + 1;
                         final isCurrentEp = _currentSeason == selectedSeasonTab && _currentEpisode == epNum;
                         return TvFocusableCard(
                           onTap: () {

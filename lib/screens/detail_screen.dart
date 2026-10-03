@@ -73,6 +73,9 @@ class _DetailScreenState extends State<DetailScreen> {
   int _selectedEpisodeNumber = 1;
   int? _expandedEpisodeNumber;
   int _episodesCount = 0;
+  int _selectedEpisodePageIndex = 0;
+  int? _lastSyncedSeasonNumber;
+  int? _lastSyncedEpisodeNumber;
   
   bool _isLoadingDetails = true;
   String _errorMessage = "";
@@ -4284,6 +4287,33 @@ class _DetailScreenState extends State<DetailScreen> {
 
     final coverUrl = _details?['cover']?['url'] ?? _details?['coverUrl'] ?? "";
 
+    const int pageSize = 50;
+    final int totalEpisodes = epList.length;
+    final int totalPages = (totalEpisodes / pageSize).ceil();
+
+    // Auto-sync pagination to selected episode if season or selected episode changed
+    if (_lastSyncedSeasonNumber != _selectedSeasonNumber || _lastSyncedEpisodeNumber != _selectedEpisodeNumber) {
+      final selectedEpIndex = epList.indexWhere((ep) {
+        final epNum = (ep is Map ? (ep['ep'] ?? 0) : 0);
+        return epNum == _selectedEpisodeNumber;
+      });
+      final effectiveIndex = selectedEpIndex != -1 ? selectedEpIndex : (_selectedEpisodeNumber - 1);
+      _selectedEpisodePageIndex = (effectiveIndex.clamp(0, totalEpisodes > 0 ? totalEpisodes - 1 : 0) ~/ pageSize);
+      _lastSyncedSeasonNumber = _selectedSeasonNumber;
+      _lastSyncedEpisodeNumber = _selectedEpisodeNumber;
+    }
+
+    if (_selectedEpisodePageIndex >= totalPages) {
+      _selectedEpisodePageIndex = totalPages > 0 ? totalPages - 1 : 0;
+    }
+    if (_selectedEpisodePageIndex < 0) {
+      _selectedEpisodePageIndex = 0;
+    }
+
+    final int startIndex = _selectedEpisodePageIndex * pageSize;
+    final int endIndex = (startIndex + pageSize > totalEpisodes) ? totalEpisodes : startIndex + pageSize;
+    final List<dynamic> pagedEpList = (totalPages > 1) ? epList.sublist(startIndex, endIndex) : epList;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -4310,6 +4340,9 @@ class _DetailScreenState extends State<DetailScreen> {
                           _episodesCount = maxEp;
                           _selectedEpisodeNumber = 1;
                           _expandedEpisodeNumber = null;
+                          _selectedEpisodePageIndex = 0;
+                          _lastSyncedSeasonNumber = seNum;
+                          _lastSyncedEpisodeNumber = 1;
                         });
                         _checkProgress();
                         _loadStreams();
@@ -4350,7 +4383,9 @@ class _DetailScreenState extends State<DetailScreen> {
         Padding(
           padding: EdgeInsets.symmetric(horizontal: isTv ? 32.0 : 20.0, vertical: 8.0),
           child: Text(
-            "Season $_selectedSeasonNumber • ${epList.length} ${AppLanguageService.tr(en: "Episodes", id: "Episode")}",
+            _seasons.length > 1
+                ? "Season $_selectedSeasonNumber • ${epList.length} ${AppLanguageService.tr(en: "Episodes", id: "Episode")}"
+                : "${epList.length} ${AppLanguageService.tr(en: "Episodes", id: "Episode")}",
             style: GoogleFonts.outfit(
               color: Colors.white,
               fontSize: isTv ? 22 : 18,
@@ -4359,15 +4394,76 @@ class _DetailScreenState extends State<DetailScreen> {
           ),
         ),
 
+        // Episode Range Pagination Tabs (when totalPages > 1)
+        if (totalPages > 1) ...[
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: isTv ? 32.0 : 20.0, vertical: 4.0),
+            child: SizedBox(
+              height: isTv ? 44 : 38,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: totalPages,
+                itemBuilder: (context, p) {
+                  final int pStart = p * pageSize;
+                  final int pEnd = ((p + 1) * pageSize > totalEpisodes) ? totalEpisodes : (p + 1) * pageSize;
+                  final firstItem = epList[pStart];
+                  final lastItem = epList[pEnd - 1];
+                  final firstEpNum = (firstItem is Map ? (firstItem['ep'] ?? (pStart + 1)) : (pStart + 1));
+                  final lastEpNum = (lastItem is Map ? (lastItem['ep'] ?? pEnd) : pEnd);
+                  final String rangeLabel = firstEpNum == lastEpNum ? "$firstEpNum" : "$firstEpNum-$lastEpNum";
+                  final isSelected = p == _selectedEpisodePageIndex;
+
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 10.0),
+                    child: TvFocusableCard(
+                      onTap: () {
+                        setState(() {
+                          _selectedEpisodePageIndex = p;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(20),
+                      scaleFactor: 1.05,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isTv ? 20 : 16,
+                          vertical: isTv ? 10 : 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.redAccent : const Color(0xFF1E1E1E),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: isSelected ? Colors.redAccent : const Color(0xFF333333),
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            rangeLabel,
+                            style: GoogleFonts.outfit(
+                              color: Colors.white,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              fontSize: isTv ? 14 : 12.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+
         // Episodes List
         ListView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           padding: EdgeInsets.symmetric(horizontal: isTv ? 32.0 : 20.0, vertical: 8.0),
-          itemCount: epList.length,
+          itemCount: pagedEpList.length,
           itemBuilder: (context, index) {
-            final epItem = epList[index];
-            final int epNum = (epItem is Map ? (epItem['ep'] ?? (index + 1)) : (index + 1)) as int;
+            final epItem = pagedEpList[index];
+            final int epNum = (epItem is Map ? (epItem['ep'] ?? (startIndex + index + 1)) : (startIndex + index + 1)) as int;
             final isSelected = _selectedEpisodeNumber == epNum;
             final isExpanded = _expandedEpisodeNumber == epNum;
 
