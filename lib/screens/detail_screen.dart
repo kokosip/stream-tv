@@ -6,6 +6,15 @@ import '../services/fourkhdhub_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/dramachi_api_service.dart';
 import '../services/allmovieland_api_service.dart';
+import '../services/pusatfilm_api_service.dart';
+import '../services/juraganfilm_api_service.dart';
+import '../services/samehadaku_api_service.dart';
+import '../services/otakudesu_api_service.dart';
+import '../services/anichin_api_service.dart';
+import '../services/dracinsi_api_service.dart';
+import '../services/drakorkita_api_service.dart';
+import '../services/sorastream_api_service.dart';
+import '../services/media_provider_service.dart';
 import '../services/kisskh_api_service.dart';
 import '../services/dramacool_api_service.dart';
 import '../services/hdrezka_api_service.dart';
@@ -47,6 +56,15 @@ class _DetailScreenState extends State<DetailScreen> {
   final TmdbService _tmdbApi = TmdbService();
   final DramachiApiService _dramachiApi = DramachiApiService();
   final AllMovielandApiService _allmovielandApi = AllMovielandApiService();
+  final PusatfilmApiService _pusatfilmApi = PusatfilmApiService();
+  final JuraganfilmApiService _juraganfilmApi = JuraganfilmApiService();
+  final SamehadakuApiService _samehadakuApi = SamehadakuApiService();
+  final OtakudesuApiService _otakudesuApi = OtakudesuApiService();
+  final AnichinApiService _anichinApi = AnichinApiService();
+  final DracinSiApiService _dracinsiApi = DracinSiApiService();
+  final DrakorkitaApiService _drakorkitaApi = DrakorkitaApiService();
+  final SorastreamApiService _sorastreamApi = SorastreamApiService();
+  final MediaProviderService _mediaProvider = MediaProviderService();
   final DownloadService _downloadService = DownloadService.instance;
   
   late String _activeProvider;
@@ -55,6 +73,30 @@ class _DetailScreenState extends State<DetailScreen> {
   bool get _isKissKh => _activeProvider.toLowerCase() == 'kisskh';
   bool get _isDramacool => _activeProvider.toLowerCase() == 'dramacool';
   bool get _isHdrezka => _activeProvider.toLowerCase() == 'hdrezka';
+  bool get _isPusatFilm =>
+      _activeProvider.toLowerCase() == 'pusatfilm' ||
+      widget.subjectId.startsWith('pusatfilm_');
+  bool get _isJuraganFilm =>
+      _activeProvider.toLowerCase() == 'juraganfilm' ||
+      widget.subjectId.startsWith('juraganfilm_');
+  bool get _isSamehadaku =>
+      _activeProvider.toLowerCase() == 'samehadaku' ||
+      widget.subjectId.startsWith('samehadaku_');
+  bool get _isOtakudesu =>
+      _activeProvider.toLowerCase() == 'otakudesu' ||
+      widget.subjectId.startsWith('otakudesu_');
+  bool get _isAnichin =>
+      _activeProvider.toLowerCase() == 'anichin' ||
+      widget.subjectId.startsWith('anichin_');
+  bool get _isDracinSi =>
+      _activeProvider.toLowerCase() == 'dracinsi' ||
+      widget.subjectId.startsWith('dracinsi_');
+  bool get _isDrakorKita =>
+      _activeProvider.toLowerCase() == 'drakorkita' ||
+      widget.subjectId.startsWith('drakorkita_');
+  bool get _isSoraStream =>
+      _activeProvider.toLowerCase() == 'sorastream' ||
+      widget.subjectId.startsWith('sorastream_');
   bool get _isTmdb {
     if (widget.provider.toLowerCase() == 'tmdb') return true;
     if (widget.subjectId.startsWith('tmdb_')) return true;
@@ -116,6 +158,22 @@ class _DetailScreenState extends State<DetailScreen> {
     if (initialProv.isEmpty) {
       if (sId.startsWith('tmdb_')) {
         initialProv = 'tmdb';
+      } else if (sId.startsWith('pusatfilm_')) {
+        initialProv = 'pusatfilm';
+      } else if (sId.startsWith('juraganfilm_')) {
+        initialProv = 'juraganfilm';
+      } else if (sId.startsWith('samehadaku_')) {
+        initialProv = 'samehadaku';
+      } else if (sId.startsWith('otakudesu_')) {
+        initialProv = 'otakudesu';
+      } else if (sId.startsWith('anichin_')) {
+        initialProv = 'anichin';
+      } else if (sId.startsWith('dracinsi_')) {
+        initialProv = 'dracinsi';
+      } else if (sId.startsWith('drakorkita_')) {
+        initialProv = 'drakorkita';
+      } else if (sId.startsWith('sorastream_')) {
+        initialProv = 'sorastream';
       } else if (sId.startsWith('dramachi_') || sId.contains('::')) {
         initialProv = 'dramachi';
       } else if (sId.startsWith('/') || sId.contains('-movie-') || sId.contains('-series-')) {
@@ -311,8 +369,8 @@ class _DetailScreenState extends State<DetailScreen> {
             }
           }
           matchingSeason ??= seasonsList.first;
-          _selectedSeasonNumber = (matchingSeason is Map ? int.tryParse(matchingSeason['se']?.toString() ?? '') : null) ?? 1;
-          initialEpisodesCount = (matchingSeason is Map ? int.tryParse(matchingSeason['maxEp']?.toString() ?? '') : null) ?? 1;
+          _selectedSeasonNumber = int.tryParse(matchingSeason['se']?.toString() ?? '') ?? 1;
+          initialEpisodesCount = int.tryParse(matchingSeason['maxEp']?.toString() ?? '') ?? 1;
           _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
         }
 
@@ -376,8 +434,8 @@ class _DetailScreenState extends State<DetailScreen> {
             }
           }
           matchingSeason ??= seasonsList.first;
-          _selectedSeasonNumber = (matchingSeason is Map ? int.tryParse(matchingSeason['se']?.toString() ?? '') : null) ?? 1;
-          initialEpisodesCount = (matchingSeason is Map ? int.tryParse(matchingSeason['maxEp']?.toString() ?? '') : null) ?? 1;
+          _selectedSeasonNumber = int.tryParse(matchingSeason['se']?.toString() ?? '') ?? 1;
+          initialEpisodesCount = int.tryParse(matchingSeason['maxEp']?.toString() ?? '') ?? 1;
           _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
         }
 
@@ -512,6 +570,154 @@ class _DetailScreenState extends State<DetailScreen> {
       } catch (e) {
         setState(() {
           _errorMessage = "Gagal memuat detail HDRezka: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
+
+    if (_isPusatFilm) {
+      try {
+        await _loadPusatfilmProvider(widget.subjectId);
+        setState(() {
+          _isLoadingDetails = false;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail PusatFilm: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
+
+    if (_isJuraganFilm) {
+      try {
+        await _loadCustomProvider(
+          provider: 'juraganfilm',
+          label: 'Indo Sub (JuraganFilm)',
+          sId: widget.subjectId,
+        );
+        setState(() {
+          _isLoadingDetails = false;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail JuraganFilm: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
+
+    if (_isSamehadaku) {
+      try {
+        await _loadCustomProvider(
+          provider: 'samehadaku',
+          label: 'Anime Indo (Samehadaku)',
+          sId: widget.subjectId,
+        );
+        setState(() {
+          _isLoadingDetails = false;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail Samehadaku: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
+
+    if (_isOtakudesu) {
+      try {
+        await _loadCustomProvider(
+          provider: 'otakudesu',
+          label: 'Anime Indo (Otakudesu)',
+          sId: widget.subjectId,
+        );
+        setState(() {
+          _isLoadingDetails = false;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail Otakudesu: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
+
+    if (_isAnichin) {
+      try {
+        await _loadCustomProvider(
+          provider: 'anichin',
+          label: 'Donghua Indo (Anichin)',
+          sId: widget.subjectId,
+        );
+        setState(() {
+          _isLoadingDetails = false;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail Anichin: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
+
+    if (_isDracinSi) {
+      try {
+        await _loadCustomProvider(
+          provider: 'dracinsi',
+          label: 'Dracin Indo (DracinSI)',
+          sId: widget.subjectId,
+        );
+        setState(() {
+          _isLoadingDetails = false;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail DracinSI: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
+
+    if (_isDrakorKita) {
+      try {
+        await _loadCustomProvider(
+          provider: 'drakorkita',
+          label: 'Drakor Indo (DrakorKita)',
+          sId: widget.subjectId,
+        );
+        setState(() {
+          _isLoadingDetails = false;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail DrakorKita: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
+
+    if (_isSoraStream) {
+      try {
+        await _loadCustomProvider(
+          provider: 'sorastream',
+          label: 'SoraStream (Multi-Server)',
+          sId: widget.subjectId,
+        );
+        setState(() {
+          _isLoadingDetails = false;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail SoraStream: $e";
           _isLoadingDetails = false;
         });
       }
@@ -870,6 +1076,14 @@ class _DetailScreenState extends State<DetailScreen> {
         KissKhApiService.search(title).catchError((_) => <KissKhDramaResult>[]),
         DramacoolApiService.search(title).catchError((_) => <DramacoolDramaResult>[]),
         HdrezkaApiService.search(title).catchError((_) => <HdrezkaSearchResult>[]),
+        _pusatfilmApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
+        _juraganfilmApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
+        _samehadakuApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
+        _otakudesuApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
+        _anichinApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
+        _dracinsiApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
+        _drakorkitaApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
+        _sorastreamApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
       ]);
 
       final mbRes = searchResults[0] as Map<String, dynamic>;
@@ -879,6 +1093,14 @@ class _DetailScreenState extends State<DetailScreen> {
       final kissRes = searchResults[4] as List<KissKhDramaResult>;
       final dcRes = searchResults[5] as List<DramacoolDramaResult>;
       final rezkaRes = searchResults[6] as List<HdrezkaSearchResult>;
+      final pfRes = searchResults[7] as List<Map<String, dynamic>>;
+      final jfRes = searchResults[8] as List<Map<String, dynamic>>;
+      final sameRes = searchResults[9] as List<Map<String, dynamic>>;
+      final otakuRes = searchResults[10] as List<Map<String, dynamic>>;
+      final aniRes = searchResults[11] as List<Map<String, dynamic>>;
+      final dracinRes = searchResults[12] as List<Map<String, dynamic>>;
+      final dkRes = searchResults[13] as List<Map<String, dynamic>>;
+      final soraRes = searchResults[14] as List<Map<String, dynamic>>;
 
       final List<Map<String, dynamic>> foundSources = [];
 
@@ -984,6 +1206,126 @@ class _DetailScreenState extends State<DetailScreen> {
         });
       }
 
+      // 8. Check PusatFilm (Indonesian Subtitles)
+      if (pfRes.isNotEmpty) {
+        final bestPf = pfRes.first;
+        final subId = (bestPf['subjectId'] ?? bestPf['id'] ?? '').toString();
+        if (subId.isNotEmpty) {
+          foundSources.add({
+            'provider': 'pusatfilm',
+            'label': 'PusatFilm (Indo Sub)',
+            'badge': 'Indo Sub',
+            'subjectId': subId,
+            'item': bestPf,
+          });
+        }
+      }
+
+      // 9. Check JuraganFilm (Indonesian Subtitles)
+      if (jfRes.isNotEmpty) {
+        final bestJf = jfRes.first;
+        final subId = (bestJf['subjectId'] ?? bestJf['id'] ?? '').toString();
+        if (subId.isNotEmpty) {
+          foundSources.add({
+            'provider': 'juraganfilm',
+            'label': 'JuraganFilm (Indo Sub)',
+            'badge': 'JuraganFilm',
+            'subjectId': subId,
+            'item': bestJf,
+          });
+        }
+      }
+
+      // 10. Check Samehadaku (Anime Indo)
+      if (sameRes.isNotEmpty) {
+        final bestSame = sameRes.first;
+        final subId = (bestSame['subjectId'] ?? bestSame['id'] ?? '').toString();
+        if (subId.isNotEmpty) {
+          foundSources.add({
+            'provider': 'samehadaku',
+            'label': 'Samehadaku (Anime Indo)',
+            'badge': 'Samehadaku',
+            'subjectId': subId,
+            'item': bestSame,
+          });
+        }
+      }
+
+      // 11. Check Otakudesu (Anime Indo)
+      if (otakuRes.isNotEmpty) {
+        final bestOtaku = otakuRes.first;
+        final subId = (bestOtaku['subjectId'] ?? bestOtaku['id'] ?? '').toString();
+        if (subId.isNotEmpty) {
+          foundSources.add({
+            'provider': 'otakudesu',
+            'label': 'Otakudesu (Anime Indo)',
+            'badge': 'Otakudesu',
+            'subjectId': subId,
+            'item': bestOtaku,
+          });
+        }
+      }
+
+      // 12. Check Anichin (Donghua Indo)
+      if (aniRes.isNotEmpty) {
+        final bestAni = aniRes.first;
+        final subId = (bestAni['subjectId'] ?? bestAni['id'] ?? '').toString();
+        if (subId.isNotEmpty) {
+          foundSources.add({
+            'provider': 'anichin',
+            'label': 'Anichin (Donghua Indo)',
+            'badge': 'Anichin',
+            'subjectId': subId,
+            'item': bestAni,
+          });
+        }
+      }
+
+      // 13. Check DracinSI (Chinese Drama Indo)
+      if (dracinRes.isNotEmpty) {
+        final bestDracin = dracinRes.first;
+        final subId = (bestDracin['subjectId'] ?? bestDracin['id'] ?? '').toString();
+        if (subId.isNotEmpty) {
+          foundSources.add({
+            'provider': 'dracinsi',
+            'label': 'DracinSI (Dracin Indo)',
+            'badge': 'DracinSI',
+            'subjectId': subId,
+            'item': bestDracin,
+          });
+        }
+      }
+
+      // 14. Check DrakorKita (Korean Drama Indo)
+      if (dkRes.isNotEmpty) {
+        final bestDk = dkRes.first;
+        final subId = (bestDk['subjectId'] ?? bestDk['id'] ?? '').toString();
+        if (subId.isNotEmpty) {
+          foundSources.add({
+            'provider': 'drakorkita',
+            'label': 'DrakorKita (Drakor Indo)',
+            'badge': 'DrakorKita',
+            'subjectId': subId,
+            'item': bestDk,
+          });
+        }
+      }
+
+      // 15. Check SoraStream (Multi-Server Aggregator)
+      if (soraRes.isNotEmpty) {
+        final bestSora = soraRes.first;
+        final subId = (bestSora['subjectId'] ?? bestSora['id'] ?? '').toString();
+        if (subId.isNotEmpty) {
+          foundSources.add({
+            'provider': 'sorastream',
+            'label': 'SoraStream (Multi-Server)',
+            'badge': 'SoraStream',
+            'subjectId': subId,
+            'item': bestSora,
+          });
+        }
+      }
+
       if (!mounted) return;
 
       if (foundSources.isEmpty) {
@@ -1030,6 +1372,57 @@ class _DetailScreenState extends State<DetailScreen> {
 
     if (prov == '4khdhub') {
       await _load4kHubProvider(sId);
+    } else if (prov == 'pusatfilm') {
+      await _loadPusatfilmProvider(sId, item);
+    } else if (prov == 'juraganfilm') {
+      await _loadCustomProvider(
+        provider: 'juraganfilm',
+        label: 'Indo Sub (JuraganFilm)',
+        sId: sId,
+        item: item,
+      );
+    } else if (prov == 'samehadaku') {
+      await _loadCustomProvider(
+        provider: 'samehadaku',
+        label: 'Anime Indo (Samehadaku)',
+        sId: sId,
+        item: item,
+      );
+    } else if (prov == 'otakudesu') {
+      await _loadCustomProvider(
+        provider: 'otakudesu',
+        label: 'Anime Indo (Otakudesu)',
+        sId: sId,
+        item: item,
+      );
+    } else if (prov == 'anichin') {
+      await _loadCustomProvider(
+        provider: 'anichin',
+        label: 'Donghua Indo (Anichin)',
+        sId: sId,
+        item: item,
+      );
+    } else if (prov == 'dracinsi') {
+      await _loadCustomProvider(
+        provider: 'dracinsi',
+        label: 'Dracin Indo (DracinSI)',
+        sId: sId,
+        item: item,
+      );
+    } else if (prov == 'drakorkita') {
+      await _loadCustomProvider(
+        provider: 'drakorkita',
+        label: 'Drakor Indo (DrakorKita)',
+        sId: sId,
+        item: item,
+      );
+    } else if (prov == 'sorastream') {
+      await _loadCustomProvider(
+        provider: 'sorastream',
+        label: 'SoraStream (Multi-Server)',
+        sId: sId,
+        item: item,
+      );
     } else if (prov == 'dramachi') {
       await _loadDramachiProvider(sId);
     } else if (prov == 'allmovieland') {
@@ -1042,6 +1435,152 @@ class _DetailScreenState extends State<DetailScreen> {
       await _loadHdrezkaProvider(sId, item);
     } else {
       await _loadMovieBoxProvider(sId);
+    }
+  }
+
+  Future<void> _loadCustomProvider({
+    required String provider,
+    required String label,
+    required String sId,
+    Map<String, dynamic>? item,
+  }) async {
+    try {
+      Map<String, dynamic>? details;
+      try {
+        details = await _mediaProvider.getDetails(subjectId: sId);
+      } catch (e) {
+        debugPrint("Error fetching $provider details: $e");
+      }
+
+      final isTv = details?['isTv'] == true ||
+          details?['subjectType'] == 2 ||
+          sId.contains('_tv_') ||
+          _isTvShow;
+      List<Map<String, dynamic>> seasonsList = [];
+      int initialEpisodesCount = 0;
+      int targetSeason = widget.initialSeason ?? 1;
+      int targetEpisode = widget.initialEpisode ?? 1;
+
+      if (widget.initialSeason == null || widget.initialEpisode == null) {
+        final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+        if (recentPlay != null) {
+          final recSeason = recentPlay['season'] as int? ?? 1;
+          final recEpisode = recentPlay['episode'] as int? ?? 1;
+          if (recSeason > 0) targetSeason = recSeason;
+          if (recEpisode > 0) targetEpisode = recEpisode;
+        }
+      }
+
+      if (isTv) {
+        List<dynamic> rawSeasons = details?['seasons'] as List? ?? [];
+        if (rawSeasons.isEmpty) {
+          try {
+            final sInfo = await _mediaProvider.getSeasonInfo(subjectId: sId);
+            rawSeasons = sInfo['seasons'] as List? ?? [];
+          } catch (e) {
+            debugPrint("Failed to fetch season info for $provider: $e");
+          }
+        }
+        seasonsList = rawSeasons
+            .map((s) => s is Map ? Map<String, dynamic>.from(s) : <String, dynamic>{})
+            .where((m) => m.isNotEmpty)
+            .toList();
+
+        if (seasonsList.isNotEmpty) {
+          dynamic matchingSeason;
+          for (final s in seasonsList) {
+            if ((s['se'] ?? 1) == targetSeason) {
+              matchingSeason = s;
+              break;
+            }
+          }
+          matchingSeason ??= seasonsList.first;
+          _selectedSeasonNumber = (matchingSeason['se'] ?? 1) as int;
+          initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
+          _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          if (details != null && (_details == null || _details!.isEmpty)) {
+            _details = details;
+          }
+          _seasons = seasonsList;
+          _dubs = [];
+          _selectedAudioName = label;
+          _selectedSubjectId = sId;
+          _episodesCount = initialEpisodesCount;
+        });
+        _loadStreams();
+      }
+    } catch (e) {
+      debugPrint("Failed loading $provider provider details: $e");
+    }
+  }
+
+  Future<void> _loadPusatfilmProvider(String sId, [Map<String, dynamic>? item]) async {
+    try {
+      Map<String, dynamic>? pfDetails;
+      try {
+        pfDetails = await _pusatfilmApi.getDetails(subjectId: sId);
+      } catch (e) {
+        debugPrint("Error fetching Pusatfilm details: $e");
+      }
+
+      final isTv = pfDetails?['isTv'] == true || sId.startsWith('pusatfilm_tv_') || _isTvShow;
+      List<Map<String, dynamic>> seasonsList = [];
+      int initialEpisodesCount = 0;
+      int targetSeason = widget.initialSeason ?? 1;
+      int targetEpisode = widget.initialEpisode ?? 1;
+
+      if (widget.initialSeason == null || widget.initialEpisode == null) {
+        final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+        if (recentPlay != null) {
+          final recSeason = recentPlay['season'] as int? ?? 1;
+          final recEpisode = recentPlay['episode'] as int? ?? 1;
+          if (recSeason > 0) targetSeason = recSeason;
+          if (recEpisode > 0) targetEpisode = recEpisode;
+        }
+      }
+
+      if (isTv) {
+        final rawSeasons = pfDetails?['seasons'] as List? ?? await _pusatfilmApi.getSeasons(sId);
+        seasonsList = rawSeasons
+            .map((s) => s is Map ? Map<String, dynamic>.from(s) : <String, dynamic>{})
+            .where((m) => m.isNotEmpty)
+            .toList();
+
+        if (seasonsList.isNotEmpty) {
+          dynamic matchingSeason;
+          for (final s in seasonsList) {
+            if ((s['se'] ?? 1) == targetSeason) {
+              matchingSeason = s;
+              break;
+            }
+          }
+          matchingSeason ??= seasonsList.first;
+          _selectedSeasonNumber = (matchingSeason['se'] ?? 1) as int;
+          initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
+          _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          if (pfDetails != null && (_details == null || _details!.isEmpty)) {
+            _details = pfDetails;
+          }
+          _seasons = seasonsList;
+          _dubs = [];
+          _selectedAudioName = "Indo Sub (PusatFilm)";
+          _selectedSubjectId = sId;
+          _episodesCount = initialEpisodesCount;
+        });
+        _loadStreams();
+      }
+    } catch (e) {
+      debugPrint("Failed loading PusatFilm provider details: $e");
     }
   }
 
@@ -1290,8 +1829,8 @@ class _DetailScreenState extends State<DetailScreen> {
           }
         }
         matchingSeason ??= seasonsList.first;
-        _selectedSeasonNumber = (matchingSeason is Map ? matchingSeason['se'] : null) ?? 1;
-        initialEpisodesCount = (matchingSeason is Map ? (matchingSeason['maxEp'] ?? 1) : 1) as int;
+        _selectedSeasonNumber = matchingSeason['se'] ?? 1;
+        initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
         _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
       }
 
@@ -2142,6 +2681,29 @@ class _DetailScreenState extends State<DetailScreen> {
       return;
     }
 
+    if (_isPusatFilm || _isJuraganFilm || _isSamehadaku || _isOtakudesu || _isAnichin || _isDracinSi || _isDrakorKita || _isSoraStream) {
+      try {
+        final res = await _mediaProvider.getResources(
+          subjectId: _selectedSubjectId,
+          se: _isTvShow ? _selectedSeasonNumber : 0,
+          ep: _isTvShow ? _selectedEpisodeNumber : 0,
+        );
+        final list = (res['list'] as List? ?? []);
+        if (mounted) {
+          setState(() {
+            _streams = list;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal memuat rilis $_activeProvider: $e")),
+          );
+        }
+      }
+      return;
+    }
+
     if (_isDramachi) {
       try {
         final res = await _dramachiApi.getResources(
@@ -2308,7 +2870,7 @@ class _DetailScreenState extends State<DetailScreen> {
       }
     }
 
-    if (_isKissKh || _isDramacool || _isHdrezka) {
+    if (_isKissKh || _isDramacool || _isHdrezka || _isPusatFilm || _isJuraganFilm || _isSamehadaku || _isOtakudesu || _isAnichin || _isDracinSi || _isDrakorKita || _isSoraStream) {
       if (_streams.isNotEmpty) {
         final stream = _streams.first;
         final captions = (stream['captions'] as List<dynamic>?) ?? const [];
@@ -2731,6 +3293,74 @@ class _DetailScreenState extends State<DetailScreen> {
         );
       } catch (e) {
         debugPrint("Error selecting episode in HDRezka player: $e");
+        return null;
+      }
+    }
+
+    if (_isPusatFilm || _isJuraganFilm || _isSamehadaku || _isOtakudesu || _isAnichin || _isDracinSi || _isDrakorKita || _isSoraStream) {
+      try {
+        final res = await _mediaProvider.getResources(
+          subjectId: _selectedSubjectId,
+          se: season,
+          ep: episode,
+        );
+        final streamList = (res['list'] as List? ?? []);
+        if (streamList.isEmpty) return null;
+
+        final bestStream = Map<String, dynamic>.from(streamList.first as Map);
+        final streamUrl = (bestStream['resourceLink'] ?? bestStream['url'] ?? '').toString();
+        if (streamUrl.isEmpty) return null;
+        bestStream['provider'] = _activeProvider;
+
+        final captionsList = (bestStream['captions'] as List? ?? [])
+            .map((c) => Map<String, dynamic>.from(c as Map))
+            .toList();
+
+        int nextNextSeason = season;
+        int nextNextEpisode = episode + 1;
+        bool hasNextNext = false;
+        int maxEpOfSeason = 0;
+        for (final s in _seasons) {
+          if ((s['se'] ?? 0) == season) {
+            maxEpOfSeason = int.tryParse(s['maxEp']?.toString() ?? '') ?? 0;
+            break;
+          }
+        }
+
+        if (nextNextEpisode <= maxEpOfSeason) {
+          hasNextNext = true;
+        } else {
+          final followingSeason = _seasons.any((s) => (s['se'] ?? 0) == season + 1);
+          if (followingSeason) {
+            nextNextSeason = season + 1;
+            nextNextEpisode = 1;
+            hasNextNext = true;
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _selectedSeasonNumber = season;
+            _selectedEpisodeNumber = episode;
+            _streams = streamList;
+            if (maxEpOfSeason > 0) _episodesCount = maxEpOfSeason;
+          });
+        }
+
+        return PlayerNextEpisodeData(
+          streamUrl: streamUrl,
+          title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
+          season: season,
+          episode: episode,
+          captions: captionsList,
+          hasNextEpisode: hasNextNext,
+          nextEpisodeLabel: hasNextNext ? "S$nextNextSeason:E$nextNextEpisode" : null,
+          availableStreams: streamList.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+          currentStream: bestStream,
+          currentAudioName: bestStream['audioName'] ?? _selectedAudioName,
+        );
+      } catch (e) {
+        debugPrint("Error selecting episode in $_activeProvider player: $e");
         return null;
       }
     }
@@ -3278,6 +3908,57 @@ class _DetailScreenState extends State<DetailScreen> {
       return;
     }
 
+    if (_isPusatFilm || _isJuraganFilm || _isSamehadaku || _isOtakudesu || _isAnichin || _isDracinSi || _isDrakorKita || _isSoraStream) {
+      _showCompactLoadingDialog(
+        AppLanguageService.tr(
+          en: "Loading stream...",
+          id: "Memuat stream...",
+        ),
+      );
+
+      try {
+        final res = await _mediaProvider.getResources(
+          subjectId: _selectedSubjectId,
+          se: targetSeason,
+          ep: targetEpisode,
+        );
+        if (mounted) Navigator.pop(context);
+
+        final streamList = (res['list'] as List? ?? []);
+        if (streamList.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(AppLanguageService.tr(
+                  en: "No stream available for this episode.",
+                  id: "Tidak ada stream tersedia untuk episode ini.",
+                )),
+              ),
+            );
+          }
+          return;
+        }
+
+        final bestStream = Map<String, dynamic>.from(streamList.first as Map);
+        bestStream['provider'] = _activeProvider;
+
+        if (mounted) {
+          setState(() {
+            _streams = streamList;
+          });
+          _playStream(bestStream);
+        }
+      } catch (e) {
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal memuat stream $_activeProvider: $e")),
+          );
+        }
+      }
+      return;
+    }
+
     if (_is4kHub) {
       _showCompactLoadingDialog(
         AppLanguageService.tr(
@@ -3803,7 +4484,7 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   void _playStream(Map<String, dynamic> stream) async {
-    if (_isAllMovieland || _isKissKh || _isDramacool || _isHdrezka) {
+    if (_isAllMovieland || _isKissKh || _isDramacool || _isHdrezka || _isPusatFilm || _isJuraganFilm || _isSamehadaku || _isOtakudesu || _isAnichin || _isDracinSi || _isDrakorKita || _isSoraStream) {
       final String streamUrl = (stream['resourceLink'] ?? stream['url'] ?? '').toString();
       if (streamUrl.isEmpty) {
         if (mounted) {
@@ -4980,6 +5661,22 @@ class _DetailScreenState extends State<DetailScreen> {
   }
   Color _getProviderColor(String prov) {
     switch (prov) {
+      case 'pusatfilm':
+        return Colors.deepOrangeAccent;
+      case 'juraganfilm':
+        return Colors.indigoAccent;
+      case 'samehadaku':
+        return Colors.orangeAccent;
+      case 'otakudesu':
+        return Colors.redAccent;
+      case 'anichin':
+        return Colors.tealAccent;
+      case 'dracinsi':
+        return Colors.lightBlueAccent;
+      case 'drakorkita':
+        return Colors.purpleAccent;
+      case 'sorastream':
+        return Colors.cyanAccent;
       case '4khdhub':
         return Colors.cyanAccent;
       case 'allmovieland':
@@ -5000,6 +5697,22 @@ class _DetailScreenState extends State<DetailScreen> {
 
   IconData _getProviderIcon(String prov) {
     switch (prov) {
+      case 'pusatfilm':
+        return Icons.subtitles_rounded;
+      case 'juraganfilm':
+        return Icons.movie_filter_rounded;
+      case 'samehadaku':
+        return Icons.animation_rounded;
+      case 'otakudesu':
+        return Icons.live_tv_rounded;
+      case 'anichin':
+        return Icons.play_circle_outline_rounded;
+      case 'dracinsi':
+        return Icons.tv_rounded;
+      case 'drakorkita':
+        return Icons.favorite_rounded;
+      case 'sorastream':
+        return Icons.cloud_download_rounded;
       case '4khdhub':
         return Icons.hd_outlined;
       case 'allmovieland':

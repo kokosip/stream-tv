@@ -219,6 +219,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return false;
   }
 
+  bool get _isPusatFilm {
+    final prov = widget.provider.toLowerCase();
+    if (prov == 'pusatfilm') return true;
+    final curProv = (_currentStream?['provider'] ?? widget.currentStream?['provider'] ?? '').toString().toLowerCase();
+    if (curProv == 'pusatfilm') return true;
+    final url = (_currentStream?['url'] ?? widget.streamUrl).toString().toLowerCase();
+    if (url.contains('kotakajaib') || url.contains('gdriveplayer') || url.contains('pusatfilm')) return true;
+    return false;
+  }
+
   bool get _hasInternalSubtitles =>
       _is4kHub ||
       _player.state.tracks.subtitle.any((t) => t.id != 'no' && t.id != 'auto');
@@ -289,6 +299,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
         baseAmlHeaders.addAll(rawMap.map((k, v) => MapEntry(k.toString(), v.toString())));
       }
       return baseAmlHeaders;
+    }
+
+    if (_isPusatFilm) {
+      final Map<String, String> basePfHeaders = {
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://gdriveplayer.to/',
+      };
+      if (stream != null && stream['headers'] is Map) {
+        final rawMap = stream['headers'] as Map;
+        basePfHeaders.addAll(rawMap.map((k, v) => MapEntry(k.toString(), v.toString())));
+      }
+      return basePfHeaders;
     }
 
     if (stream == null) return null;

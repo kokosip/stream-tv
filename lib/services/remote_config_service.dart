@@ -9,6 +9,13 @@ class RemoteConfigService {
 
   // Remote Config Cloud Keys
   static const String keyFourKHdHubBaseUrl = 'fourkhdhub_base_url';
+  static const String keyPusatfilmBaseUrl = 'pusatfilm_base_url';
+  static const String keyJuraganfilmBaseUrl = 'juraganfilm_base_url';
+  static const String keySamehadakuBaseUrl = 'samehadaku_base_url';
+  static const String keyOtakudesuBaseUrl = 'otakudesu_base_url';
+  static const String keyAnichinBaseUrl = 'anichin_base_url';
+  static const String keyDracinsiBaseUrl = 'dracinsi_base_url';
+  static const String keyDrakorkitaBaseUrl = 'drakorkita_base_url';
   static const String keyDramachiBaseUrl = 'dramachi_base_url';
   static const String keyDramachiImageCdn = 'dramachi_image_cdn';
   static const String keyMovieBoxHostPool = 'moviebox_host_pool';
@@ -18,6 +25,13 @@ class RemoteConfigService {
 
   // SharedPreferences Local Storage Keys
   static const String _prefFourKHdHub = 'rc_local_fourkhdhub_base_url';
+  static const String _prefPusatfilm = 'rc_local_pusatfilm_base_url';
+  static const String _prefJuraganfilm = 'rc_local_juraganfilm_base_url';
+  static const String _prefSamehadaku = 'rc_local_samehadaku_base_url';
+  static const String _prefOtakudesu = 'rc_local_otakudesu_base_url';
+  static const String _prefAnichin = 'rc_local_anichin_base_url';
+  static const String _prefDracinsi = 'rc_local_dracinsi_base_url';
+  static const String _prefDrakorkita = 'rc_local_drakorkita_base_url';
   static const String _prefDramachiBase = 'rc_local_dramachi_base_url';
   static const String _prefDramachiCdn = 'rc_local_dramachi_image_cdn';
   static const String _prefMovieBoxPool = 'rc_local_moviebox_host_pool';
@@ -27,6 +41,13 @@ class RemoteConfigService {
 
   // Hardcoded default fallbacks
   static const String defaultFourKHdHubBaseUrl = 'https://4khdhub.one/';
+  static const String defaultPusatfilmBaseUrl = 'https://v5.pusatfilm21info.com/';
+  static const String defaultJuraganfilmBaseUrl = 'https://tv50.juragan.film/';
+  static const String defaultSamehadakuBaseUrl = 'https://v2.samehadaku.how/';
+  static const String defaultOtakudesuBaseUrl = 'https://otakudesu.blog/';
+  static const String defaultAnichinBaseUrl = 'https://anichin.moe/';
+  static const String defaultDracinsiBaseUrl = 'https://dramacinasubindo.com/';
+  static const String defaultDrakorkitaBaseUrl = 'https://drakorkita.lat/';
   static const String defaultDramachiBaseUrl = 'https://api.nodeobjects.com/';
   static const String defaultDramachiImageCdn = 'https://static.nodeobjects.com/thumbnail/';
   static const List<String> defaultMovieBoxHostPool = [
@@ -52,6 +73,13 @@ class RemoteConfigService {
 
   // In-memory active configurations loaded from SharedPreferences or defaults
   String? _activeFourKHdHubBaseUrl;
+  String? _activePusatfilmBaseUrl;
+  String? _activeJuraganfilmBaseUrl;
+  String? _activeSamehadakuBaseUrl;
+  String? _activeOtakudesuBaseUrl;
+  String? _activeAnichinBaseUrl;
+  String? _activeDracinsiBaseUrl;
+  String? _activeDrakorkitaBaseUrl;
   String? _activeDramachiBaseUrl;
   String? _activeDramachiImageCdn;
   List<String>? _activeMovieBoxHostPool;
@@ -67,6 +95,13 @@ class RemoteConfigService {
   /// Map of default values for Firebase Remote Config
   static Map<String, dynamic> get _defaults => {
         keyFourKHdHubBaseUrl: defaultFourKHdHubBaseUrl,
+        keyPusatfilmBaseUrl: defaultPusatfilmBaseUrl,
+        keyJuraganfilmBaseUrl: defaultJuraganfilmBaseUrl,
+        keySamehadakuBaseUrl: defaultSamehadakuBaseUrl,
+        keyOtakudesuBaseUrl: defaultOtakudesuBaseUrl,
+        keyAnichinBaseUrl: defaultAnichinBaseUrl,
+        keyDracinsiBaseUrl: defaultDracinsiBaseUrl,
+        keyDrakorkitaBaseUrl: defaultDrakorkitaBaseUrl,
         keyDramachiBaseUrl: defaultDramachiBaseUrl,
         keyDramachiImageCdn: defaultDramachiImageCdn,
         keyMovieBoxHostPool: jsonEncode(defaultMovieBoxHostPool),
@@ -101,6 +136,13 @@ class RemoteConfigService {
 
   void _loadFromPrefs(SharedPreferences prefs) {
     _activeFourKHdHubBaseUrl = prefs.getString(_prefFourKHdHub);
+    _activePusatfilmBaseUrl = prefs.getString(_prefPusatfilm);
+    _activeJuraganfilmBaseUrl = prefs.getString(_prefJuraganfilm);
+    _activeSamehadakuBaseUrl = prefs.getString(_prefSamehadaku);
+    _activeOtakudesuBaseUrl = prefs.getString(_prefOtakudesu);
+    _activeAnichinBaseUrl = prefs.getString(_prefAnichin);
+    _activeDracinsiBaseUrl = prefs.getString(_prefDracinsi);
+    _activeDrakorkitaBaseUrl = prefs.getString(_prefDrakorkita);
     _activeDramachiBaseUrl = prefs.getString(_prefDramachiBase);
     _activeDramachiImageCdn = prefs.getString(_prefDramachiCdn);
 
@@ -185,6 +227,62 @@ class RemoteConfigService {
       await prefs.setString(_prefFourKHdHub, formatted);
     }
 
+    // PusatFilm
+    final newPf = _remoteConfig!.getString(keyPusatfilmBaseUrl).trim();
+    if (newPf.isNotEmpty && newPf != defaultPusatfilmBaseUrl) {
+      final formatted = newPf.endsWith('/') ? newPf : '$newPf/';
+      _activePusatfilmBaseUrl = formatted;
+      await prefs.setString(_prefPusatfilm, formatted);
+    }
+
+    // JuraganFilm
+    final newJf = _remoteConfig!.getString(keyJuraganfilmBaseUrl).trim();
+    if (newJf.isNotEmpty && newJf != defaultJuraganfilmBaseUrl) {
+      final formatted = newJf.endsWith('/') ? newJf : '$newJf/';
+      _activeJuraganfilmBaseUrl = formatted;
+      await prefs.setString(_prefJuraganfilm, formatted);
+    }
+
+    // Samehadaku
+    final newSm = _remoteConfig!.getString(keySamehadakuBaseUrl).trim();
+    if (newSm.isNotEmpty && newSm != defaultSamehadakuBaseUrl) {
+      final formatted = newSm.endsWith('/') ? newSm : '$newSm/';
+      _activeSamehadakuBaseUrl = formatted;
+      await prefs.setString(_prefSamehadaku, formatted);
+    }
+
+    // Otakudesu
+    final newOt = _remoteConfig!.getString(keyOtakudesuBaseUrl).trim();
+    if (newOt.isNotEmpty && newOt != defaultOtakudesuBaseUrl) {
+      final formatted = newOt.endsWith('/') ? newOt : '$newOt/';
+      _activeOtakudesuBaseUrl = formatted;
+      await prefs.setString(_prefOtakudesu, formatted);
+    }
+
+    // Anichin
+    final newAn = _remoteConfig!.getString(keyAnichinBaseUrl).trim();
+    if (newAn.isNotEmpty && newAn != defaultAnichinBaseUrl) {
+      final formatted = newAn.endsWith('/') ? newAn : '$newAn/';
+      _activeAnichinBaseUrl = formatted;
+      await prefs.setString(_prefAnichin, formatted);
+    }
+
+    // DracinSI
+    final newDs = _remoteConfig!.getString(keyDracinsiBaseUrl).trim();
+    if (newDs.isNotEmpty && newDs != defaultDracinsiBaseUrl) {
+      final formatted = newDs.endsWith('/') ? newDs : '$newDs/';
+      _activeDracinsiBaseUrl = formatted;
+      await prefs.setString(_prefDracinsi, formatted);
+    }
+
+    // DrakorKita
+    final newDk = _remoteConfig!.getString(keyDrakorkitaBaseUrl).trim();
+    if (newDk.isNotEmpty && newDk != defaultDrakorkitaBaseUrl) {
+      final formatted = newDk.endsWith('/') ? newDk : '$newDk/';
+      _activeDrakorkitaBaseUrl = formatted;
+      await prefs.setString(_prefDrakorkita, formatted);
+    }
+
     // Dramachi API
     final newDramachi = _remoteConfig!.getString(keyDramachiBaseUrl).trim();
     if (newDramachi.isNotEmpty && newDramachi != defaultDramachiBaseUrl) {
@@ -243,6 +341,41 @@ class RemoteConfigService {
   /// 4KHDHub base URL (reads from local storage cache, then fallback default)
   String get fourKHdHubBaseUrl {
     return _activeFourKHdHubBaseUrl ?? defaultFourKHdHubBaseUrl;
+  }
+
+  /// PusatFilm base URL (reads from local storage cache, then fallback default)
+  String get pusatfilmBaseUrl {
+    return _activePusatfilmBaseUrl ?? defaultPusatfilmBaseUrl;
+  }
+
+  /// JuraganFilm base URL
+  String get juraganfilmBaseUrl {
+    return _activeJuraganfilmBaseUrl ?? defaultJuraganfilmBaseUrl;
+  }
+
+  /// Samehadaku base URL
+  String get samehadakuBaseUrl {
+    return _activeSamehadakuBaseUrl ?? defaultSamehadakuBaseUrl;
+  }
+
+  /// Otakudesu base URL
+  String get otakudesuBaseUrl {
+    return _activeOtakudesuBaseUrl ?? defaultOtakudesuBaseUrl;
+  }
+
+  /// Anichin base URL
+  String get anichinBaseUrl {
+    return _activeAnichinBaseUrl ?? defaultAnichinBaseUrl;
+  }
+
+  /// DracinSI base URL
+  String get dracinsiBaseUrl {
+    return _activeDracinsiBaseUrl ?? defaultDracinsiBaseUrl;
+  }
+
+  /// DrakorKita base URL
+  String get drakorkitaBaseUrl {
+    return _activeDrakorkitaBaseUrl ?? defaultDrakorkitaBaseUrl;
   }
 
   /// Dramachi API base URL

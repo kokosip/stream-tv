@@ -6,6 +6,14 @@ import '../services/moviebox_api_service.dart';
 import '../services/fourkhdhub_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/dramachi_api_service.dart';
+import '../services/pusatfilm_api_service.dart';
+import '../services/juraganfilm_api_service.dart';
+import '../services/samehadaku_api_service.dart';
+import '../services/otakudesu_api_service.dart';
+import '../services/anichin_api_service.dart';
+import '../services/dracinsi_api_service.dart';
+import '../services/drakorkita_api_service.dart';
+import '../services/sorastream_api_service.dart';
 import '../services/app_language_service.dart';
 import '../services/app_content_filter_service.dart';
 import '../services/search_history_service.dart';
@@ -28,6 +36,14 @@ class _SearchScreenState extends State<SearchScreen> {
   final FourKHdHubService _fourkApi = FourKHdHubService();
   final TmdbService _tmdbApi = TmdbService();
   final DramachiApiService _dramachiApi = DramachiApiService();
+  final PusatfilmApiService _pusatfilmApi = PusatfilmApiService();
+  final JuraganfilmApiService _juraganfilmApi = JuraganfilmApiService();
+  final SamehadakuApiService _samehadakuApi = SamehadakuApiService();
+  final OtakudesuApiService _otakudesuApi = OtakudesuApiService();
+  final AnichinApiService _anichinApi = AnichinApiService();
+  final DracinSiApiService _dracinsiApi = DracinSiApiService();
+  final DrakorkitaApiService _drakorkitaApi = DrakorkitaApiService();
+  final SorastreamApiService _sorastreamApi = SorastreamApiService();
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _inputFocusNode = FocusNode();
@@ -233,6 +249,54 @@ class _SearchScreenState extends State<SearchScreen> {
           peopleFuture,
         ]);
         combined.addAll(results[0] as List<dynamic>);
+      } else if (_selectedProvider == 'pusatfilm') {
+        final results = await Future.wait([
+          _pusatfilmApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
+          peopleFuture,
+        ]);
+        combined.addAll(results[0] as List<dynamic>);
+      } else if (_selectedProvider == 'juraganfilm') {
+        final results = await Future.wait([
+          _juraganfilmApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
+          peopleFuture,
+        ]);
+        combined.addAll(results[0] as List<dynamic>);
+      } else if (_selectedProvider == 'samehadaku') {
+        final results = await Future.wait([
+          _samehadakuApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
+          peopleFuture,
+        ]);
+        combined.addAll(results[0] as List<dynamic>);
+      } else if (_selectedProvider == 'otakudesu') {
+        final results = await Future.wait([
+          _otakudesuApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
+          peopleFuture,
+        ]);
+        combined.addAll(results[0] as List<dynamic>);
+      } else if (_selectedProvider == 'anichin') {
+        final results = await Future.wait([
+          _anichinApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
+          peopleFuture,
+        ]);
+        combined.addAll(results[0] as List<dynamic>);
+      } else if (_selectedProvider == 'dracinsi') {
+        final results = await Future.wait([
+          _dracinsiApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
+          peopleFuture,
+        ]);
+        combined.addAll(results[0] as List<dynamic>);
+      } else if (_selectedProvider == 'drakorkita') {
+        final results = await Future.wait([
+          _drakorkitaApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
+          peopleFuture,
+        ]);
+        combined.addAll(results[0] as List<dynamic>);
+      } else if (_selectedProvider == 'sorastream') {
+        final results = await Future.wait([
+          _sorastreamApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
+          peopleFuture,
+        ]);
+        combined.addAll(results[0] as List<dynamic>);
       } else if (_selectedProvider == 'tmdb') {
         final results = await Future.wait([
           _tmdbApi.search(query).catchError((_) => <Map<String, dynamic>>[]),
@@ -240,9 +304,16 @@ class _SearchScreenState extends State<SearchScreen> {
         ]);
         combined.addAll(results[0] as List<dynamic>);
       } else {
-        // Search all in parallel: TMDB, 4KHDHub, Dramachi, MovieBox, and People
+        // Search all in parallel: TMDB, PusatFilm, JuraganFilm, Samehadaku, Otakudesu, Anichin, DrakorKita, 4KHDHub, Dramachi, MovieBox, and People
         final results = await Future.wait([
           _tmdbApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
+          _pusatfilmApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
+          _juraganfilmApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
+          _samehadakuApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
+          _otakudesuApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
+          _anichinApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
+          _drakorkitaApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
+          _dracinsiApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
           _fourkApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
           _dramachiApi.search(query).catchError((e) => <Map<String, dynamic>>[]),
           _api.search(query: query).catchError((e) => <String, dynamic>{'items': [], 'list': []}),
@@ -250,9 +321,16 @@ class _SearchScreenState extends State<SearchScreen> {
         ]);
 
         final tmdbList = results[0] as List<dynamic>;
-        final fourkList = results[1] as List<dynamic>;
-        final dramachiList = results[2] as List<dynamic>;
-        final mbRes = results[3] is Map ? (results[3] as Map) : null;
+        final pfList = results[1] as List<dynamic>;
+        final jfList = results[2] as List<dynamic>;
+        final samList = results[3] as List<dynamic>;
+        final otkList = results[4] as List<dynamic>;
+        final aniList = results[5] as List<dynamic>;
+        final dkList = results[6] as List<dynamic>;
+        final drcList = results[7] as List<dynamic>;
+        final fourkList = results[8] as List<dynamic>;
+        final dramachiList = results[9] as List<dynamic>;
+        final mbRes = results[10] is Map ? (results[10] as Map) : null;
         final mbList = ((mbRes?['items'] ?? mbRes?['list']) as List<dynamic>?) ?? [];
         for (final item in mbList) {
           if (item is Map) {
@@ -260,14 +338,13 @@ class _SearchScreenState extends State<SearchScreen> {
           }
         }
 
-        // Interleave results (TMDB + 4KHDHub + Dramachi + MovieBox) to provide the richest mix
-        final maxLen = [tmdbList.length, fourkList.length, dramachiList.length, mbList.length]
-            .reduce((a, b) => a > b ? a : b);
+        // Interleave results across providers to provide the richest mix
+        final lists = [tmdbList, pfList, jfList, samList, otkList, aniList, dkList, drcList, fourkList, dramachiList, mbList];
+        final maxLen = lists.map((l) => l.length).reduce((a, b) => a > b ? a : b);
         for (int i = 0; i < maxLen; i++) {
-          if (i < tmdbList.length) combined.add(tmdbList[i]);
-          if (i < fourkList.length) combined.add(fourkList[i]);
-          if (i < dramachiList.length) combined.add(dramachiList[i]);
-          if (i < mbList.length) combined.add(mbList[i]);
+          for (final l in lists) {
+            if (i < l.length) combined.add(l[i]);
+          }
         }
       }
 
@@ -719,10 +796,60 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  (Color, Color, IconData, String) _getProviderUiInfo(String providerKey) {
+    switch (providerKey) {
+      case 'pusatfilm':
+        return (Colors.deepOrange.shade900, Colors.deepOrangeAccent, Icons.subtitles_rounded, "PusatFilm (Indo Sub)");
+      case 'juraganfilm':
+        return (Colors.indigo.shade900, Colors.indigoAccent, Icons.movie_filter_rounded, "JuraganFilm (Indo Sub)");
+      case 'samehadaku':
+        return (Colors.orange.shade900, Colors.orangeAccent, Icons.animation_rounded, "Samehadaku (Anime)");
+      case 'otakudesu':
+        return (Colors.red.shade900, Colors.redAccent, Icons.live_tv_rounded, "Otakudesu (Anime)");
+      case 'anichin':
+        return (Colors.teal.shade900, Colors.tealAccent, Icons.play_circle_outline_rounded, "Anichin (Donghua)");
+      case 'dracinsi':
+        return (Colors.blue.shade900, Colors.lightBlueAccent, Icons.tv_rounded, "DracinSI (Dracin)");
+      case 'drakorkita':
+        return (Colors.purple.shade900, Colors.purpleAccent, Icons.favorite_rounded, "DrakorKita (Drakor)");
+      case 'sorastream':
+        return (Colors.deepPurple.shade900, Colors.cyanAccent, Icons.cloud_download_rounded, "SoraStream (Multi)");
+      case '4khdhub':
+        return (Colors.cyan.shade900, Colors.cyanAccent, Icons.hd_outlined, "4KHDHub (4K UHD)");
+      case 'tmdb':
+        return (Colors.amber.shade900, Colors.amberAccent, Icons.movie_filter_outlined, "TMDB");
+      case 'dramachi':
+        return (const Color(0xFF4A148C), Colors.pinkAccent, Icons.video_library_outlined, "Dramachi (Asian)");
+      case 'moviebox':
+        return (Colors.redAccent.shade700, Colors.redAccent, Icons.movie_outlined, "MovieBox");
+      case 'all':
+      default:
+        return (Colors.redAccent.shade700, Colors.redAccent, Icons.apps_rounded, "All Providers");
+    }
+  }
+
+  String _inferProviderFromId(String subjectId, String? itemProvider) {
+    if (itemProvider != null && itemProvider.isNotEmpty) return itemProvider;
+    if (subjectId.startsWith('pusatfilm_')) return 'pusatfilm';
+    if (subjectId.startsWith('juraganfilm_')) return 'juraganfilm';
+    if (subjectId.startsWith('samehadaku_')) return 'samehadaku';
+    if (subjectId.startsWith('otakudesu_')) return 'otakudesu';
+    if (subjectId.startsWith('anichin_')) return 'anichin';
+    if (subjectId.startsWith('dracinsi_')) return 'dracinsi';
+    if (subjectId.startsWith('drakorkita_')) return 'drakorkita';
+    if (subjectId.startsWith('sorastream_')) return 'sorastream';
+    if (subjectId.startsWith('tmdb_')) return 'tmdb';
+    if (subjectId.startsWith('dramachi_') || subjectId.contains('::')) return 'dramachi';
+    if (subjectId.startsWith('/') || subjectId.contains('-movie-') || subjectId.contains('-series-')) return '4khdhub';
+    return 'moviebox';
+  }
+
   Widget _buildProviderChip(String providerKey, String label, bool isTv) {
     final isSelected = _selectedProvider == providerKey;
-    final is4k = providerKey == '4khdhub';
-    final isTmdb = providerKey == 'tmdb';
+    final info = _getProviderUiInfo(providerKey);
+    final activeColor = info.$1;
+    final borderColor = info.$2;
+    final iconData = info.$3;
 
     return TvFocusableCard(
       onTap: () {
@@ -741,39 +868,22 @@ class _SearchScreenState extends State<SearchScreen> {
           vertical: isTv ? 8 : 6,
         ),
         decoration: BoxDecoration(
-          color: isSelected
-              ? (is4k
-                  ? Colors.cyan.shade900
-                  : (isTmdb ? Colors.amber.shade900 : Colors.redAccent.shade700))
-              : const Color(0xFF1E1E1E),
+          color: isSelected ? activeColor : const Color(0xFF1E1E1E),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isSelected
-                ? (is4k
-                    ? Colors.cyanAccent
-                    : (isTmdb ? Colors.amberAccent : Colors.redAccent))
-                : const Color(0xFF333333),
+            color: isSelected ? borderColor : const Color(0xFF333333),
             width: isSelected ? 1.5 : 1,
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (is4k) ...[
-              Icon(
-                Icons.hd_outlined,
-                color: isSelected ? Colors.white : Colors.cyanAccent,
-                size: isTv ? 16 : 14,
-              ),
-              const SizedBox(width: 6),
-            ] else if (isTmdb) ...[
-              Icon(
-                Icons.movie_filter_outlined,
-                color: isSelected ? Colors.white : Colors.amberAccent,
-                size: isTv ? 16 : 14,
-              ),
-              const SizedBox(width: 6),
-            ],
+            Icon(
+              iconData,
+              color: isSelected ? Colors.white : borderColor,
+              size: isTv ? 16 : 14,
+            ),
+            const SizedBox(width: 6),
             Text(
               label,
               style: GoogleFonts.outfit(
@@ -896,11 +1006,27 @@ class _SearchScreenState extends State<SearchScreen> {
                 children: [
                   _buildProviderChip('all', AppLanguageService.tr(en: "All Providers", id: "Semua"), isTv),
                   const SizedBox(width: 10),
+                  _buildProviderChip('pusatfilm', "PusatFilm (Indo Sub)", isTv),
+                  const SizedBox(width: 10),
+                  _buildProviderChip('juraganfilm', "JuraganFilm (Indo Sub)", isTv),
+                  const SizedBox(width: 10),
+                  _buildProviderChip('samehadaku', "Samehadaku (Anime)", isTv),
+                  const SizedBox(width: 10),
+                  _buildProviderChip('otakudesu', "Otakudesu (Anime)", isTv),
+                  const SizedBox(width: 10),
+                  _buildProviderChip('anichin', "Anichin (Donghua)", isTv),
+                  const SizedBox(width: 10),
+                  _buildProviderChip('dracinsi', "DracinSI (Dracin)", isTv),
+                  const SizedBox(width: 10),
+                  _buildProviderChip('drakorkita', "DrakorKita (Drakor)", isTv),
+                  const SizedBox(width: 10),
+                  _buildProviderChip('sorastream', "SoraStream (Multi)", isTv),
+                  const SizedBox(width: 10),
                   _buildProviderChip('tmdb', "TMDB", isTv),
                   const SizedBox(width: 10),
                   _buildProviderChip('4khdhub', "4KHDHub (4K UHD)", isTv),
                   const SizedBox(width: 10),
-                  _buildProviderChip('dramachi', "Dramachi (Asian Drama & Anime)", isTv),
+                  _buildProviderChip('dramachi', "Dramachi (Asian)", isTv),
                   const SizedBox(width: 10),
                   _buildProviderChip('moviebox', "MovieBox", isTv),
                 ],
@@ -961,15 +1087,8 @@ class _SearchScreenState extends State<SearchScreen> {
                                         final title = item['title'] ?? item['subjectTitle'] ?? item['name'] ?? "Untitled";
                                         final coverUrl = item['cover']?['url'] ?? item['coverUrl'] ?? "";
                                         final subjectId = (item['subjectId'] ?? item['id'] ?? "").toString();
-                                        final provider = (item['provider'] ??
-                                            (subjectId.startsWith('tmdb_')
-                                                ? 'tmdb'
-                                                : (subjectId.startsWith('dramachi_') || subjectId.contains('::')
-                                                    ? 'dramachi'
-                                                    : (subjectId.startsWith('/') ? '4khdhub' : 'moviebox')))).toString();
-                                        final is4k = provider == '4khdhub';
-                                        final isTmdb = provider == 'tmdb';
-                                        final isDramachi = provider == 'dramachi';
+                                        final provider = _inferProviderFromId(subjectId, item['provider']?.toString());
+                                        final provInfo = _getProviderUiInfo(provider);
 
                                         return TvFocusableCard(
                                           onTap: () {
@@ -1016,25 +1135,15 @@ class _SearchScreenState extends State<SearchScreen> {
                                                 child: Container(
                                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                   decoration: BoxDecoration(
-                                                    color: isDramachi
-                                                        ? const Color(0xDD4A148C)
-                                                        : (is4k
-                                                            ? const Color(0xDD004D40)
-                                                            : (isTmdb
-                                                                ? Colors.amber.shade900.withValues(alpha: 0.9)
-                                                                : Colors.redAccent.shade700.withValues(alpha: 0.9))),
+                                                    color: provInfo.$1.withValues(alpha: 0.9),
                                                     borderRadius: BorderRadius.circular(4),
                                                     border: Border.all(
-                                                      color: isDramachi
-                                                          ? Colors.purpleAccent
-                                                          : (is4k
-                                                              ? Colors.cyanAccent
-                                                              : (isTmdb ? Colors.amberAccent : Colors.redAccent)),
+                                                      color: provInfo.$2,
                                                       width: 0.8,
                                                     ),
                                                   ),
                                                   child: Text(
-                                                    isDramachi ? "Dramachi" : (is4k ? "4KHDHub" : (isTmdb ? "TMDB" : "MovieBox")),
+                                                    item['badge'] ?? provInfo.$4.split(' ').first,
                                                     style: GoogleFonts.outfit(
                                                       color: Colors.white,
                                                       fontSize: 10,
