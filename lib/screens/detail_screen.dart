@@ -5,6 +5,10 @@ import '../services/moviebox_api_service.dart';
 import '../services/fourkhdhub_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/dramachi_api_service.dart';
+import '../services/allmovieland_api_service.dart';
+import '../services/kisskh_api_service.dart';
+import '../services/dramacool_api_service.dart';
+import '../services/hdrezka_api_service.dart';
 import '../services/favorites_service.dart';
 import '../services/app_language_service.dart';
 import '../services/playback_progress_service.dart';
@@ -42,11 +46,17 @@ class _DetailScreenState extends State<DetailScreen> {
   final FourKHdHubService _fourkApi = FourKHdHubService();
   final TmdbService _tmdbApi = TmdbService();
   final DramachiApiService _dramachiApi = DramachiApiService();
+  final AllMovielandApiService _allmovielandApi = AllMovielandApiService();
   final DownloadService _downloadService = DownloadService.instance;
   
   late String _activeProvider;
   bool get _is4kHub => _activeProvider.toLowerCase() == '4khdhub';
+  bool get _isAllMovieland => _activeProvider.toLowerCase() == 'allmovieland';
+  bool get _isKissKh => _activeProvider.toLowerCase() == 'kisskh';
+  bool get _isDramacool => _activeProvider.toLowerCase() == 'dramacool';
+  bool get _isHdrezka => _activeProvider.toLowerCase() == 'hdrezka';
   bool get _isTmdb {
+    if (widget.provider.toLowerCase() == 'tmdb') return true;
     if (widget.subjectId.startsWith('tmdb_')) return true;
     if (_activeProvider.toLowerCase() != 'tmdb') return false;
     final parsed = int.tryParse(widget.subjectId);
@@ -397,6 +407,117 @@ class _DetailScreenState extends State<DetailScreen> {
       return;
     }
 
+    if (_isAllMovieland || widget.subjectId.startsWith('tt')) {
+      try {
+        final imdbId = widget.subjectId.startsWith('tt') ? widget.subjectId : _selectedSubjectId;
+        final seasons = await _allmovielandApi.getSeasons(imdbId);
+        final isTvShow = seasons.isNotEmpty;
+        final detailsMap = {
+          'id': imdbId,
+          'imdb_id': imdbId,
+          'subjectId': imdbId,
+          'title': widget.tmdbData?['title'] ?? widget.tmdbData?['name'] ?? imdbId,
+          'subjectTitle': widget.tmdbData?['title'] ?? widget.tmdbData?['name'] ?? imdbId,
+          'subjectType': isTvShow ? 2 : 1,
+          'cover': {'url': widget.tmdbData?['coverUrl'] ?? widget.tmdbData?['poster_path'] ?? ''},
+          'coverUrl': widget.tmdbData?['coverUrl'] ?? widget.tmdbData?['poster_path'] ?? '',
+          'description': widget.tmdbData?['description'] ?? widget.tmdbData?['overview'] ?? '',
+        };
+
+        int initialEpisodesCount = 0;
+        int targetSeason = widget.initialSeason ?? 1;
+        int targetEpisode = widget.initialEpisode ?? 1;
+
+        if (widget.initialSeason == null || widget.initialEpisode == null) {
+          final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+          if (recentPlay != null) {
+            final recSeason = recentPlay['season'] as int? ?? 1;
+            final recEpisode = recentPlay['episode'] as int? ?? 1;
+            if (recSeason > 0) targetSeason = recSeason;
+            if (recEpisode > 0) targetEpisode = recEpisode;
+          }
+        }
+
+        if (isTvShow && seasons.isNotEmpty) {
+          dynamic matchingSeason;
+          for (final s in seasons) {
+            if ((s['se'] ?? 1) == targetSeason) {
+              matchingSeason = s;
+              break;
+            }
+          }
+          matchingSeason ??= seasons.first;
+          _selectedSeasonNumber = (matchingSeason['se'] ?? 1) as int;
+          initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
+          _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
+        }
+
+        setState(() {
+          _details = detailsMap;
+          _seasons = seasons;
+          _dubs = [];
+          _selectedAudioName = "Original Audio";
+          _selectedSubjectId = imdbId;
+          _episodesCount = initialEpisodesCount;
+          _isLoadingDetails = false;
+        });
+
+        _checkProgress();
+        _loadStreams();
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail AllMovieLand: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
+
+    if (_isKissKh) {
+      try {
+        await _loadKissKhProvider(widget.subjectId);
+        setState(() {
+          _isLoadingDetails = false;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail KissKH: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
+
+    if (_isDramacool) {
+      try {
+        await _loadDramacoolProvider(widget.subjectId);
+        setState(() {
+          _isLoadingDetails = false;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail DramaCool: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
+
+    if (_isHdrezka) {
+      try {
+        await _loadHdrezkaProvider(widget.subjectId);
+        setState(() {
+          _isLoadingDetails = false;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = "Gagal memuat detail HDRezka: $e";
+          _isLoadingDetails = false;
+        });
+      }
+      return;
+    }
+
     try {
       final effectiveSubjectId = _selectedSubjectId.isNotEmpty
           ? _selectedSubjectId
@@ -727,15 +848,37 @@ class _DetailScreenState extends State<DetailScreen> {
     final isTv = _isTvShow;
 
     try {
+      String? imdbId = _details?['imdb_id']?.toString();
+      if (imdbId == null || imdbId.isEmpty || !imdbId.startsWith('tt')) {
+        final tmdbId = int.tryParse((_details?['id'] ?? _details?['tmdbId'] ?? widget.subjectId.replaceFirst('tmdb_', '')).toString());
+        final year = int.tryParse((_details?['year'] ?? _details?['releaseDate'] ?? '').toString().split('-').first);
+        imdbId = await _tmdbApi.getImdbId(
+          tmdbId: tmdbId,
+          title: title,
+          year: year,
+          isTv: isTv,
+        );
+      }
+
       final searchResults = await Future.wait([
         _api.search(query: title, subjectType: isTv ? 2 : 1, page: 1, perPage: 5).catchError((_) => <String, dynamic>{}),
         _fourkApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
         _dramachiApi.search(title).catchError((_) => <Map<String, dynamic>>[]),
+        (imdbId != null && imdbId.isNotEmpty)
+            ? _allmovielandApi.checkAvailability(imdbId).catchError((_) => false)
+            : Future.value(false),
+        KissKhApiService.search(title).catchError((_) => <KissKhDramaResult>[]),
+        DramacoolApiService.search(title).catchError((_) => <DramacoolDramaResult>[]),
+        HdrezkaApiService.search(title).catchError((_) => <HdrezkaSearchResult>[]),
       ]);
 
       final mbRes = searchResults[0] as Map<String, dynamic>;
       final fkRes = searchResults[1] as List<Map<String, dynamic>>;
       final dmRes = searchResults[2] as List<Map<String, dynamic>>;
+      final bool amlAvailable = searchResults[3] as bool;
+      final kissRes = searchResults[4] as List<KissKhDramaResult>;
+      final dcRes = searchResults[5] as List<DramacoolDramaResult>;
+      final rezkaRes = searchResults[6] as List<HdrezkaSearchResult>;
 
       final List<Map<String, dynamic>> foundSources = [];
 
@@ -756,7 +899,40 @@ class _DetailScreenState extends State<DetailScreen> {
         });
       }
 
-      // 2. Check 4KHDHub (High-Resolution Alternate Option)
+      // 2. Check KissKH (Asian Drama & Multi-Sub)
+      if (kissRes.isNotEmpty) {
+        final bestKiss = kissRes.first;
+        foundSources.add({
+          'provider': 'kisskh',
+          'label': 'KissKH (Asian Drama / Multi-Sub)',
+          'badge': 'KissKH',
+          'subjectId': bestKiss.id.toString(),
+          'item': {
+            'id': bestKiss.id,
+            'title': bestKiss.title,
+            'thumbnail': bestKiss.thumbnail,
+            'totalEpisodes': bestKiss.totalEpisodes,
+          },
+        });
+      }
+
+      // 3. Check DramaCool (Asian Drama Backup)
+      if (dcRes.isNotEmpty) {
+        final bestDc = dcRes.first;
+        foundSources.add({
+          'provider': 'dramacool',
+          'label': 'DramaCool (Asian Drama)',
+          'badge': 'DramaCool',
+          'subjectId': bestDc.url,
+          'item': {
+            'url': bestDc.url,
+            'title': bestDc.title,
+            'thumbnail': bestDc.thumbnail,
+          },
+        });
+      }
+
+      // 4. Check 4KHDHub (High-Resolution Alternate Option)
       if (fkRes.isNotEmpty) {
         final bestFk = fkRes.first;
         foundSources.add({
@@ -768,7 +944,35 @@ class _DetailScreenState extends State<DetailScreen> {
         });
       }
 
-      // 3. Check Dramachi (Native Asian Drama & Anime)
+      // 5. Check AllMovieLand (Direct HLS Fast Stream via IMDb)
+      if (amlAvailable && imdbId != null && imdbId.isNotEmpty) {
+        foundSources.add({
+          'provider': 'allmovieland',
+          'label': 'AllMovieLand (Direct HLS)',
+          'badge': 'HLS Fast',
+          'subjectId': imdbId,
+          'item': {'imdb_id': imdbId, 'title': title},
+        });
+      }
+
+      // 6. Check HDRezka (Multi-Quality CDN)
+      if (rezkaRes.isNotEmpty) {
+        final bestRezka = rezkaRes.first;
+        foundSources.add({
+          'provider': 'hdrezka',
+          'label': 'HDRezka (Multi-Quality CDN)',
+          'badge': 'HDRezka',
+          'subjectId': bestRezka.url,
+          'item': {
+            'url': bestRezka.url,
+            'id': bestRezka.id,
+            'title': bestRezka.title,
+            'isSeries': bestRezka.isSeries,
+          },
+        });
+      }
+
+      // 7. Check Dramachi (Native Asian Drama & Anime)
       if (dmRes.isNotEmpty) {
         final bestDm = dmRes.first;
         foundSources.add({
@@ -796,7 +1000,7 @@ class _DetailScreenState extends State<DetailScreen> {
         _noStreamingSourcesFound = false;
       });
 
-      // Prioritize MovieBox if available, otherwise Dramachi or 4KHDHub
+      // Prioritize MovieBox if available, otherwise KissKH, AllMovieLand, Dramachi or 4KHDHub
       final defaultSource = foundSources.firstWhere(
         (s) => s['provider'] == 'moviebox',
         orElse: () => foundSources.first,
@@ -816,6 +1020,7 @@ class _DetailScreenState extends State<DetailScreen> {
   Future<void> _activateResolvedSource(Map<String, dynamic> source) async {
     final prov = source['provider'] as String;
     final sId = source['subjectId'] as String;
+    final item = source['item'] as Map<String, dynamic>?;
 
     setState(() {
       _activeProvider = prov;
@@ -827,8 +1032,223 @@ class _DetailScreenState extends State<DetailScreen> {
       await _load4kHubProvider(sId);
     } else if (prov == 'dramachi') {
       await _loadDramachiProvider(sId);
+    } else if (prov == 'allmovieland') {
+      await _loadAllmovielandProvider(sId);
+    } else if (prov == 'kisskh') {
+      await _loadKissKhProvider(sId, item);
+    } else if (prov == 'dramacool') {
+      await _loadDramacoolProvider(sId, item);
+    } else if (prov == 'hdrezka') {
+      await _loadHdrezkaProvider(sId, item);
     } else {
       await _loadMovieBoxProvider(sId);
+    }
+  }
+
+  Future<void> _loadAllmovielandProvider(String imdbId) async {
+    try {
+      final isTv = _isTvShow;
+      List<Map<String, dynamic>> seasonsList = [];
+      int initialEpisodesCount = 0;
+      int targetSeason = widget.initialSeason ?? 1;
+      int targetEpisode = widget.initialEpisode ?? 1;
+
+      if (widget.initialSeason == null || widget.initialEpisode == null) {
+        final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+        if (recentPlay != null) {
+          final recSeason = recentPlay['season'] as int? ?? 1;
+          final recEpisode = recentPlay['episode'] as int? ?? 1;
+          if (recSeason > 0) targetSeason = recSeason;
+          if (recEpisode > 0) targetEpisode = recEpisode;
+        }
+      }
+
+      if (isTv) {
+        seasonsList = await _allmovielandApi.getSeasons(imdbId);
+        if (seasonsList.isNotEmpty) {
+          dynamic matchingSeason;
+          for (final s in seasonsList) {
+            if ((s['se'] ?? 1) == targetSeason) {
+              matchingSeason = s;
+              break;
+            }
+          }
+          matchingSeason ??= seasonsList.first;
+          _selectedSeasonNumber = (matchingSeason['se'] ?? 1) as int;
+          initialEpisodesCount = (matchingSeason['maxEp'] ?? 1) as int;
+          _selectedEpisodeNumber = targetEpisode.clamp(1, initialEpisodesCount > 0 ? initialEpisodesCount : 1);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _seasons = seasonsList;
+          _dubs = [];
+          _selectedAudioName = "Original Audio";
+          _selectedSubjectId = imdbId;
+          _episodesCount = initialEpisodesCount;
+        });
+        _loadStreams();
+      }
+    } catch (e) {
+      debugPrint("Failed loading AllMovieLand provider details: $e");
+    }
+  }
+
+  Future<void> _loadKissKhProvider(String sId, [Map<String, dynamic>? item]) async {
+    try {
+      int dramaId = int.tryParse(item?['dramaId']?.toString() ?? sId) ?? 0;
+      if (dramaId == 0) {
+        final title = (_details?['title'] ?? _details?['subjectTitle'] ?? widget.subjectId).toString();
+        final searchRes = await KissKhApiService.search(title);
+        if (searchRes.isNotEmpty) {
+          dramaId = searchRes.first.id;
+        }
+      }
+
+      if (dramaId == 0) return;
+
+      final episodes = await KissKhApiService.getEpisodes(dramaId);
+      final epCount = episodes.isNotEmpty ? episodes.length : 1;
+
+      int targetEpisode = widget.initialEpisode ?? 1;
+      if (widget.initialEpisode == null) {
+        final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+        if (recentPlay != null) {
+          final recEpisode = recentPlay['episode'] as int? ?? 1;
+          if (recEpisode > 0) targetEpisode = recEpisode;
+        }
+      }
+
+      final episodesList = episodes.map((e) => {
+        'ep': e.number,
+        'id': e.id,
+        'sub': e.sub,
+      }).toList();
+
+      final seasonsList = [
+        {
+          'se': 1,
+          'season_number': 1,
+          'name': 'Season 1',
+          'maxEp': epCount,
+          'episodes': episodesList,
+        }
+      ];
+
+      _selectedSeasonNumber = 1;
+      _selectedEpisodeNumber = targetEpisode.clamp(1, epCount > 0 ? epCount : 1);
+
+      if (mounted) {
+        setState(() {
+          _seasons = seasonsList;
+          _dubs = [];
+          _selectedAudioName = "Original (Sub)";
+          _selectedSubjectId = dramaId.toString();
+          _episodesCount = epCount;
+        });
+        _loadStreams();
+      }
+    } catch (e) {
+      debugPrint("Failed loading KissKH provider details: $e");
+    }
+  }
+
+  Future<void> _loadDramacoolProvider(String sId, [Map<String, dynamic>? item]) async {
+    try {
+      String dramaUrl = item?['dramaUrl']?.toString() ?? sId;
+      if (!dramaUrl.startsWith('http')) {
+        final title = (_details?['title'] ?? _details?['subjectTitle'] ?? widget.subjectId).toString();
+        final searchRes = await DramacoolApiService.search(title);
+        if (searchRes.isNotEmpty) {
+          dramaUrl = searchRes.first.url;
+        }
+      }
+
+      if (dramaUrl.isEmpty) return;
+
+      final episodes = await DramacoolApiService.getEpisodes(dramaUrl);
+      final epCount = episodes.isNotEmpty ? episodes.length : 1;
+
+      int targetEpisode = widget.initialEpisode ?? 1;
+      if (widget.initialEpisode == null) {
+        final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+        if (recentPlay != null) {
+          final recEpisode = recentPlay['episode'] as int? ?? 1;
+          if (recEpisode > 0) targetEpisode = recEpisode;
+        }
+      }
+
+      final episodesList = episodes.map((e) => {
+        'ep': e.episodeNumber,
+        'url': e.url,
+      }).toList();
+
+      final seasonsList = [
+        {
+          'se': 1,
+          'season_number': 1,
+          'name': 'Season 1',
+          'maxEp': epCount,
+          'episodes': episodesList,
+        }
+      ];
+
+      _selectedSeasonNumber = 1;
+      _selectedEpisodeNumber = targetEpisode.clamp(1, epCount > 0 ? epCount : 1);
+
+      if (mounted) {
+        setState(() {
+          _seasons = seasonsList;
+          _dubs = [];
+          _selectedAudioName = "Original (Sub)";
+          _selectedSubjectId = dramaUrl;
+          _episodesCount = epCount;
+        });
+        _loadStreams();
+      }
+    } catch (e) {
+      debugPrint("Failed loading DramaCool provider details: $e");
+    }
+  }
+
+  Future<void> _loadHdrezkaProvider(String sId, [Map<String, dynamic>? item]) async {
+    try {
+      String rezkaId = item?['subjectId']?.toString() ?? sId;
+      if (rezkaId.isEmpty) {
+        final title = (_details?['title'] ?? _details?['subjectTitle'] ?? widget.subjectId).toString();
+        final searchRes = await HdrezkaApiService.search(title);
+        if (searchRes.isNotEmpty) {
+          rezkaId = searchRes.first.id;
+        }
+      }
+
+      int targetSeason = widget.initialSeason ?? 1;
+      int targetEpisode = widget.initialEpisode ?? 1;
+      if (widget.initialSeason == null || widget.initialEpisode == null) {
+        final recentPlay = await PlaybackProgressService.getRecentPlay(widget.subjectId);
+        if (recentPlay != null) {
+          final recSeason = recentPlay['season'] as int? ?? 1;
+          final recEpisode = recentPlay['episode'] as int? ?? 1;
+          if (recSeason > 0) targetSeason = recSeason;
+          if (recEpisode > 0) targetEpisode = recEpisode;
+        }
+      }
+
+      final isTv = _isTvShow;
+      _selectedSeasonNumber = isTv ? targetSeason : 0;
+      _selectedEpisodeNumber = isTv ? targetEpisode : 0;
+
+      if (mounted) {
+        setState(() {
+          _dubs = [];
+          _selectedAudioName = "Original Audio";
+          _selectedSubjectId = rezkaId;
+        });
+        _loadStreams();
+      }
+    } catch (e) {
+      debugPrint("Failed loading HDRezka provider details: $e");
     }
   }
 
@@ -1517,6 +1937,211 @@ class _DetailScreenState extends State<DetailScreen> {
       _streams = [];
     });
 
+    if (_isAllMovieland) {
+      try {
+        final streams = await _allmovielandApi.getStreams(
+          imdbId: _selectedSubjectId,
+          season: _isTvShow ? _selectedSeasonNumber : 0,
+          episode: _isTvShow ? _selectedEpisodeNumber : 0,
+        );
+
+        final List<Map<String, dynamic>> dubsList = [];
+        for (final s in streams) {
+          final audio = s['audioName']?.toString() ?? 'Original Audio';
+          if (!dubsList.any((d) => (d['label'] ?? d['lanName']) == audio)) {
+            dubsList.add({
+              'label': audio,
+              'lanName': audio,
+              'subjectId': _selectedSubjectId,
+            });
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _streams = streams;
+            _dubs = dubsList;
+            if (streams.isNotEmpty &&
+                (_selectedAudioName == "Original Audio" ||
+                    !dubsList.any((d) => (d['label'] ?? d['lanName']) == _selectedAudioName))) {
+              _selectedAudioName = streams.first['audioName']?.toString() ?? 'Original Audio';
+            }
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal memuat rilis AllMovieLand: $e")),
+          );
+        }
+      }
+      return;
+    }
+
+    if (_isKissKh) {
+      try {
+        final dramaId = int.tryParse(_selectedSubjectId);
+        final epNum = _isTvShow ? _selectedEpisodeNumber : 1;
+        final title = (_details?['title'] ?? _details?['subjectTitle'] ?? '').toString();
+        final streamResult = await KissKhApiService.resolveStream(
+          title: title,
+          dramaId: dramaId,
+          episodeNumber: epNum,
+        );
+
+        if (streamResult != null) {
+          final captionsList = streamResult.subtitles.map((sub) => {
+            'label': sub.label,
+            'language': sub.language ?? sub.label,
+            'url': sub.url,
+          }).toList();
+
+          final streamMap = {
+            'resourceId': 'kisskh_${dramaId}_$epNum',
+            'resourceLink': streamResult.streamUrl,
+            'resource_link': streamResult.streamUrl,
+            'url': streamResult.streamUrl,
+            'resolution': 1080,
+            'quality': streamResult.quality ?? '1080p (HLS)',
+            'audio': 'Original (Sub)',
+            'audioName': 'Original (Sub)',
+            'provider': 'kisskh',
+            'captions': captionsList,
+            'headers': streamResult.headers,
+            'httpHeaders': streamResult.headers,
+          };
+
+          if (mounted) {
+            setState(() {
+              _streams = [streamMap];
+            });
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal memuat stream KissKH: $e")),
+          );
+        }
+      }
+      return;
+    }
+
+    if (_isDramacool) {
+      try {
+        final title = (_details?['title'] ?? _details?['subjectTitle'] ?? '').toString();
+        final epNum = _isTvShow ? _selectedEpisodeNumber : 1;
+        final streamResult = await DramacoolApiService.resolveStream(
+          title: title,
+          episodeNumber: epNum,
+        );
+
+        if (streamResult != null) {
+          final captionsList = streamResult.subtitles.map((sub) => {
+            'label': sub.label,
+            'language': sub.language ?? sub.label,
+            'url': sub.url,
+          }).toList();
+
+          final streamMap = {
+            'resourceId': 'dramacool_$epNum',
+            'resourceLink': streamResult.streamUrl,
+            'resource_link': streamResult.streamUrl,
+            'url': streamResult.streamUrl,
+            'resolution': 1080,
+            'quality': streamResult.quality ?? '1080p (HLS)',
+            'audio': 'Original (Sub)',
+            'audioName': 'Original (Sub)',
+            'provider': 'dramacool',
+            'captions': captionsList,
+            'headers': streamResult.headers,
+            'httpHeaders': streamResult.headers,
+          };
+
+          if (mounted) {
+            setState(() {
+              _streams = [streamMap];
+            });
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal memuat stream DramaCool: $e")),
+          );
+        }
+      }
+      return;
+    }
+
+    if (_isHdrezka) {
+      try {
+        final title = (_details?['title'] ?? _details?['subjectTitle'] ?? '').toString();
+        final streamResult = await HdrezkaApiService.resolveStream(
+          title: title,
+          season: _isTvShow ? _selectedSeasonNumber : 1,
+          episode: _isTvShow ? _selectedEpisodeNumber : 1,
+          isMovie: !_isTvShow,
+        );
+
+        if (streamResult != null) {
+          final captionsList = streamResult.subtitles.map((sub) => {
+            'label': sub.language,
+            'language': sub.language,
+            'url': sub.url,
+          }).toList();
+
+          final List<Map<String, dynamic>> streamList = [];
+          streamResult.qualities.forEach((q, url) {
+            streamList.add({
+              'resourceId': 'hdrezka_$q',
+              'resourceLink': url,
+              'resource_link': url,
+              'url': url,
+              'resolution': int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 1080,
+              'quality': q,
+              'audio': 'Original Audio',
+              'audioName': 'Original Audio',
+              'provider': 'hdrezka',
+              'captions': captionsList,
+              'headers': streamResult.headers,
+              'httpHeaders': streamResult.headers,
+            });
+          });
+
+          if (streamList.isEmpty) {
+            streamList.add({
+              'resourceId': 'hdrezka_default',
+              'resourceLink': streamResult.streamUrl,
+              'resource_link': streamResult.streamUrl,
+              'url': streamResult.streamUrl,
+              'resolution': 1080,
+              'quality': streamResult.quality,
+              'audio': 'Original Audio',
+              'audioName': 'Original Audio',
+              'provider': 'hdrezka',
+              'captions': captionsList,
+              'headers': streamResult.headers,
+              'httpHeaders': streamResult.headers,
+            });
+          }
+
+          if (mounted) {
+            setState(() {
+              _streams = streamList;
+            });
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal memuat stream HDRezka: $e")),
+          );
+        }
+      }
+      return;
+    }
+
     if (_isDramachi) {
       try {
         final res = await _dramachiApi.getResources(
@@ -1654,6 +2279,49 @@ class _DetailScreenState extends State<DetailScreen> {
   Future<PlayerSwitchAudioResult?> _handleSwitchAudioInPlayer(dynamic dub) async {
     final subId = dub['subjectId']?.toString() ?? widget.subjectId;
     final dubLabel = _formatDubLabel(dub);
+
+    if (_isAllMovieland) {
+      try {
+        final matchingStream = _streams.firstWhere(
+          (s) => (s['audioName'] ?? '').toString().toLowerCase() == dubLabel.toLowerCase(),
+          orElse: () => _streams.first,
+        );
+        final streamUrl = (matchingStream['resourceLink'] ?? matchingStream['url'] ?? '').toString();
+        if (streamUrl.isEmpty) return null;
+
+        if (mounted) {
+          setState(() {
+            _selectedAudioName = dubLabel;
+          });
+        }
+
+        return PlayerSwitchAudioResult(
+          streamUrl: streamUrl,
+          audioName: dubLabel,
+          captions: const [],
+          availableStreams: _streams.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+          currentStream: Map<String, dynamic>.from(matchingStream as Map),
+        );
+      } catch (e) {
+        print("Error switching audio on AllMovieLand: $e");
+        return null;
+      }
+    }
+
+    if (_isKissKh || _isDramacool || _isHdrezka) {
+      if (_streams.isNotEmpty) {
+        final stream = _streams.first;
+        final captions = (stream['captions'] as List<dynamic>?) ?? const [];
+        return PlayerSwitchAudioResult(
+          streamUrl: (stream['resourceLink'] ?? stream['url'] ?? '').toString(),
+          audioName: dubLabel,
+          captions: captions,
+          availableStreams: _streams.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+          currentStream: Map<String, dynamic>.from(stream as Map),
+        );
+      }
+      return null;
+    }
 
     if (_isDramachi) {
       try {
@@ -1823,6 +2491,250 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Future<PlayerNextEpisodeData?> _handleSelectEpisodeInPlayer(int season, int episode) async {
+    if (_isAllMovieland) {
+      try {
+        final streams = await _allmovielandApi.getStreams(
+          imdbId: _selectedSubjectId,
+          season: season,
+          episode: episode,
+        );
+        if (streams.isEmpty) return null;
+
+        final bestStream = streams.first;
+        final streamUrl = (bestStream['resourceLink'] ?? bestStream['url'] ?? '').toString();
+        if (streamUrl.isEmpty) return null;
+        bestStream['provider'] = 'allmovieland';
+
+        int nextNextSeason = season;
+        int nextNextEpisode = episode + 1;
+        bool hasNextNext = false;
+        int maxEpOfSeason = 0;
+        for (final s in _seasons) {
+          if ((s['se'] ?? 0) == season) {
+            maxEpOfSeason = int.tryParse(s['maxEp']?.toString() ?? '') ?? 0;
+            break;
+          }
+        }
+
+        if (nextNextEpisode <= maxEpOfSeason) {
+          hasNextNext = true;
+        } else {
+          final followingSeason = _seasons.any((s) => (s['se'] ?? 0) == season + 1);
+          if (followingSeason) {
+            nextNextSeason = season + 1;
+            nextNextEpisode = 1;
+            hasNextNext = true;
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _selectedSeasonNumber = season;
+            _selectedEpisodeNumber = episode;
+            _streams = streams;
+            if (maxEpOfSeason > 0) _episodesCount = maxEpOfSeason;
+          });
+        }
+
+        return PlayerNextEpisodeData(
+          streamUrl: streamUrl,
+          title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
+          season: season,
+          episode: episode,
+          captions: const [],
+          hasNextEpisode: hasNextNext,
+          nextEpisodeLabel: hasNextNext ? "S$nextNextSeason:E$nextNextEpisode" : null,
+          availableStreams: streams,
+          currentStream: bestStream,
+          currentAudioName: bestStream['audioName'] ?? _selectedAudioName,
+        );
+      } catch (e) {
+        print("Error selecting episode in AllMovieLand player: $e");
+        return null;
+      }
+    }
+
+    if (_isKissKh) {
+      try {
+        final dramaId = int.tryParse(_selectedSubjectId);
+        final title = (_details?['title'] ?? _details?['subjectTitle'] ?? '').toString();
+        final streamResult = await KissKhApiService.resolveStream(
+          title: title,
+          dramaId: dramaId,
+          episodeNumber: episode,
+        );
+        if (streamResult == null) return null;
+
+        final captionsList = streamResult.subtitles.map((sub) => {
+          'label': sub.label,
+          'language': sub.language ?? sub.label,
+          'url': sub.url,
+        }).toList();
+
+        final bestStream = {
+          'resourceId': 'kisskh_${dramaId}_$episode',
+          'resourceLink': streamResult.streamUrl,
+          'resource_link': streamResult.streamUrl,
+          'url': streamResult.streamUrl,
+          'resolution': 1080,
+          'quality': streamResult.quality ?? '1080p (HLS)',
+          'audio': 'Original (Sub)',
+          'audioName': 'Original (Sub)',
+          'provider': 'kisskh',
+          'captions': captionsList,
+          'headers': streamResult.headers,
+          'httpHeaders': streamResult.headers,
+        };
+
+        int nextNextEpisode = episode + 1;
+        bool hasNextNext = nextNextEpisode <= _episodesCount;
+
+        if (mounted) {
+          setState(() {
+            _selectedSeasonNumber = 1;
+            _selectedEpisodeNumber = episode;
+            _streams = [bestStream];
+          });
+        }
+
+        return PlayerNextEpisodeData(
+          streamUrl: streamResult.streamUrl,
+          title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
+          season: 1,
+          episode: episode,
+          captions: captionsList,
+          hasNextEpisode: hasNextNext,
+          nextEpisodeLabel: hasNextNext ? "EP $nextNextEpisode" : null,
+          availableStreams: [bestStream],
+          currentStream: bestStream,
+          currentAudioName: 'Original (Sub)',
+        );
+      } catch (e) {
+        debugPrint("Error selecting episode in KissKH player: $e");
+        return null;
+      }
+    }
+
+    if (_isDramacool) {
+      try {
+        final title = (_details?['title'] ?? _details?['subjectTitle'] ?? '').toString();
+        final streamResult = await DramacoolApiService.resolveStream(
+          title: title,
+          episodeNumber: episode,
+        );
+        if (streamResult == null) return null;
+
+        final captionsList = streamResult.subtitles.map((sub) => {
+          'label': sub.label,
+          'language': sub.language ?? sub.label,
+          'url': sub.url,
+        }).toList();
+
+        final bestStream = {
+          'resourceId': 'dramacool_$episode',
+          'resourceLink': streamResult.streamUrl,
+          'resource_link': streamResult.streamUrl,
+          'url': streamResult.streamUrl,
+          'resolution': 1080,
+          'quality': streamResult.quality ?? '1080p (HLS)',
+          'audio': 'Original (Sub)',
+          'audioName': 'Original (Sub)',
+          'provider': 'dramacool',
+          'captions': captionsList,
+          'headers': streamResult.headers,
+          'httpHeaders': streamResult.headers,
+        };
+
+        int nextNextEpisode = episode + 1;
+        bool hasNextNext = nextNextEpisode <= _episodesCount;
+
+        if (mounted) {
+          setState(() {
+            _selectedSeasonNumber = 1;
+            _selectedEpisodeNumber = episode;
+            _streams = [bestStream];
+          });
+        }
+
+        return PlayerNextEpisodeData(
+          streamUrl: streamResult.streamUrl,
+          title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
+          season: 1,
+          episode: episode,
+          captions: captionsList,
+          hasNextEpisode: hasNextNext,
+          nextEpisodeLabel: hasNextNext ? "EP $nextNextEpisode" : null,
+          availableStreams: [bestStream],
+          currentStream: bestStream,
+          currentAudioName: 'Original (Sub)',
+        );
+      } catch (e) {
+        debugPrint("Error selecting episode in DramaCool player: $e");
+        return null;
+      }
+    }
+
+    if (_isHdrezka) {
+      try {
+        final title = (_details?['title'] ?? _details?['subjectTitle'] ?? '').toString();
+        final streamResult = await HdrezkaApiService.resolveStream(
+          title: title,
+          season: season,
+          episode: episode,
+          isMovie: !_isTvShow,
+        );
+        if (streamResult == null) return null;
+
+        final captionsList = streamResult.subtitles.map((sub) => {
+          'label': sub.language,
+          'language': sub.language,
+          'url': sub.url,
+        }).toList();
+
+        final bestStream = {
+          'resourceId': 'hdrezka_${streamResult.quality}',
+          'resourceLink': streamResult.streamUrl,
+          'resource_link': streamResult.streamUrl,
+          'url': streamResult.streamUrl,
+          'resolution': 1080,
+          'quality': streamResult.quality,
+          'audio': 'Original Audio',
+          'audioName': 'Original Audio',
+          'provider': 'hdrezka',
+          'captions': captionsList,
+          'headers': streamResult.headers,
+          'httpHeaders': streamResult.headers,
+        };
+
+        int nextNextEpisode = episode + 1;
+        bool hasNextNext = _isTvShow && nextNextEpisode <= _episodesCount;
+
+        if (mounted) {
+          setState(() {
+            _selectedSeasonNumber = season;
+            _selectedEpisodeNumber = episode;
+            _streams = [bestStream];
+          });
+        }
+
+        return PlayerNextEpisodeData(
+          streamUrl: streamResult.streamUrl,
+          title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
+          season: season,
+          episode: episode,
+          captions: captionsList,
+          hasNextEpisode: hasNextNext,
+          nextEpisodeLabel: hasNextNext ? "S$season:E$nextNextEpisode" : null,
+          availableStreams: [bestStream],
+          currentStream: bestStream,
+          currentAudioName: 'Original Audio',
+        );
+      } catch (e) {
+        debugPrint("Error selecting episode in HDRezka player: $e");
+        return null;
+      }
+    }
+
     if (_isDramachi) {
       try {
         final res = await _dramachiApi.getResources(
@@ -2109,6 +3021,261 @@ class _DetailScreenState extends State<DetailScreen> {
         _playStream(firstStream);
         return;
       }
+    }
+
+    if (_isAllMovieland) {
+      _showCompactLoadingDialog(
+        AppLanguageService.tr(
+          en: "Loading AllMovieLand stream...",
+          id: "Memuat stream AllMovieLand...",
+        ),
+      );
+
+      try {
+        final streams = await _allmovielandApi.getStreams(
+          imdbId: _selectedSubjectId,
+          season: targetSeason,
+          episode: targetEpisode,
+        );
+        if (mounted) Navigator.pop(context);
+
+        if (streams.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(AppLanguageService.tr(
+                  en: "No stream available for this episode.",
+                  id: "Tidak ada stream tersedia untuk episode ini.",
+                )),
+              ),
+            );
+          }
+          return;
+        }
+
+        if (mounted) {
+          setState(() {
+            _streams = streams;
+          });
+          _playStream(streams.first);
+        }
+      } catch (e) {
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal memuat rilis AllMovieLand: $e")),
+          );
+        }
+      }
+      return;
+    }
+
+    if (_isKissKh) {
+      _showCompactLoadingDialog(
+        AppLanguageService.tr(
+          en: "Loading KissKH stream...",
+          id: "Memuat stream KissKH...",
+        ),
+      );
+
+      try {
+        final dramaId = int.tryParse(_selectedSubjectId);
+        final title = (_details?['title'] ?? _details?['subjectTitle'] ?? '').toString();
+        final streamResult = await KissKhApiService.resolveStream(
+          title: title,
+          dramaId: dramaId,
+          episodeNumber: targetEpisode,
+        );
+        if (mounted) Navigator.pop(context);
+
+        if (streamResult == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(AppLanguageService.tr(
+                  en: "No stream available for this episode.",
+                  id: "Tidak ada stream tersedia untuk episode ini.",
+                )),
+              ),
+            );
+          }
+          return;
+        }
+
+        final captionsList = streamResult.subtitles.map((sub) => {
+          'label': sub.label,
+          'language': sub.language ?? sub.label,
+          'url': sub.url,
+        }).toList();
+
+        final bestStream = {
+          'resourceId': 'kisskh_${dramaId}_$targetEpisode',
+          'resourceLink': streamResult.streamUrl,
+          'resource_link': streamResult.streamUrl,
+          'url': streamResult.streamUrl,
+          'resolution': 1080,
+          'quality': streamResult.quality ?? '1080p (HLS)',
+          'audio': 'Original (Sub)',
+          'audioName': 'Original (Sub)',
+          'provider': 'kisskh',
+          'captions': captionsList,
+          'headers': streamResult.headers,
+          'httpHeaders': streamResult.headers,
+        };
+
+        if (mounted) {
+          setState(() {
+            _streams = [bestStream];
+          });
+          _playStream(bestStream);
+        }
+      } catch (e) {
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal memuat stream KissKH: $e")),
+          );
+        }
+      }
+      return;
+    }
+
+    if (_isDramacool) {
+      _showCompactLoadingDialog(
+        AppLanguageService.tr(
+          en: "Loading DramaCool stream...",
+          id: "Memuat stream DramaCool...",
+        ),
+      );
+
+      try {
+        final title = (_details?['title'] ?? _details?['subjectTitle'] ?? '').toString();
+        final streamResult = await DramacoolApiService.resolveStream(
+          title: title,
+          episodeNumber: targetEpisode,
+        );
+        if (mounted) Navigator.pop(context);
+
+        if (streamResult == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(AppLanguageService.tr(
+                  en: "No stream available for this episode.",
+                  id: "Tidak ada stream tersedia untuk episode ini.",
+                )),
+              ),
+            );
+          }
+          return;
+        }
+
+        final captionsList = streamResult.subtitles.map((sub) => {
+          'label': sub.label,
+          'language': sub.language ?? sub.label,
+          'url': sub.url,
+        }).toList();
+
+        final bestStream = {
+          'resourceId': 'dramacool_$targetEpisode',
+          'resourceLink': streamResult.streamUrl,
+          'resource_link': streamResult.streamUrl,
+          'url': streamResult.streamUrl,
+          'resolution': 1080,
+          'quality': streamResult.quality ?? '1080p (HLS)',
+          'audio': 'Original (Sub)',
+          'audioName': 'Original (Sub)',
+          'provider': 'dramacool',
+          'captions': captionsList,
+          'headers': streamResult.headers,
+          'httpHeaders': streamResult.headers,
+        };
+
+        if (mounted) {
+          setState(() {
+            _streams = [bestStream];
+          });
+          _playStream(bestStream);
+        }
+      } catch (e) {
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal memuat stream DramaCool: $e")),
+          );
+        }
+      }
+      return;
+    }
+
+    if (_isHdrezka) {
+      _showCompactLoadingDialog(
+        AppLanguageService.tr(
+          en: "Loading HDRezka stream...",
+          id: "Memuat stream HDRezka...",
+        ),
+      );
+
+      try {
+        final title = (_details?['title'] ?? _details?['subjectTitle'] ?? '').toString();
+        final streamResult = await HdrezkaApiService.resolveStream(
+          title: title,
+          season: targetSeason,
+          episode: targetEpisode,
+          isMovie: !isTv,
+        );
+        if (mounted) Navigator.pop(context);
+
+        if (streamResult == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(AppLanguageService.tr(
+                  en: "No stream available for this episode.",
+                  id: "Tidak ada stream tersedia untuk episode ini.",
+                )),
+              ),
+            );
+          }
+          return;
+        }
+
+        final captionsList = streamResult.subtitles.map((sub) => {
+          'label': sub.language,
+          'language': sub.language,
+          'url': sub.url,
+        }).toList();
+
+        final bestStream = {
+          'resourceId': 'hdrezka_${streamResult.quality}',
+          'resourceLink': streamResult.streamUrl,
+          'resource_link': streamResult.streamUrl,
+          'url': streamResult.streamUrl,
+          'resolution': 1080,
+          'quality': streamResult.quality,
+          'audio': 'Original Audio',
+          'audioName': 'Original Audio',
+          'provider': 'hdrezka',
+          'captions': captionsList,
+          'headers': streamResult.headers,
+          'httpHeaders': streamResult.headers,
+        };
+
+        if (mounted) {
+          setState(() {
+            _streams = [bestStream];
+          });
+          _playStream(bestStream);
+        }
+      } catch (e) {
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Gagal memuat stream HDRezka: $e")),
+          );
+        }
+      }
+      return;
     }
 
     if (_is4kHub) {
@@ -2636,6 +3803,91 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   void _playStream(Map<String, dynamic> stream) async {
+    if (_isAllMovieland || _isKissKh || _isDramacool || _isHdrezka) {
+      final String streamUrl = (stream['resourceLink'] ?? stream['url'] ?? '').toString();
+      if (streamUrl.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Stream URL is empty.')),
+          );
+        }
+        return;
+      }
+
+      int nextSeason = _selectedSeasonNumber;
+      int nextEpisode = _selectedEpisodeNumber + 1;
+      bool hasNext = false;
+      if (_isTvShow) {
+        if (nextEpisode <= _episodesCount) {
+          hasNext = true;
+        } else {
+          final nextSeasonIndex = _seasons.indexWhere((s) => (s['se'] ?? 0) == _selectedSeasonNumber + 1);
+          if (nextSeasonIndex != -1) {
+            nextSeason = _selectedSeasonNumber + 1;
+            nextEpisode = 1;
+            hasNext = true;
+          }
+        }
+      }
+
+      final captions = (stream['captions'] as List<dynamic>?) ?? const [];
+
+      if (mounted) {
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PlayerScreen(
+              streamUrl: streamUrl,
+              title: _details?['title'] ?? _details?['subjectTitle'] ?? "Play Video",
+              subjectId: _isTmdb ? widget.subjectId : _selectedSubjectId,
+              provider: _isTmdb ? 'tmdb' : _activeProvider,
+              season: _isTvShow ? _selectedSeasonNumber : 0,
+              episode: _isTvShow ? _selectedEpisodeNumber : 0,
+              captions: captions,
+              coverUrl: _details?['cover']?['url'] ?? _details?['coverUrl'] ?? "",
+              subjectType: _details?['subjectType'] ?? _details?['subject_type'] ?? 1,
+              maxEpisodesInSeason: _episodesCount,
+              hasNextEpisode: hasNext,
+              nextEpisodeLabel: hasNext ? "S$nextSeason:E$nextEpisode" : null,
+              onFetchNextEpisode: hasNext ? () => _fetchNextEpisodeStream(nextSeason, nextEpisode) : null,
+              dubs: _dubs,
+              currentAudioName: _selectedAudioName,
+              availableStreams: _streams,
+              currentStream: stream,
+              seasons: _seasons,
+              onSwitchAudio: _handleSwitchAudioInPlayer,
+              onSwitchQuality: _handleSwitchQualityInPlayer,
+              onSelectEpisode: _handleSelectEpisodeInPlayer,
+            ),
+          ),
+        );
+
+        if (mounted) {
+          if (result is Map) {
+            if (result['season'] != null && result['episode'] != null) {
+              final s = result['season'] as int;
+              final e = result['episode'] as int;
+              if (s > 0 && e > 0 && (s != _selectedSeasonNumber || e != _selectedEpisodeNumber)) {
+                setState(() {
+                  _selectedSeasonNumber = s;
+                  _selectedEpisodeNumber = e;
+                });
+              }
+            }
+            if (result['completed'] == true && _isTvShow && hasNext) {
+              setState(() {
+                _selectedSeasonNumber = nextSeason;
+                _selectedEpisodeNumber = nextEpisode;
+              });
+            }
+          }
+          _checkProgress();
+          _loadStreams();
+        }
+      }
+      return;
+    }
+
     if (_is4kHub) {
       _showCompactLoadingDialog(
         AppLanguageService.tr(
@@ -3726,6 +4978,138 @@ class _DetailScreenState extends State<DetailScreen> {
       ),
     );
   }
+  Color _getProviderColor(String prov) {
+    switch (prov) {
+      case '4khdhub':
+        return Colors.cyanAccent;
+      case 'allmovieland':
+        return Colors.amberAccent;
+      case 'kisskh':
+        return Colors.purpleAccent;
+      case 'dramacool':
+        return Colors.tealAccent;
+      case 'hdrezka':
+        return Colors.orangeAccent;
+      case 'dramachi':
+        return Colors.pinkAccent;
+      case 'moviebox':
+      default:
+        return Colors.redAccent;
+    }
+  }
+
+  IconData _getProviderIcon(String prov) {
+    switch (prov) {
+      case '4khdhub':
+        return Icons.hd_outlined;
+      case 'allmovieland':
+        return Icons.stream_outlined;
+      case 'kisskh':
+        return Icons.stars_rounded;
+      case 'dramacool':
+        return Icons.local_play_rounded;
+      case 'hdrezka':
+        return Icons.ondemand_video_rounded;
+      case 'dramachi':
+        return Icons.video_library_outlined;
+      case 'moviebox':
+      default:
+        return Icons.movie_outlined;
+    }
+  }
+
+  Widget _buildSourceDropdown({required bool isTv}) {
+    if (!_isTmdb || _resolvedSources.isEmpty) return const SizedBox.shrink();
+
+    final activeColor = _getProviderColor(_activeProvider);
+    final activeIcon = _getProviderIcon(_activeProvider);
+    final hasActive = _resolvedSources.any((s) => s['provider'] == _activeProvider);
+    final selectedValue = hasActive
+        ? _activeProvider
+        : (_resolvedSources.isNotEmpty ? _resolvedSources.first['provider'] as String : null);
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isTv ? 14 : 10,
+        vertical: isTv ? 4 : 2,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFF181818),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: activeColor.withValues(alpha: 0.5),
+          width: 1.2,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(activeIcon, color: activeColor, size: isTv ? 18 : 15),
+          const SizedBox(width: 8),
+          Text(
+            AppLanguageService.tr(en: "Source: ", id: "Sumber: "),
+            style: GoogleFonts.outfit(
+              color: Colors.grey.shade400,
+              fontSize: isTv ? 13 : 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Theme(
+            data: Theme.of(context).copyWith(
+              canvasColor: const Color(0xFF1E1E1E),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: selectedValue,
+                isDense: true,
+                dropdownColor: const Color(0xFF1C1C1E),
+                borderRadius: BorderRadius.circular(12),
+                icon: const Icon(Icons.arrow_drop_down, color: Colors.white70, size: 20),
+                style: GoogleFonts.outfit(
+                  color: Colors.white,
+                  fontSize: isTv ? 13 : 12,
+                  fontWeight: FontWeight.bold,
+                ),
+                items: _resolvedSources.map((source) {
+                  final prov = source['provider'] as String;
+                  final label = source['label'] as String;
+                  final color = _getProviderColor(prov);
+                  final icon = _getProviderIcon(prov);
+                  return DropdownMenuItem<String>(
+                    value: prov,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(icon, color: color, size: isTv ? 16 : 14),
+                        const SizedBox(width: 8),
+                        Text(
+                          label,
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: isTv ? 13 : 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                onChanged: (newProv) {
+                  if (newProv == null || newProv == _activeProvider) return;
+                  final selected = _resolvedSources.firstWhere(
+                    (s) => s['provider'] == newProv,
+                    orElse: () => _resolvedSources.first,
+                  );
+                  _activateResolvedSource(selected);
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildHeaderSection({required bool isTv}) {
     final title = _details?['title'] ?? _details?['subjectTitle'] ?? "Untitled";
     final desc = _details?['description'] ?? "No description available.";
@@ -3854,61 +5238,9 @@ class _DetailScreenState extends State<DetailScreen> {
                         ),
                         const SizedBox(height: 14),
                       ],
-                      // TMDB Resolved Sources Chips
+                      // TMDB Resolved Sources Dropdown
                       if (_isTmdb && _resolvedSources.isNotEmpty) ...[
-                        Row(
-                          children: _resolvedSources.map((source) {
-                            final prov = source['provider'] as String;
-                            final isSelected = _activeProvider == prov;
-                            final label = source['label'] as String;
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 12.0),
-                              child: TvFocusableCard(
-                                onTap: () => _activateResolvedSource(source),
-                                borderRadius: BorderRadius.circular(16),
-                                scaleFactor: 1.05,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: isSelected
-                                        ? (prov == '4khdhub'
-                                            ? Colors.cyanAccent.withValues(alpha: 0.2)
-                                            : Colors.redAccent.withValues(alpha: 0.2))
-                                        : const Color(0xFF1E1E1E),
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: isSelected
-                                          ? (prov == '4khdhub' ? Colors.cyanAccent : Colors.redAccent)
-                                          : Colors.white24,
-                                      width: isSelected ? 1.8 : 1.0,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        prov == '4khdhub' ? Icons.hd_outlined : Icons.movie_outlined,
-                                        color: isSelected
-                                            ? (prov == '4khdhub' ? Colors.cyanAccent : Colors.redAccent)
-                                            : Colors.white70,
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        label,
-                                        style: GoogleFonts.outfit(
-                                          color: isSelected ? Colors.white : Colors.white70,
-                                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
+                        _buildSourceDropdown(isTv: isTv),
                         const SizedBox(height: 16),
                       ],
                       // Main Hero Play Button Row
@@ -4094,60 +5426,9 @@ class _DetailScreenState extends State<DetailScreen> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                // TMDB Resolved Sources Chips (Mobile)
+                // TMDB Resolved Sources Dropdown (Mobile)
                 if (_isTmdb && _resolvedSources.isNotEmpty) ...[
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _resolvedSources.map((source) {
-                      final prov = source['provider'] as String;
-                      final isSelected = _activeProvider == prov;
-                      final label = source['label'] as String;
-                      return TvFocusableCard(
-                        onTap: () => _activateResolvedSource(source),
-                        borderRadius: BorderRadius.circular(14),
-                        scaleFactor: 1.03,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? (prov == '4khdhub'
-                                    ? Colors.cyanAccent.withValues(alpha: 0.2)
-                                    : Colors.redAccent.withValues(alpha: 0.2))
-                                : const Color(0xFF1E1E1E),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: isSelected
-                                  ? (prov == '4khdhub' ? Colors.cyanAccent : Colors.redAccent)
-                                  : Colors.white24,
-                              width: isSelected ? 1.5 : 1.0,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                prov == '4khdhub' ? Icons.hd_outlined : Icons.movie_outlined,
-                                color: isSelected
-                                    ? (prov == '4khdhub' ? Colors.cyanAccent : Colors.redAccent)
-                                    : Colors.white70,
-                                size: 14,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                label,
-                                style: GoogleFonts.outfit(
-                                  color: isSelected ? Colors.white : Colors.white70,
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
+                  _buildSourceDropdown(isTv: isTv),
                   const SizedBox(height: 16),
                 ],
                 // Play Button & Quality Button Row

@@ -209,6 +209,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return false;
   }
 
+  bool get _isAllMovieland {
+    final prov = widget.provider.toLowerCase();
+    if (prov == 'allmovieland') return true;
+    final curProv = (_currentStream?['provider'] ?? widget.currentStream?['provider'] ?? '').toString().toLowerCase();
+    if (curProv == 'allmovieland') return true;
+    final url = (_currentStream?['url'] ?? widget.streamUrl).toString().toLowerCase();
+    if (url.contains('slast430did.com') || url.contains('allmovieland')) return true;
+    return false;
+  }
+
   bool get _hasInternalSubtitles =>
       _is4kHub ||
       _player.state.tracks.subtitle.any((t) => t.id != 'no' && t.id != 'auto');
@@ -266,6 +276,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
         base4kHeaders.addAll(rawMap.map((k, v) => MapEntry(k.toString(), v.toString())));
       }
       return base4kHeaders;
+    }
+
+    if (_isAllMovieland) {
+      final Map<String, String> baseAmlHeaders = {
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://allmovieland.fun/',
+      };
+      if (stream != null && stream['headers'] is Map) {
+        final rawMap = stream['headers'] as Map;
+        baseAmlHeaders.addAll(rawMap.map((k, v) => MapEntry(k.toString(), v.toString())));
+      }
+      return baseAmlHeaders;
     }
 
     if (stream == null) return null;

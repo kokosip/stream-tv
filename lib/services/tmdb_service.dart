@@ -667,7 +667,7 @@ class TmdbService {
   Future<Map<String, dynamic>?> getMovieDetails(int tmdbId) async {
     try {
       final res = await _get("/movie/$tmdbId", params: {
-        "append_to_response": "credits,similar,videos",
+        "append_to_response": "credits,similar,videos,external_ids",
       });
       return res;
     } catch (e) {
@@ -679,12 +679,49 @@ class TmdbService {
   Future<Map<String, dynamic>?> getTvDetails(int tmdbId) async {
     try {
       final res = await _get("/tv/$tmdbId", params: {
-        "append_to_response": "credits,similar,videos",
+        "append_to_response": "credits,similar,videos,external_ids",
       });
       return res;
     } catch (e) {
       return null;
     }
+  }
+
+  /// Get IMDb ID for a movie or TV show
+  Future<String?> getImdbId({
+    int? tmdbId,
+    String? title,
+    int? year,
+    bool isTv = false,
+  }) async {
+    int? resolvedId = tmdbId;
+    if (resolvedId == null && title != null && title.trim().isNotEmpty) {
+      resolvedId = await findTmdbId(title: title, year: year, isTv: isTv);
+    }
+
+    if (resolvedId == null || resolvedId <= 0) return null;
+
+    final cacheKey = "imdb_id_${isTv ? 'tv' : 'movie'}_$resolvedId";
+    final cached = _getFromCache(cacheKey);
+    if (cached != null) return cached.toString();
+
+    try {
+      final details = isTv
+          ? await getTvDetails(resolvedId)
+          : await getMovieDetails(resolvedId);
+
+      final extIds = details?['external_ids'] is Map ? details!['external_ids'] as Map : null;
+      final imdbId = details?['imdb_id'] ?? extIds?['imdb_id'];
+
+      if (imdbId != null && imdbId.toString().trim().isNotEmpty) {
+        final resStr = imdbId.toString().trim();
+        _putInCache(cacheKey, resStr);
+        return resStr;
+      }
+    } catch (e) {
+      print("Error fetching IMDb ID for TMDB $resolvedId: $e");
+    }
+    return null;
   }
 
   /// Search for a movie or TV show by title and optional year to find its TMDB ID
@@ -922,6 +959,11 @@ class TmdbService {
       genreStr = item['genre'] as String;
     }
 
+    final rawExtIds = (item['external_ids'] is Map)
+        ? (item['external_ids'] as Map)
+        : (rawTmdb?['external_ids'] is Map ? (rawTmdb!['external_ids'] as Map) : null);
+    final imdbId = (item['imdb_id'] ?? rawExtIds?['imdb_id'] ?? rawTmdb?['imdb_id'])?.toString();
+
     return {
       "id": id,
       "subjectId": "tmdb_$id",
@@ -940,6 +982,7 @@ class TmdbService {
       "content": title,
       "imdbRate": ratingStr,
       "imdbRatingValue": ratingStr,
+      "imdb_id": imdbId,
       "voteCount": item['vote_count'] ?? rawTmdb?['vote_count'] ?? 0,
       "releaseDate": releaseDate,
       "genre": genreStr,

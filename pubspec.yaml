@@ -55,6 +55,7 @@ dependencies:
   firebase_performance: ^0.10.1+10
   firebase_messaging: ^15.2.4
   archive: ^4.3.0
+  encrypt: ^5.0.3
 
 dev_dependencies:
   flutter_test:
