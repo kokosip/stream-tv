@@ -3132,7 +3132,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         FutureBuilder<PackageInfo>(
                           future: PackageInfo.fromPlatform(),
                           builder: (context, snapshot) {
-                            final ver = snapshot.hasData ? "v${snapshot.data!.version}" : "v1.2.11";
+                            final ver = snapshot.hasData ? "v${snapshot.data!.version}" : "v1.2.12";
                             return Text(
                               AppLanguageService.tr(
                                 en: "Current Version: $ver • Tap to check latest release on GitHub",

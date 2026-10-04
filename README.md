@@ -1,19 +1,43 @@
-# StreamTV (TMDB, MovieBox & 4KHDHub TV Client)
+# StreamTV (Ultimate Android & Android TV Streaming Client)
 
-A premium, cinema-grade Flutter streaming application designed specifically for **Android TV** and **Android** devices. Built for an effortless 10-foot viewing experience with full D-Pad remote control support.
+A cinema-grade Flutter streaming application designed specifically for **Android TV** and **Android** devices. Built for an effortless 10-foot viewing experience with full D-Pad remote control support, high-resolution playback, and a rich multi-provider ecosystem.
 
 ---
 
 ## 🌟 Key Features
 
-### 1. 🎬 Multi-Provider Streaming Engine
-- **MovieBox API**: Stream thousands of global movies and TV series with multiple audio dubs and subtitle tracks.
-- **4KHDHub Integration (4K UHD & 1080p REMUX)**:
-  - Access ultra-high-definition releases up to **4K UHD (2160p REMUX, HDR10, Dolby Vision)** and **1080p 10-Bit**.
-  - Dynamic HubCloud CDN mirror resolver with smart fallback and preflight byte-range probing to guarantee working stream links.
-- **Multi-Provider Search**: Search MovieBox and 4KHDHub simultaneously with provider filter chips and clear visual badges (`[4KHDHub]` and `[MovieBox]`).
+### 1. 🎬 Multi-Provider Streaming Ecosystem
+Stream TV aggregates and deobfuscates streams from leading global and regional streaming providers:
 
-### 2. 🍿 Streaming Platforms & OTT Network Catalog (Netflix, Disney+, Prime & More)
+| Provider | Content Focus | Characteristics & Resolution |
+|---|---|---|
+| **MovieBox** | Global Movies & TV Series | Multi-Language Audio Dubs, 1080p Full HD, Subtitles |
+| **4KHDHub** | Ultra-HD Cinema & Series | Up to **4K UHD (2160p REMUX, HDR10, Dolby Vision)**, 1080p 10-Bit |
+| **PusatFilm** | Indonesian & Hollywood Hits | Reverse-engineered XOR cipher (`pfilms`), Anti-bot bypass, 1080p/720p |
+| **JuraganFilm** | Asian Dramas, Indo & Western Movies | Supervideo deobfuscated stream resolver, Direct MP4/HLS |
+| **Samehadaku** | Anime Sub Indo | Popular ongoing & completed anime series, Blogger/Mirror streams |
+| **Otakudesu** | Anime Sub Indo | Comprehensive anime archives with automated AJAX nonce resolution |
+| **Anichin** | Donghua (Chinese 3D Animation) | High-definition Chinese animation sub Indo, Multi-mirror extractors |
+| **DracinSI** | Drama China (C-Drama) | Chinese dramas sub Indo with direct CDN MP4 and HLS streams |
+| **DrakorKita** | Drama Korea (K-Drama) | Korean drama series sub Indo, Inlined script deobfuscator |
+| **SoraStream** | Universal Global Aggregator | Multi-server fallback engine (VidSrc, SuperEmbed, 2Embed, SmashyStream) |
+| **DramaChi & KissKH** | Asian Dramas & Anime | Korean, Japanese, Chinese, and Taiwanese drama series |
+| **IPTV / Live TV** | Indonesian Public FTA Channels | Legal broadcast channels (News, Entertainment, Sports, Kids) + M3U playlists |
+
+- **Multi-Source Parallel Search**: Search across multiple active providers simultaneously with filter chips and custom provider brand badges (`[PusatFilm]`, `[Samehadaku]`, `[4KHDHub]`, etc.).
+- **Dynamic Multi-Source Resolver**: Seamlessly switch between different provider mirrors directly from the detail screen.
+
+### 2. 🛡️ Built-in DNS-over-HTTPS (DoH) Network Security
+- **Bypass ISP Filtering**: Built-in **Cloudflare DoH** (`https://cloudflare-dns.com/dns-query`) and **Google DoH** fallback integrated into `SafeHttpClient`.
+- **Zero Configuration**: Automatically resolves blocked streaming hostnames (e.g. Indonesian ISP DNS filtering) without requiring third-party VPN apps or system-level DNS changes.
+
+### 3. 💬 Dual Subtitle Engine (SubDL & OpenSubtitles)
+- **Concurrent Subtitle Search**: Simultaneously queries both **SubDL** and **OpenSubtitles** to ensure maximum subtitle coverage.
+- **Multi-Key API Pool**: Automatic key failover and cooldown rotation to prevent daily rate-limit exhaustion.
+- **In-Memory ZIP Decompression**: Automatically unpacks and extracts `.srt` subtitles from SubDL ZIP archives for movies and specific TV episodes (`E01`, `EP01`).
+- **Customizable In-Player Subtitles**: Configure subtitle font size, text color, background opacity, and sync delay on-the-fly.
+
+### 4. 🍿 Streaming Platforms & OTT Network Catalog (Netflix, Disney+, Prime & More)
 - **Official TMDB Watch Providers Integration**: Browse movies and series curated directly from global OTT streaming giants:
   - 🔴 **Netflix**
   - 🔵 **Disney+**
@@ -105,9 +129,11 @@ A premium, cinema-grade Flutter streaming application designed specifically for 
 
 - **Framework**: [Flutter](https://flutter.dev/) (Android & Android TV)
 - **Playback Engine**: [media_kit](https://github.com/media-kit/media-kit) (High-performance Libmpv hardware-accelerated video & live HLS/M3U8 engine)
+- **DNS-over-HTTPS (DoH)**: Built-in Cloudflare & Google DoH in `SafeHttpClient` for censorship-free and privacy-preserving hostname resolution
 - **Live Catalog & Metadata**: [The Movie Database (TMDB) API](https://www.themoviedb.org/) (Real-time cinema & global trending catalog)
 - **TV Metadata & Episode Stills**: [TVMaze API](https://www.tvmaze.com/) (Open TV metadata, episode names & still photography)
-- **Streaming Sources**: MovieBox API, 4KHDHub Scraper, & M3U/IPTV Streams
+- **Dual Subtitle Search Engine**: [SubDL API](https://subdl.com/) & [OpenSubtitles.com REST API](https://www.opensubtitles.com/)
+- **Streaming Sources**: MovieBox, 4KHDHub, PusatFilm, JuraganFilm, Samehadaku, Otakudesu, Anichin, DracinSI, DrakorKita, SoraStream, DramaChi/KissKH, & M3U/IPTV Streams
 - **Typography & Aesthetics**: Google Fonts (`Outfit`), Custom Glassmorphism, Dark Mode Cinema Theme
 
 ---
@@ -141,7 +167,9 @@ A premium, cinema-grade Flutter streaming application designed specifically for 
 
 - **[The Movie Database (TMDB)](https://www.themoviedb.org/)**: Live cinema box-office now-playing releases, daily/weekly trending movies & TV shows, and high-definition backdrop/poster imagery.
 - **[TVMaze](https://www.tvmaze.com/)**: Free TV shows, episode still photography, and series metadata via their public REST API.
-- **[MovieBox TUI](https://github.com/mesamirh/MovieBox-Tui)**: Inspiration and foundational research on MovieBox API signatures and endpoints.
+- **[xr3ed-Repo](https://github.com/xr3ed/xr3ed-Repo)**: Extension research and deobfuscation algorithms for Indonesian and Asian streaming providers.
+- **[SubDL](https://subdl.com/) & [OpenSubtitles](https://www.opensubtitles.com/)**: Subtitle indexing, multi-language translation tracks, and developer APIs.
+- **[MovieBox TUI](https://github.com/mesamirh/MovieBox-Tui)**: Foundational research on MovieBox API signatures and endpoints.
 - **4KHDHub**: High-resolution movie and series releases.
 
 ---

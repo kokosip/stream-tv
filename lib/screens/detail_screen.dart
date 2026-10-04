@@ -363,7 +363,7 @@ class _DetailScreenState extends State<DetailScreen> {
         if (isTvShow && seasonsList.isNotEmpty) {
           dynamic matchingSeason;
           for (final s in seasonsList) {
-            if (s is Map && (s['se'] ?? 1) == targetSeason) {
+            if ((s['se'] ?? 1) == targetSeason) {
               matchingSeason = s;
               break;
             }
@@ -428,7 +428,7 @@ class _DetailScreenState extends State<DetailScreen> {
         if (isTvShow && seasonsList.isNotEmpty) {
           dynamic matchingSeason;
           for (final s in seasonsList) {
-            if (s is Map && (s['se'] ?? 1) == targetSeason) {
+            if ((s['se'] ?? 1) == targetSeason) {
               matchingSeason = s;
               break;
             }
@@ -1823,7 +1823,7 @@ class _DetailScreenState extends State<DetailScreen> {
       if (isTv && seasonsList.isNotEmpty) {
         dynamic matchingSeason;
         for (final s in seasonsList) {
-          if (s is Map && (s['se'] ?? 1) == targetSeason) {
+          if ((s['se'] ?? 1) == targetSeason) {
             matchingSeason = s;
             break;
           }
